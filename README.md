@@ -96,6 +96,7 @@ npm run api-server
 - 冷层（15 天以上）优先读取 `*.cold.md`，缺失时再回退到 warm/source
 - 设置页 `Memory` 分类可以手动触发“同步温冷层”，生成替身并刷新当前 agent 的派生索引
 - 当前阶段原始 daily 文件不会删除，仍作为唯一真源保留
+- 当前第一版冷层向量归档会为有效的 `*.cold.md` 写入独立 memory embedding 索引，并只在 Query Router 需要冷层时触发语义召回
 
 ## 技术架构
 
@@ -127,10 +128,11 @@ npm run api-server
 - ✅ 任务拆解层
 - ✅ Query Router（第一版）
 - ✅ 温层摘要替身
+- ✅ 冷层向量归档（第一版）
 
 ### 正在进行
-- 🔄 冷层压缩与向量化
 - 🔄 夜间自动归档
+- 🔄 重要性评分驱动驻留
 
 ### 计划中
 - 📋 知识图谱（GraphRAG）
