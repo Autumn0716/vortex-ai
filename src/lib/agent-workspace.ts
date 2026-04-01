@@ -21,6 +21,7 @@ import {
   type MemoryScope,
   type MemorySourceType,
 } from './agent-memory-model';
+import { getAgentMemoryFileStore, syncAgentMemoryFromStore } from './agent-memory-sync';
 
 const ACTIVE_AGENT_KEY = 'flowagent_active_agent_id_v2';
 const ACTIVE_TOPIC_KEY = 'flowagent_active_topic_id_v2';
@@ -375,6 +376,60 @@ function buildMatchQuery(query: string): string {
     .join(' OR ');
 }
 
+async function resolveAgentIdForMemorySync(database: Database, preferredAgentId?: string | null): Promise<string | null> {
+  if (preferredAgentId) {
+    return preferredAgentId;
+  }
+
+  const storedAgentId = await localforage.getItem<string>(ACTIVE_AGENT_KEY);
+  const agents = mapRows<{ id: string }>(
+    database.exec(`
+      SELECT id
+      FROM agents
+      ORDER BY is_default DESC, created_at ASC
+    `),
+  );
+
+  return resolveActiveAgentId(
+    storedAgentId,
+    agents.map((agent) => agent.id),
+  );
+}
+
+export async function syncCurrentAgentMemory(options?: {
+  database?: Database;
+  agentId?: string | null;
+  persist?: boolean;
+}) {
+  const database = options?.database ?? (await ensureAgentSchema());
+  const fileStore = getAgentMemoryFileStore();
+  if (!fileStore) {
+    return null;
+  }
+
+  const resolvedAgentId = await resolveAgentIdForMemorySync(database, options?.agentId);
+  if (!resolvedAgentId) {
+    return null;
+  }
+
+  const agent = getAgentRow(database, resolvedAgentId);
+  if (!agent) {
+    return null;
+  }
+
+  const result = await syncAgentMemoryFromStore(database, {
+    agentId: agent.id,
+    agentSlug: agent.slug,
+    fileStore,
+  });
+
+  if (result.changed && (options?.persist ?? !options?.database)) {
+    await saveDB();
+  }
+
+  return result;
+}
+
 async function ensureAgentSchema(): Promise<Database> {
   const database = await initDB();
   if (!ensuredPromise) {
@@ -405,7 +460,12 @@ async function ensureAgentSchema(): Promise<Database> {
 
         const migrated = await migrateLegacyWorkspace(database);
         const seeded = seedFallbackWorkspace(database);
-        if (migrated || seeded) {
+        const syncResult = await syncCurrentAgentMemory({
+          database,
+          persist: false,
+        });
+
+        if (migrated || seeded || syncResult?.changed) {
           await saveDB();
         }
       } catch (error) {
@@ -979,6 +1039,7 @@ export async function getActiveAgentId(): Promise<string | null> {
 
 export async function setActiveAgentId(agentId: string) {
   await localforage.setItem(ACTIVE_AGENT_KEY, agentId);
+  await syncCurrentAgentMemory({ agentId });
 }
 
 export async function getActiveTopicId(): Promise<string | null> {
@@ -1161,6 +1222,12 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
   if (!topicRow) {
     return null;
   }
+
+  await syncCurrentAgentMemory({
+    database,
+    agentId: topicRow.agent_id,
+    persist: true,
+  });
 
   const agent = getAgentRow(database, topicRow.agent_id);
   if (!agent) {
@@ -1533,6 +1600,11 @@ export async function listAgentMemoryDocuments(
   options?: { scopes?: MemoryScope[] },
 ): Promise<AgentMemoryDocument[]> {
   const database = await ensureAgentSchema();
+  await syncCurrentAgentMemory({
+    database,
+    agentId,
+    persist: true,
+  });
   const scopes = options?.scopes?.length ? options.scopes : (['global'] as MemoryScope[]);
   const placeholders = scopes.map(() => '?').join(', ');
   const rows = mapRows<{
