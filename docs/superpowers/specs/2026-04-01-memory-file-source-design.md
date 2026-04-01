@@ -34,6 +34,7 @@ This design does not include:
 - Cross-agent scanning only happens when the user explicitly requests it.
 - The frontend must allow users to edit these memory files directly.
 - The memory UI must stay visually consistent with the existing Settings theme and layout.
+- Agent runtime changes must continue to use the existing LangGraph-based runtime rather than introducing a second agent framework.
 
 ### Persistence Requirements
 
@@ -163,6 +164,7 @@ Responsibilities:
   - recent memory snapshot
   - open loops
 - Respect memory settings toggles
+- Feed the existing LangGraph runtime with file-backed memory context
 
 Primary boundary:
 
