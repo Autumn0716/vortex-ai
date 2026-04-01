@@ -44,6 +44,23 @@ class InMemoryFileStore implements AgentMemoryFileStore {
   }
 }
 
+async function setupMemoryContextAgent(
+  agentId: string,
+  workspaceRelpath: string,
+  files: Map<string, string>,
+) {
+  await saveAgent({
+    id: agentId,
+    name: agentId,
+    description: 'Memory context router test agent',
+    systemPrompt: 'System prompt',
+    accentColor: 'from-emerald-500/20 to-teal-500/20',
+    workspaceRelpath,
+  });
+
+  setAgentMemoryFileStore(new InMemoryFileStore(files));
+}
+
 function createDatabase() {
   return initSqlite().then((sqlite3) => {
     const database = new Database(sqlite3, new sqlite3.oo1.DB(':memory:', 'c'));
@@ -631,4 +648,108 @@ test('getAgentMemoryContext only injects one effective document per date', async
   assert.equal((context.match(/2026-03-31 /g) ?? []).length, 2);
 
   setAgentMemoryFileStore(null);
+});
+
+test('getAgentMemoryContext routes explicit old dates to cold plus global only', async () => {
+  const agentId = 'agent_query_router_explicit_cold';
+  const workspaceRelpath = 'agents/query-router-explicit-cold';
+  const slug = 'query-router-explicit-cold';
+  const now = '2026-04-01T12:00:00.000Z';
+  const hotPaths = buildAgentMemoryPaths(slug, '2026-03-31');
+  const warmPaths = buildAgentMemoryPaths(slug, '2026-03-20');
+  const coldPaths = buildAgentMemoryPaths(slug, '2026-03-01');
+
+  await setupMemoryContextAgent(
+    agentId,
+    workspaceRelpath,
+    new Map([
+      [buildAgentMemoryPaths(slug, '2026-04-01').memoryFile, '---\ntitle: "Global Memory"\n---\n\nGlobal preference.'],
+      [hotPaths.dailyFile, '---\ntitle: "2026-03-31 Daily Log"\n---\n\n- Hot detail that should not be injected.'],
+      [warmPaths.dailyFile, '---\ntitle: "2026-03-20 Daily Log"\n---\n\n- Warm detail that should not be injected.'],
+      [coldPaths.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Cold detail that should be injected.'],
+    ]),
+  );
+
+  try {
+    const context = await getAgentMemoryContext(agentId, {
+      includeRecentMemorySnapshot: false,
+      now,
+      query: '2026-03-01 那天发生了什么？',
+    });
+
+    assert.match(context, /Long-term memory:\n- Global Memory: Global preference\./);
+    assert.match(context, /Cold memory:\n- 2026-03-01 Daily Log: - Cold detail that should be injected\./);
+    assert.doesNotMatch(context, /Hot memory:/);
+    assert.doesNotMatch(context, /Warm memory:/);
+  } finally {
+    setAgentMemoryFileStore(null);
+  }
+});
+
+test('getAgentMemoryContext adds cold fallback when default routing has fewer than two non-global documents', async () => {
+  const agentId = 'agent_query_router_default_fallback';
+  const workspaceRelpath = 'agents/query-router-default-fallback';
+  const slug = 'query-router-default-fallback';
+  const now = '2026-04-01T12:00:00.000Z';
+  const hotPaths = buildAgentMemoryPaths(slug, '2026-03-31');
+  const coldPaths = buildAgentMemoryPaths(slug, '2026-03-01');
+
+  await setupMemoryContextAgent(
+    agentId,
+    workspaceRelpath,
+    new Map([
+      [buildAgentMemoryPaths(slug, '2026-04-01').memoryFile, '---\ntitle: "Global Memory"\n---\n\nGlobal preference.'],
+      [hotPaths.dailyFile, '---\ntitle: "2026-03-31 Daily Log"\n---\n\n- Hot detail.'],
+      [coldPaths.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Cold fallback detail.'],
+    ]),
+  );
+
+  try {
+    const context = await getAgentMemoryContext(agentId, {
+      includeRecentMemorySnapshot: false,
+      now,
+      query: '这个方案还有哪些记忆？',
+    });
+
+    assert.match(context, /Long-term memory:\n- Global Memory: Global preference\./);
+    assert.match(context, /Hot memory:\n- 2026-03-31 Daily Log: - Hot detail\./);
+    assert.match(context, /Cold memory:\n- 2026-03-01 Daily Log: - Cold fallback detail\./);
+  } finally {
+    setAgentMemoryFileStore(null);
+  }
+});
+
+test('getAgentMemoryContext does not add cold fallback when default routing already has two non-global documents', async () => {
+  const agentId = 'agent_query_router_default_no_fallback';
+  const workspaceRelpath = 'agents/query-router-default-no-fallback';
+  const slug = 'query-router-default-no-fallback';
+  const now = '2026-04-01T12:00:00.000Z';
+  const hotPaths = buildAgentMemoryPaths(slug, '2026-03-31');
+  const warmPaths = buildAgentMemoryPaths(slug, '2026-03-20');
+  const coldPaths = buildAgentMemoryPaths(slug, '2026-03-01');
+
+  await setupMemoryContextAgent(
+    agentId,
+    workspaceRelpath,
+    new Map([
+      [buildAgentMemoryPaths(slug, '2026-04-01').memoryFile, '---\ntitle: "Global Memory"\n---\n\nGlobal preference.'],
+      [hotPaths.dailyFile, '---\ntitle: "2026-03-31 Daily Log"\n---\n\n- Hot detail.'],
+      [warmPaths.dailyFile, '---\ntitle: "2026-03-20 Daily Log"\n---\n\n- Warm detail.'],
+      [coldPaths.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Cold detail that should stay hidden.'],
+    ]),
+  );
+
+  try {
+    const context = await getAgentMemoryContext(agentId, {
+      includeRecentMemorySnapshot: false,
+      now,
+      query: '这个方案还有哪些记忆？',
+    });
+
+    assert.match(context, /Hot memory:\n- 2026-03-31 Daily Log: - Hot detail\./);
+    assert.match(context, /Warm memory:\n- 2026-03-20 Daily Log: - Warm detail\./);
+    assert.doesNotMatch(context, /Cold memory:\n- 2026-03-01 Daily Log: - Cold detail that should stay hidden\./);
+  } finally {
+    setAgentMemoryFileStore(null);
+  }
 });

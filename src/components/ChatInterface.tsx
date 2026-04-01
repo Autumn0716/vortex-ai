@@ -607,6 +607,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         ? (
             await getAgentMemoryContext(workspaceSnapshot.agent.id, {
               includeRecentMemorySnapshot: configSnapshot.memory.includeRecentMemorySnapshot,
+              query: userContent,
             })
           ).slice(0, 4000)
         : '';

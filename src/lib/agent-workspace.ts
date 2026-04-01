@@ -22,6 +22,7 @@ import {
   type MemoryScope,
   type MemorySourceType,
 } from './agent-memory-model';
+import { routeMemoryQuery, type MemoryRetrievalLayer } from './memory-lifecycle/query-router';
 import { getAgentMemoryFileStore, syncAgentMemoryFromStore } from './agent-memory-sync';
 
 const ACTIVE_AGENT_KEY = 'flowagent_active_agent_id_v2';
@@ -152,6 +153,43 @@ function getScalar(database: Database, query: string, params: SqlValue[] = []): 
   }
 
   return result[0]!.values[0]![0];
+}
+
+function getMemoryDocumentLayer(document: Pick<AgentMemoryDocument, 'memoryScope' | 'updatedAt'>, now: string): MemoryRetrievalLayer {
+  if (document.memoryScope === 'global') {
+    return 'global';
+  }
+
+  return resolveMemoryTier(document.updatedAt, now);
+}
+
+function selectMemoryDocumentsByLayers(
+  documents: AgentMemoryDocument[],
+  layers: MemoryRetrievalLayer[],
+  now: string,
+) {
+  const allowedLayers = new Set(layers);
+  return documents.filter((document) => allowedLayers.has(getMemoryDocumentLayer(document, now)));
+}
+
+function countNonGlobalMemoryDocuments(documents: AgentMemoryDocument[]) {
+  return documents.reduce((count, document) => count + (document.memoryScope === 'global' ? 0 : 1), 0);
+}
+
+function mergeDistinctMemoryDocuments(base: AgentMemoryDocument[], additions: AgentMemoryDocument[]) {
+  const merged: AgentMemoryDocument[] = [];
+  const seen = new Set<string>();
+
+  [...base, ...additions].forEach((document) => {
+    if (seen.has(document.id)) {
+      return;
+    }
+
+    seen.add(document.id);
+    merged.push(document);
+  });
+
+  return merged;
 }
 
 function toBoolean(value: unknown): boolean {
@@ -1787,7 +1825,7 @@ export async function saveAgentMemoryDocument(draft: {
 
 export async function getAgentMemoryContext(
   agentId: string,
-  options?: { includeRecentMemorySnapshot?: boolean; now?: string },
+  options?: { includeRecentMemorySnapshot?: boolean; now?: string; query?: string },
 ): Promise<string> {
   const now = options?.now ?? new Date().toISOString();
   const documents = selectEffectiveMemoryDocuments(
@@ -1797,23 +1835,25 @@ export async function getAgentMemoryContext(
     }),
     { now },
   );
-  const tierRank: Record<string, number> = { hot: 0, warm: 1, cold: 2 };
-  const sorted = [...documents].sort((left, right) => {
-    if (left.memoryScope === 'global' && right.memoryScope !== 'global') {
-      return -1;
-    }
-    if (left.memoryScope !== 'global' && right.memoryScope === 'global') {
-      return 1;
-    }
-    if (left.memoryScope !== right.memoryScope) {
-      const leftTier = resolveMemoryTier(left.updatedAt, now);
-      const rightTier = resolveMemoryTier(right.updatedAt, now);
-      return tierRank[leftTier] - tierRank[rightTier];
-    }
-    return right.importanceScore - left.importanceScore || right.updatedAt.localeCompare(left.updatedAt);
-  });
 
-  return formatLayeredMemoryContext(sorted, {
+  const normalizedQuery = options?.query?.trim();
+  let routedDocuments = documents;
+
+  if (normalizedQuery) {
+    const route = routeMemoryQuery(normalizedQuery, { now });
+    const preferredDocuments = selectMemoryDocumentsByLayers(documents, route.preferredLayers, now);
+
+    if (route.mode === 'default' && countNonGlobalMemoryDocuments(preferredDocuments) < 2) {
+      routedDocuments = mergeDistinctMemoryDocuments(
+        preferredDocuments,
+        selectMemoryDocumentsByLayers(documents, route.fallbackLayers, now),
+      );
+    } else {
+      routedDocuments = preferredDocuments;
+    }
+  }
+
+  return formatLayeredMemoryContext(routedDocuments, {
     includeRecentMemorySnapshot: options?.includeRecentMemorySnapshot,
     now,
   });
