@@ -56,6 +56,7 @@ import {
 import type { AgentProfile } from '../../lib/agent-workspace';
 import { syncCurrentAgentMemory } from '../../lib/agent-workspace';
 import {
+  createAgentMemoryApiFileStore,
   deleteAgentMemoryFile,
   ensureAgentMemoryFile,
   getApiServerHealth,
@@ -297,6 +298,7 @@ export const SettingsView = ({
   const [apiServerSummary, setApiServerSummary] = useState<string>('');
   const backupRestoreInputRef = useRef<HTMLInputElement>(null);
   const externalImportInputRef = useRef<HTMLInputElement>(null);
+  const memoryFilesRequestIdRef = useRef(0);
 
   const buildModelListCandidates = (baseUrl?: string) => {
     const normalized = (baseUrl || '').trim().replace(/\/+$/, '');
@@ -476,6 +478,9 @@ export const SettingsView = ({
   const activeMemoryFile = memoryFiles.find((file) => file.path === activeMemoryFilePath) ?? null;
 
   const loadMemoryFiles = async (options: { preferredPath?: string | null; announce?: string } = {}) => {
+    const requestId = memoryFilesRequestIdRef.current + 1;
+    memoryFilesRequestIdRef.current = requestId;
+
     if (!activeMemoryAgent) {
       setMemoryFiles([]);
       setActiveMemoryFilePath(null);
@@ -496,6 +501,9 @@ export const SettingsView = ({
     setMemoryFileLoading(true);
     try {
       const health = await getApiServerHealth(draft.apiServer);
+      if (requestId !== memoryFilesRequestIdRef.current) {
+        return;
+      }
       setApiServerSummary(
         health?.ok ? `已连接 ${resolveApiServerBaseUrl(draft.apiServer)} · ${health.rootDir ?? 'project root'}` : '',
       );
@@ -523,6 +531,9 @@ export const SettingsView = ({
             : fallbackPath;
 
       const content = nextPath ? ((await readAgentMemoryFile(nextPath, draft.apiServer)) ?? '') : '';
+      if (requestId !== memoryFilesRequestIdRef.current) {
+        return;
+      }
 
       setMemoryFiles(refreshedFiles);
       setActiveMemoryFilePath(nextPath);
@@ -532,13 +543,18 @@ export const SettingsView = ({
         setMemoryFileStatus({ tone: 'neutral', message: options.announce });
       }
     } catch (error) {
+      if (requestId !== memoryFilesRequestIdRef.current) {
+        return;
+      }
       setApiServerSummary('');
       setMemoryFileStatus({
         tone: 'error',
         message: error instanceof Error ? error.message : '读取记忆文件失败。',
       });
     } finally {
-      setMemoryFileLoading(false);
+      if (requestId === memoryFilesRequestIdRef.current) {
+        setMemoryFileLoading(false);
+      }
     }
   };
 
@@ -692,7 +708,8 @@ export const SettingsView = ({
   };
 
   const rescanAgentMemory = async (agentId: string, statusMessage: string) => {
-    const result = await syncCurrentAgentMemory({ agentId, persist: true });
+    const fileStore = createAgentMemoryApiFileStore(draft.apiServer);
+    const result = await syncCurrentAgentMemory({ agentId, fileStore, persist: true });
     if (!result) {
       throw new Error('当前 agent 的记忆索引未刷新，请检查本地 API Server 连接。');
     }

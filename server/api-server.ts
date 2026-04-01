@@ -132,6 +132,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       const paths = files
         .map((filePath) => path.relative(rootDir, filePath).replace(/\\/g, '/'))
         .filter((filePath) => filePath.startsWith(relativePath))
+        .filter((filePath) => filePath.endsWith('.md'))
         .sort();
 
       response.json({ paths });
@@ -165,7 +166,12 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
   app.put('/api/memory/file', async (request, response) => {
     try {
       const targetPath = String(request.body?.path ?? '');
-      const content = typeof request.body?.content === 'string' ? request.body.content : '';
+      if (typeof request.body?.content !== 'string') {
+        response.status(400).json({ error: 'Memory file content must be a string.' });
+        return;
+      }
+
+      const content = request.body.content;
       const { absolutePath } = resolveAllowedPath(rootDir, targetPath);
 
       await fs.mkdir(path.dirname(absolutePath), { recursive: true });

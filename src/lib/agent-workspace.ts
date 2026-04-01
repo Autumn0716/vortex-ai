@@ -399,10 +399,12 @@ async function resolveAgentIdForMemorySync(database: Database, preferredAgentId?
 export async function syncCurrentAgentMemory(options?: {
   database?: Database;
   agentId?: string | null;
+  fileStore?: ReturnType<typeof getAgentMemoryFileStore>;
   persist?: boolean;
+  strict?: boolean;
 }) {
   const database = options?.database ?? (await ensureAgentSchema());
-  const fileStore = getAgentMemoryFileStore();
+  const fileStore = options?.fileStore ?? getAgentMemoryFileStore();
   if (!fileStore) {
     return null;
   }
@@ -425,6 +427,10 @@ export async function syncCurrentAgentMemory(options?: {
       fileStore,
     });
   } catch (error) {
+    if (options?.strict) {
+      throw error;
+    }
+
     console.warn(`Skipping agent memory file sync for ${agent.slug}:`, error);
     return null;
   }
