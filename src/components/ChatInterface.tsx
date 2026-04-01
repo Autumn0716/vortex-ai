@@ -57,6 +57,7 @@ import { applyThemePreferences } from '../lib/theme';
 import { syncBundledKnowledgeDocuments } from '../lib/project-knowledge';
 import { TimeoutError, withSoftTimeout } from '../lib/async-timeout';
 import { formatErrorDetails, wrapErrorWithContext } from '../lib/error-details';
+import { registerConfiguredAgentMemoryFileStore } from '../lib/agent-memory-api';
 
 const TerminalPanel = lazy(() =>
   import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
@@ -353,19 +354,17 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     let cancelled = false;
 
     const setup = async () => {
-      getAgentConfig()
-        .then((currentConfig) => {
-          if (cancelled) {
-            return;
-          }
-
+      try {
+        const currentConfig = await getAgentConfig();
+        registerConfiguredAgentMemoryFileStore(currentConfig.apiServer);
+        if (!cancelled) {
           startTransition(() => {
             setConfig(currentConfig);
           });
-        })
-        .catch((error) => {
-          console.error('Failed to load agent config:', error);
-        });
+        }
+      } catch (error) {
+        console.error('Failed to load agent config:', error);
+      }
 
       try {
         await bootstrapWorkspace();
@@ -386,6 +385,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   useEffect(() => {
     applyThemePreferences(config);
+    registerConfiguredAgentMemoryFileStore(config.apiServer);
   }, [config]);
 
   useEffect(() => {
@@ -413,6 +413,21 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const openSettings = (category: SettingsCategory = 'models') => {
     setSettingsInitialCategory(category);
     setShowSettings(true);
+  };
+
+  const handleMemoryFilesChanged = async (agentId: string) => {
+    if (workspace?.agent.id === agentId) {
+      await refreshMemory(agentId);
+    }
+
+    if (activeAgentId === agentId && activeTopicId) {
+      const nextWorkspace = await getTopicWorkspace(activeTopicId);
+      if (nextWorkspace) {
+        startTransition(() => {
+          setWorkspace(nextWorkspace);
+        });
+      }
+    }
   };
 
   const handleCreateTopic = async () => {
@@ -1099,9 +1114,14 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         <Suspense fallback={null}>
           <SettingsView
             config={config}
+            agents={agents}
+            activeAgentId={activeAgentId}
             initialCategory={settingsInitialCategory}
             onClose={() => setShowSettings(false)}
             onConfigSaved={(nextConfig) => setConfig(nextConfig)}
+            onMemoryFilesChanged={(agentId) => {
+              void handleMemoryFilesChanged(agentId);
+            }}
           />
         </Suspense>
       ) : null}

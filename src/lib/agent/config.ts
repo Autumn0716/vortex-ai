@@ -341,7 +341,7 @@ export const DEFAULT_CONFIG: AgentConfig = {
   mcpServers: DEFAULT_MCP_SERVERS,
   apiServer: {
     enabled: false,
-    baseUrl: '',
+    baseUrl: 'http://127.0.0.1:3850',
     authToken: '',
   },
   documents: {

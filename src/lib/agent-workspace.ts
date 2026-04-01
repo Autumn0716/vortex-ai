@@ -417,11 +417,17 @@ export async function syncCurrentAgentMemory(options?: {
     return null;
   }
 
-  const result = await syncAgentMemoryFromStore(database, {
-    agentId: agent.id,
-    agentSlug: agent.slug,
-    fileStore,
-  });
+  let result = null;
+  try {
+    result = await syncAgentMemoryFromStore(database, {
+      agentId: agent.id,
+      agentSlug: agent.slug,
+      fileStore,
+    });
+  } catch (error) {
+    console.warn(`Skipping agent memory file sync for ${agent.slug}:`, error);
+    return null;
+  }
 
   if (result.changed && (options?.persist ?? !options?.database)) {
     await saveDB();

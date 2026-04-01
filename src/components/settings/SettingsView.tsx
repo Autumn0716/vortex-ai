@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import {
   type AgentConfig,
+  type ApiServerSettings,
   type McpServerConfig,
   type ModelProvider,
   type SearchProviderConfig,
@@ -41,14 +42,10 @@ import {
 } from '../../lib/agent/config';
 import {
   addDocument,
-  deleteGlobalMemoryDocument,
   exportWorkspaceData,
   getDataStats,
   importWorkspaceData,
-  listGlobalMemoryDocuments,
-  saveGlobalMemoryDocument,
   type DataStats,
-  type GlobalMemoryDocument,
 } from '../../lib/db';
 import {
   THEME_COLOR_BOARD,
@@ -56,6 +53,18 @@ import {
   applyThemePreferences,
   getThemePresetByColor,
 } from '../../lib/theme';
+import type { AgentProfile } from '../../lib/agent-workspace';
+import { syncCurrentAgentMemory } from '../../lib/agent-workspace';
+import {
+  deleteAgentMemoryFile,
+  ensureAgentMemoryFile,
+  getApiServerHealth,
+  listAgentMemoryFiles,
+  readAgentMemoryFile,
+  resolveApiServerBaseUrl,
+  writeAgentMemoryFile,
+  type AgentMemoryFileEntry,
+} from '../../lib/agent-memory-api';
 
 const CATEGORIES = [
   { id: 'models', label: '模型服务', icon: Cloud },
@@ -134,9 +143,12 @@ type CategoryId = (typeof CATEGORIES)[number]['id'];
 
 interface SettingsViewProps {
   config: AgentConfig;
+  agents?: AgentProfile[];
+  activeAgentId?: string | null;
   initialCategory?: CategoryId;
   onClose: () => void;
   onConfigSaved?: (config: AgentConfig) => void;
+  onMemoryFilesChanged?: (agentId: string) => void | Promise<void>;
 }
 
 interface ProviderModelFetchResult {
@@ -144,10 +156,9 @@ interface ProviderModelFetchResult {
   resolvedUrl: string;
 }
 
-interface MemoryDraft {
-  id?: string;
-  title: string;
-  content: string;
+interface MemoryFileStatus {
+  tone: 'neutral' | 'success' | 'error';
+  message: string;
 }
 
 function createProviderId() {
@@ -256,9 +267,12 @@ function ToggleCard({
 
 export const SettingsView = ({
   config,
+  agents = [],
+  activeAgentId = null,
   initialCategory = 'models',
   onClose,
   onConfigSaved,
+  onMemoryFilesChanged,
 }: SettingsViewProps) => {
   const [draft, setDraft] = useState<AgentConfig>(() => normalizeAgentConfig(config));
   const [activeCategory, setActiveCategory] = useState<CategoryId>(initialCategory);
@@ -273,9 +287,14 @@ export const SettingsView = ({
   const [providerChecks, setProviderChecks] = useState<Record<string, string>>({});
   const [providerLoadingId, setProviderLoadingId] = useState<string | null>(null);
   const [showThemeBoard, setShowThemeBoard] = useState(false);
-  const [memoryDocuments, setMemoryDocuments] = useState<GlobalMemoryDocument[]>([]);
-  const [memoryDraft, setMemoryDraft] = useState<MemoryDraft>({ title: '', content: '' });
-  const [memoryDirty, setMemoryDirty] = useState(false);
+  const [activeMemoryAgentId, setActiveMemoryAgentId] = useState<string>(activeAgentId ?? agents[0]?.id ?? '');
+  const [memoryFiles, setMemoryFiles] = useState<AgentMemoryFileEntry[]>([]);
+  const [activeMemoryFilePath, setActiveMemoryFilePath] = useState<string | null>(null);
+  const [memoryFileContent, setMemoryFileContent] = useState('');
+  const [memoryFileDirty, setMemoryFileDirty] = useState(false);
+  const [memoryFileLoading, setMemoryFileLoading] = useState(false);
+  const [memoryFileStatus, setMemoryFileStatus] = useState<MemoryFileStatus | null>(null);
+  const [apiServerSummary, setApiServerSummary] = useState<string>('');
   const backupRestoreInputRef = useRef<HTMLInputElement>(null);
   const externalImportInputRef = useRef<HTMLInputElement>(null);
 
@@ -353,33 +372,6 @@ export const SettingsView = ({
     setStats(nextStats);
   };
 
-  const loadMemoryDocuments = async () => {
-    const records = await listGlobalMemoryDocuments();
-    setMemoryDocuments(records);
-    if (!records.length) {
-      setMemoryDraft({ title: '', content: '' });
-      return;
-    }
-
-    setMemoryDraft((current) => {
-      const existing = current.id ? records.find((record) => record.id === current.id) : null;
-      if (existing) {
-        return {
-          id: existing.id,
-          title: existing.title,
-          content: existing.content,
-        };
-      }
-
-      const first = records[0]!;
-      return {
-        id: first.id,
-        title: first.title,
-        content: first.content,
-      };
-    });
-  };
-
   useEffect(() => {
     setDraft(normalizeAgentConfig(config));
     applyThemePreferences(config);
@@ -414,10 +406,14 @@ export const SettingsView = ({
     if (activeCategory === 'data') {
       loadStats().catch(console.error);
     }
-    if (activeCategory === 'memory') {
-      loadMemoryDocuments().catch(console.error);
-    }
   }, [activeCategory]);
+
+  useEffect(() => {
+    const nextAgentId = activeAgentId ?? agents[0]?.id ?? '';
+    if (nextAgentId && !agents.find((agent) => agent.id === activeMemoryAgentId)) {
+      setActiveMemoryAgentId(nextAgentId);
+    }
+  }, [activeAgentId, activeMemoryAgentId, agents]);
 
   const commit = async (nextConfig: AgentConfig) => {
     const normalized = normalizeAgentConfig(nextConfig);
@@ -475,7 +471,84 @@ export const SettingsView = ({
   );
   const activeMcpServer = draft.mcpServers.find((server) => server.id === activeMcpId);
   const activeMcpTemplate = MCP_LIBRARY.find((server) => server.id === activeMcpId);
-  const activeMemoryDocument = memoryDocuments.find((document) => document.id === memoryDraft.id);
+  const activeMemoryAgent =
+    agents.find((agent) => agent.id === activeMemoryAgentId) ?? agents.find((agent) => agent.id === activeAgentId) ?? null;
+  const activeMemoryFile = memoryFiles.find((file) => file.path === activeMemoryFilePath) ?? null;
+
+  const loadMemoryFiles = async (options: { preferredPath?: string | null; announce?: string } = {}) => {
+    if (!activeMemoryAgent) {
+      setMemoryFiles([]);
+      setActiveMemoryFilePath(null);
+      setMemoryFileContent('');
+      setMemoryFileDirty(false);
+      return;
+    }
+
+    if (!draft.apiServer.enabled) {
+      setMemoryFiles([]);
+      setActiveMemoryFilePath(null);
+      setMemoryFileContent('');
+      setMemoryFileDirty(false);
+      setApiServerSummary('');
+      return;
+    }
+
+    setMemoryFileLoading(true);
+    try {
+      const health = await getApiServerHealth(draft.apiServer);
+      setApiServerSummary(
+        health?.ok ? `已连接 ${resolveApiServerBaseUrl(draft.apiServer)} · ${health.rootDir ?? 'project root'}` : '',
+      );
+
+      const files = await listAgentMemoryFiles(activeMemoryAgent.slug, draft.apiServer);
+      const memoryFile = files.find((file) => file.kind === 'memory');
+      if (memoryFile && !memoryFile.exists) {
+        await ensureAgentMemoryFile(
+          {
+            agentSlug: activeMemoryAgent.slug,
+            agentName: activeMemoryAgent.name,
+            kind: 'memory',
+          },
+          draft.apiServer,
+        );
+      }
+
+      const refreshedFiles = await listAgentMemoryFiles(activeMemoryAgent.slug, draft.apiServer);
+      const fallbackPath = refreshedFiles[0]?.path ?? null;
+      const nextPath =
+        options.preferredPath && refreshedFiles.some((file) => file.path === options.preferredPath)
+          ? options.preferredPath
+          : activeMemoryFilePath && refreshedFiles.some((file) => file.path === activeMemoryFilePath)
+            ? activeMemoryFilePath
+            : fallbackPath;
+
+      const content = nextPath ? ((await readAgentMemoryFile(nextPath, draft.apiServer)) ?? '') : '';
+
+      setMemoryFiles(refreshedFiles);
+      setActiveMemoryFilePath(nextPath);
+      setMemoryFileContent(content);
+      setMemoryFileDirty(false);
+      if (options.announce) {
+        setMemoryFileStatus({ tone: 'neutral', message: options.announce });
+      }
+    } catch (error) {
+      setApiServerSummary('');
+      setMemoryFileStatus({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '读取记忆文件失败。',
+      });
+    } finally {
+      setMemoryFileLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeCategory !== 'memory') {
+      return;
+    }
+
+    loadMemoryFiles().catch(console.error);
+  }, [activeCategory, activeMemoryAgentId, draft.apiServer.enabled, draft.apiServer.baseUrl, draft.apiServer.authToken]);
 
   const addCustomProvider = async () => {
     const name = window.prompt('请输入模型服务名称', 'Custom Provider');
@@ -614,32 +687,107 @@ export const SettingsView = ({
     }));
   };
 
-  const saveMemoryDraft = async () => {
-    if (!memoryDraft.title.trim() && !memoryDraft.content.trim()) {
+  const notifyMemoryFilesChanged = async (agentId: string) => {
+    await onMemoryFilesChanged?.(agentId);
+  };
+
+  const rescanAgentMemory = async (agentId: string, statusMessage: string) => {
+    const result = await syncCurrentAgentMemory({ agentId, persist: true });
+    if (!result) {
+      throw new Error('当前 agent 的记忆索引未刷新，请检查本地 API Server 连接。');
+    }
+    await notifyMemoryFilesChanged(agentId);
+    setMemoryFileStatus({ tone: 'success', message: statusMessage });
+  };
+
+  const handleManualMemoryRescan = async () => {
+    if (!activeMemoryAgent) {
       return;
     }
 
-    const saved = await saveGlobalMemoryDocument({
-      id: memoryDraft.id,
-      title: memoryDraft.title.trim() || 'Untitled Memory',
-      content: memoryDraft.content,
-    });
-
-    setMemoryDraft({
-      id: saved.id,
-      title: saved.title,
-      content: saved.content,
-    });
-    setMemoryDirty(false);
-    await loadMemoryDocuments();
+    try {
+      await rescanAgentMemory(activeMemoryAgent.id, '已重新扫描当前 agent 的记忆文件。');
+    } catch (error) {
+      setMemoryFileStatus({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '重扫索引失败。',
+      });
+    }
   };
 
-  const createMemoryDocument = () => {
-    setMemoryDraft({
-      title: `Global Memory ${memoryDocuments.length + 1}`,
-      content: '',
-    });
-    setMemoryDirty(true);
+  const saveMemoryFile = async () => {
+    if (!activeMemoryAgent || !activeMemoryFilePath) {
+      return;
+    }
+
+    setMemoryFileLoading(true);
+    try {
+      await writeAgentMemoryFile(activeMemoryFilePath, memoryFileContent, draft.apiServer);
+      await rescanAgentMemory(activeMemoryAgent.id, '已写入 Markdown 文件并刷新当前 agent 索引。');
+      await loadMemoryFiles({ preferredPath: activeMemoryFilePath });
+    } catch (error) {
+      setMemoryFileStatus({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '保存记忆文件失败。',
+      });
+    } finally {
+      setMemoryFileLoading(false);
+    }
+  };
+
+  const createTodayDailyFile = async () => {
+    if (!activeMemoryAgent) {
+      return;
+    }
+
+    setMemoryFileLoading(true);
+    try {
+      const ensured = await ensureAgentMemoryFile(
+        {
+          agentSlug: activeMemoryAgent.slug,
+          agentName: activeMemoryAgent.name,
+          kind: 'daily',
+        },
+        draft.apiServer,
+      );
+      await rescanAgentMemory(activeMemoryAgent.id, '已创建今日日志并刷新索引。');
+      await loadMemoryFiles({
+        preferredPath: ensured.path,
+      });
+    } catch (error) {
+      setMemoryFileStatus({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '创建今日日志失败。',
+      });
+    } finally {
+      setMemoryFileLoading(false);
+    }
+  };
+
+  const removeActiveDailyFile = async () => {
+    if (!activeMemoryAgent || !activeMemoryFile || activeMemoryFile.kind !== 'daily') {
+      return;
+    }
+
+    if (!window.confirm(`确定删除 ${activeMemoryFile.label} 吗？`)) {
+      return;
+    }
+
+    setMemoryFileLoading(true);
+    try {
+      await deleteAgentMemoryFile(activeMemoryFile.path, draft.apiServer);
+      await rescanAgentMemory(activeMemoryAgent.id, '已删除日记文件并刷新索引。');
+      await loadMemoryFiles({
+        preferredPath: memoryFiles.find((file) => file.path !== activeMemoryFile.path)?.path ?? null,
+      });
+    } catch (error) {
+      setMemoryFileStatus({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '删除日记文件失败。',
+      });
+    } finally {
+      setMemoryFileLoading(false);
+    }
   };
 
   const restoreBackupFromFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1737,26 +1885,83 @@ export const SettingsView = ({
               </div>
             </div>
 
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+              <SectionCard
+                title="文件记忆源"
+                description="Markdown 文件是真源，SQLite 只保留当前 agent 的索引与缓存。"
+              >
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                    <div className="text-xs uppercase tracking-[0.24em] text-white/35">Current Agent</div>
+                    <select
+                      value={activeMemoryAgentId}
+                      onChange={(event) => {
+                        setActiveMemoryAgentId(event.target.value);
+                        setMemoryFileStatus(null);
+                      }}
+                      className="mt-3 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                    >
+                      {agents.map((agent) => (
+                        <option key={agent.id} value={agent.id}>
+                          {agent.name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="mt-3 text-xs text-white/45">
+                      默认只扫描当前 agent 目录：{activeMemoryAgent?.workspaceRelpath ?? 'agents/...'}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                    <div className="text-xs uppercase tracking-[0.24em] text-white/35">API Server</div>
+                    <div className="mt-3 text-sm text-white/90">{resolveApiServerBaseUrl(draft.apiServer)}</div>
+                    <div className="mt-2 text-xs text-white/45">
+                      {draft.apiServer.enabled
+                        ? apiServerSummary || '启用后会通过本地 API 直接读写项目里的记忆文件。'
+                        : '当前未启用。到“API 服务器”分类开启本地服务后，这里才会写入项目文件。'}
+                    </div>
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        onClick={() => setActiveCategory('api')}
+                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/85 hover:bg-white/10"
+                      >
+                        打开 API 设置
+                      </button>
+                      <button
+                        onClick={() => loadMemoryFiles({ announce: '已重新读取当前 agent 的记忆文件。' })}
+                        disabled={!draft.apiServer.enabled || memoryFileLoading}
+                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/85 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        重新读取
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </SectionCard>
+            </div>
+
             <div className="grid min-h-[560px] gap-px overflow-hidden rounded-[28px] border border-white/10 bg-white/5 lg:grid-cols-[280px_1fr]">
               <div className="min-h-0 overflow-y-auto bg-[#1E1E1E] p-4 custom-scrollbar">
                 <div className="mb-4 flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-semibold text-white/90">记忆文档</div>
-                    <p className="mt-1 text-xs text-white/45">可以长期保存 agent 共享上下文。</p>
+                    <div className="text-sm font-semibold text-white/90">记忆文件</div>
+                    <p className="mt-1 text-xs text-white/45">直接编辑当前 agent 的 MEMORY.md 与 daily 日志。</p>
                   </div>
                   <div className="flex gap-2">
                     <button
                       onClick={() => {
-                        loadMemoryDocuments().catch(console.error);
-                        setMemoryDirty(false);
+                        loadMemoryFiles({ announce: '已重新读取当前 agent 的记忆文件。' }).catch(console.error);
                       }}
-                      className="rounded-full border border-white/10 bg-white/5 p-2 text-white/75 hover:bg-white/10 hover:text-white"
+                      disabled={!draft.apiServer.enabled || memoryFileLoading}
+                      className="rounded-full border border-white/10 bg-white/5 p-2 text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <RefreshCw size={14} />
                     </button>
                     <button
-                      onClick={createMemoryDocument}
-                      className="rounded-full border border-white/10 bg-white/5 p-2 text-white/75 hover:bg-white/10 hover:text-white"
+                      onClick={() => {
+                        createTodayDailyFile().catch(console.error);
+                      }}
+                      disabled={!draft.apiServer.enabled || memoryFileLoading || !activeMemoryAgent}
+                      className="rounded-full border border-white/10 bg-white/5 p-2 text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Plus size={14} />
                     </button>
@@ -1764,30 +1969,63 @@ export const SettingsView = ({
                 </div>
 
                 <div className="space-y-2">
-                  {memoryDocuments.map((document) => (
+                  {memoryFiles.map((file) => (
                     <button
-                      key={document.id}
-                      onClick={() => {
-                        setMemoryDraft({
-                          id: document.id,
-                          title: document.title,
-                          content: document.content,
-                        });
-                        setMemoryDirty(false);
+                      key={file.path}
+                      onClick={async () => {
+                        if (!draft.apiServer.enabled) {
+                          return;
+                        }
+
+                        try {
+                          const content =
+                            (await readAgentMemoryFile(file.path, draft.apiServer)) ??
+                            (file.kind === 'memory' && activeMemoryAgent
+                              ? (
+                                  await ensureAgentMemoryFile(
+                                    {
+                                      agentSlug: activeMemoryAgent.slug,
+                                      agentName: activeMemoryAgent.name,
+                                      kind: 'memory',
+                                    },
+                                    draft.apiServer,
+                                  )
+                                ).content
+                              : '');
+
+                          setActiveMemoryFilePath(file.path);
+                          setMemoryFileContent(content);
+                          setMemoryFileDirty(false);
+                          setMemoryFileStatus(null);
+                        } catch (error) {
+                          setMemoryFileStatus({
+                            tone: 'error',
+                            message: error instanceof Error ? error.message : '读取记忆文件失败。',
+                          });
+                        }
                       }}
                       className={`w-full rounded-2xl border px-4 py-3 text-left transition-colors ${
-                        memoryDraft.id === document.id
+                        activeMemoryFilePath === file.path
                           ? 'border-white/15 bg-white/10 text-white'
                           : 'border-transparent bg-transparent text-white/70 hover:bg-white/5'
                       }`}
                     >
-                      <div className="truncate text-sm font-medium">{document.title}</div>
-                      <div className="mt-1 line-clamp-2 text-xs text-white/45">{document.content}</div>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="truncate text-sm font-medium">{file.label}</div>
+                        <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">
+                          {file.kind === 'memory' ? 'LONG-TERM' : 'DAILY'}
+                        </div>
+                      </div>
+                      <div className="mt-1 text-xs text-white/45">
+                        {file.kind === 'memory'
+                          ? `memory/agents/${activeMemoryAgent?.slug ?? 'agent'}/MEMORY.md`
+                          : file.path}
+                      </div>
                     </button>
                   ))}
-                  {!memoryDocuments.length ? (
+                  {!memoryFiles.length ? (
                     <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-white/45">
-                      还没有全局记忆，先添加一条吧。
+                      {draft.apiServer.enabled ? '当前 agent 还没有可编辑的记忆文件。' : '先启用 API 服务器，才能直接编辑项目里的记忆文件。'}
                     </div>
                   ) : null}
                 </div>
@@ -1795,35 +2033,41 @@ export const SettingsView = ({
 
               <div className="min-h-0 overflow-y-auto bg-[#1E1E1E] p-6 custom-scrollbar">
                 <SectionCard
-                  title={activeMemoryDocument?.title || memoryDraft.title || '新建记忆文档'}
-                  description="点击保存后会写入持久化文档，并在后续 agent 对话中复用。"
+                  title={activeMemoryFile?.label ?? '记忆文件编辑器'}
+                  description="这里编辑的是原始 Markdown 文件。保存后会立即刷新当前 agent 的索引与运行时记忆。"
                   action={
                     <div className="flex gap-2">
                       <button
-                        onClick={saveMemoryDraft}
-                        className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
+                        onClick={() => {
+                          saveMemoryFile().catch(console.error);
+                        }}
+                        disabled={!draft.apiServer.enabled || !activeMemoryFilePath || memoryFileLoading}
+                        className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Upload size={14} />
                         保存
                       </button>
                       <button
-                        onClick={async () => {
-                          if (!memoryDraft.id) {
-                            setMemoryDraft({ title: '', content: '' });
-                            setMemoryDirty(false);
-                            return;
-                          }
-
-                          if (!window.confirm('确定删除这条全局记忆吗？')) {
-                            return;
-                          }
-
-                          await deleteGlobalMemoryDocument(memoryDraft.id);
-                          await loadMemoryDocuments();
-                          setMemoryDraft({ title: '', content: '' });
-                          setMemoryDirty(false);
+                        onClick={() => {
+                          handleManualMemoryRescan().catch(console.error);
                         }}
-                        className="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm text-red-200 hover:bg-red-500/15"
+                        disabled={!draft.apiServer.enabled || !activeMemoryAgent || memoryFileLoading}
+                        className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <RefreshCw size={14} />
+                        重扫索引
+                      </button>
+                      <button
+                        onClick={() => {
+                          removeActiveDailyFile().catch(console.error);
+                        }}
+                        disabled={
+                          !draft.apiServer.enabled ||
+                          !activeMemoryFile ||
+                          activeMemoryFile.kind !== 'daily' ||
+                          memoryFileLoading
+                        }
+                        className="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm text-red-200 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Trash2 size={14} />
                         删除
@@ -1832,26 +2076,41 @@ export const SettingsView = ({
                   }
                 >
                   <div className="space-y-4">
-                    <input
-                      value={memoryDraft.title}
-                      onChange={(event) => {
-                        setMemoryDraft((current) => ({ ...current, title: event.target.value }));
-                        setMemoryDirty(true);
-                      }}
-                      placeholder="记忆标题"
-                      className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                    />
+                    <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-xs text-white/55">
+                      <div>文件路径: {activeMemoryFile?.path ?? '未选择文件'}</div>
+                      <div className="mt-2">
+                        {activeMemoryFile?.kind === 'memory'
+                          ? '长期记忆建议写在正文里，必要时可手动维护 frontmatter。'
+                          : '日记文件适合顺序追加活动记录、待办、阻塞和 next step。'}
+                      </div>
+                    </div>
                     <textarea
-                      value={memoryDraft.content}
+                      value={memoryFileContent}
                       onChange={(event) => {
-                        setMemoryDraft((current) => ({ ...current, content: event.target.value }));
-                        setMemoryDirty(true);
+                        setMemoryFileContent(event.target.value);
+                        setMemoryFileDirty(true);
                       }}
-                      placeholder="在这里记录用户偏好、常用背景、输出规范、长期项目约束等。"
-                      className="min-h-[360px] w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-sm text-white outline-none focus:border-emerald-500/50"
+                      placeholder={
+                        draft.apiServer.enabled
+                          ? '这里直接编辑项目中的 Markdown 文件。'
+                          : '启用 API 服务器后，这里会直接绑定到 memory/agents/<agent-slug>/...'
+                      }
+                      disabled={!draft.apiServer.enabled || !activeMemoryFilePath}
+                      className="min-h-[360px] w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 font-mono text-sm text-white outline-none focus:border-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-50"
                     />
-                    <div className="text-xs text-white/45">
-                      {memoryDirty ? '尚未保存的修改会在点击保存后写入。' : '内容已同步到持久化记忆文档。'}
+                    <div
+                      className={`text-xs ${
+                        memoryFileStatus?.tone === 'error'
+                          ? 'text-red-200'
+                          : memoryFileStatus?.tone === 'success'
+                            ? 'text-emerald-200'
+                            : 'text-white/45'
+                      }`}
+                    >
+                      {memoryFileStatus?.message ??
+                        (memoryFileDirty
+                          ? '当前文件有未保存修改。'
+                          : '文件内容与当前 agent 的索引状态已同步。')}
                     </div>
                   </div>
                 </SectionCard>
@@ -1864,8 +2123,8 @@ export const SettingsView = ({
         return (
           <div className="space-y-4">
             <ToggleCard
-              title="启用 API Server 占位配置"
-              description="当前仓库还未实现对外 API 服务，这里先保存接口配置。"
+              title="启用本地 API Server"
+              description="开启后，前端会通过本地 API 直接读写项目里的 memory 文件。"
               checked={draft.apiServer.enabled}
               onChange={(checked) =>
                 updateDraft((current) => ({
@@ -1888,7 +2147,7 @@ export const SettingsView = ({
                   },
                 }))
               }
-              placeholder="https://api.example.com"
+              placeholder="http://127.0.0.1:3850"
               className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
             />
             <input
@@ -1905,6 +2164,9 @@ export const SettingsView = ({
               placeholder="Auth token"
               className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
             />
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/70">
+              本地服务命令：<code className="rounded bg-black/30 px-2 py-1 text-xs text-white">npm run api-server</code>
+            </div>
           </div>
         );
 

@@ -56,3 +56,14 @@ test('normalizeAgentConfig preserves the recent memory snapshot toggle', () => {
 
   assert.equal(config.memory.includeRecentMemorySnapshot, false);
 });
+
+test('normalizeAgentConfig keeps the local api server defaults for file-backed memory', () => {
+  const config = normalizeAgentConfig({
+    apiServer: {
+      enabled: true,
+    },
+  } as Partial<AgentConfig>);
+
+  assert.equal(config.apiServer.enabled, true);
+  assert.equal(config.apiServer.baseUrl, 'http://127.0.0.1:3850');
+});

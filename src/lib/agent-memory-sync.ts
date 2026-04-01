@@ -54,7 +54,7 @@ function isMigratableLegacyRow(row: LegacyMemoryRow) {
   return false;
 }
 
-function mapRows<T extends Record<string, unknown>>(result: ReturnType<Database['exec']>): T[] {
+function mapRows<T>(result: ReturnType<Database['exec']>): T[] {
   if (result.length === 0) {
     return [];
   }
