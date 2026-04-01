@@ -3,6 +3,11 @@ import initSqlite, {
   type SqlValue as SQLiteSqlValue,
 } from '@sqlite.org/sqlite-wasm';
 import localforage from 'localforage';
+import {
+  buildSemanticCacheKey,
+  chunkDocumentContent,
+  decomposeTaskQuery,
+} from './local-rag-helpers';
 
 export type SqlValue = SQLiteSqlValue;
 
@@ -182,6 +187,13 @@ interface PromptSeed {
   title: string;
   content: string;
   category: string;
+}
+
+interface DocumentSearchRow {
+  id: string;
+  title: string;
+  content: string;
+  score: number;
 }
 
 const DEFAULT_ASSISTANTS: AssistantSeed[] = [
@@ -782,6 +794,22 @@ async function ensureSchema(database: Database) {
       content TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS document_chunks (
+      id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS document_search_cache (
+      cache_key TEXT PRIMARY KEY,
+      query TEXT NOT NULL,
+      results_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS global_memory_documents (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -850,11 +878,166 @@ async function ensureSchema(database: Database) {
     CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_chat_messages_lane ON chat_messages(lane_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_memory_docs_updated ON global_memory_documents(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_document_chunks_document ON document_chunks(document_id, chunk_index ASC);
   `);
+
+  try {
+    database.run(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS document_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        document_id UNINDEXED,
+        title,
+        content
+      );
+    `);
+  } catch (error) {
+    console.warn('FTS5 document index unavailable, falling back to LIKE search:', error);
+  }
 
   await seedAssistants(database);
   await seedPromptSnippets(database);
   await seedInitialConversation(database);
+  await ensureDocumentIndexes(database);
+}
+
+export function getDocumentFtsEnabled(database: Database): boolean {
+  try {
+    const rows = mapRows<{ name: string }>(
+      database.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'document_chunks_fts'"),
+    );
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function clearDocumentChunks(database: Database, documentId: string) {
+  database.run('DELETE FROM document_chunks WHERE document_id = ?', [documentId]);
+  if (getDocumentFtsEnabled(database)) {
+    database.run('DELETE FROM document_chunks_fts WHERE document_id = ?', [documentId]);
+  }
+}
+
+export function clearDocumentSearchCache(database: Database) {
+  database.run('DELETE FROM document_search_cache');
+}
+
+export function indexDocumentChunks(
+  database: Database,
+  document: { id: string; title: string; content: string },
+) {
+  clearDocumentChunks(database, document.id);
+  const timestamp = nowIso();
+  const chunks = chunkDocumentContent(document.content);
+  const normalizedChunks = chunks.length > 0 ? chunks : [{ index: 0, text: document.content.trim() }];
+
+  normalizedChunks.forEach((chunk) => {
+    const chunkId = `${document.id}::${chunk.index}`;
+    database.run(
+      `
+        INSERT INTO document_chunks (
+          id,
+          document_id,
+          chunk_index,
+          title,
+          content,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      [chunkId, document.id, chunk.index, document.title, chunk.text, timestamp],
+    );
+
+    if (getDocumentFtsEnabled(database)) {
+      database.run(
+        `
+          INSERT INTO document_chunks_fts (
+            chunk_id,
+            document_id,
+            title,
+            content
+          )
+          VALUES (?, ?, ?, ?)
+        `,
+        [chunkId, document.id, document.title, chunk.text],
+      );
+    }
+  });
+}
+
+async function ensureDocumentIndexes(database: Database) {
+  const documentsNeedingIndex = mapRows<{ id: string; title: string; content: string }>(
+    database.exec(
+      `
+        SELECT d.id, d.title, d.content
+        FROM documents d
+        LEFT JOIN document_chunks c ON c.document_id = d.id
+        GROUP BY d.id, d.title, d.content
+        HAVING COUNT(c.id) = 0
+        ORDER BY d.rowid ASC
+      `,
+    ),
+  );
+
+  if (documentsNeedingIndex.length > 0) {
+    clearDocumentSearchCache(database);
+  }
+
+  documentsNeedingIndex.forEach((document) => {
+    indexDocumentChunks(database, document);
+  });
+}
+
+function buildFtsMatchQuery(query: string): string {
+  return buildSemanticCacheKey(query)
+    .split(/\s+/)
+    .filter((part) => part.length > 0)
+    .map((part) => `"${part}"*`)
+    .join(' OR ');
+}
+
+function readDocumentSearchCache(database: Database, cacheKey: string) {
+  const row = mapRows<{ results_json: string }>(
+    database.exec(
+      `
+        SELECT results_json
+        FROM document_search_cache
+        WHERE cache_key = ?
+        LIMIT 1
+      `,
+      [cacheKey],
+    ),
+  )[0];
+
+  if (!row) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(row.results_json) as { id: string; title: string; content: string }[];
+  } catch {
+    return null;
+  }
+}
+
+function writeDocumentSearchCache(
+  database: Database,
+  cacheKey: string,
+  query: string,
+  results: { id: string; title: string; content: string }[],
+) {
+  const timestamp = nowIso();
+  database.run(
+    `
+      INSERT INTO document_search_cache (cache_key, query, results_json, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(cache_key) DO UPDATE SET
+        query = excluded.query,
+        results_json = excluded.results_json,
+        updated_at = excluded.updated_at
+    `,
+    [cacheKey, query, JSON.stringify(results), timestamp],
+  );
 }
 
 export async function initDB(): Promise<Database> {
@@ -1665,10 +1848,15 @@ export async function importWorkspaceData(payload: {
       'assistants',
       'prompt_snippets',
       'documents',
+      'document_chunks',
+      'document_search_cache',
       'global_memory_documents',
     ].forEach((table) => {
       database.run(`DELETE FROM ${table}`);
     });
+    if (getDocumentFtsEnabled(database)) {
+      database.run('DELETE FROM document_chunks_fts');
+    }
 
     assistants.forEach((assistant) => {
       database.run(
@@ -1732,6 +1920,7 @@ export async function importWorkspaceData(payload: {
         document.title,
         document.content,
       ]);
+      indexDocumentChunks(database, document);
     });
 
     globalMemoryDocuments.forEach((document) => {
@@ -1899,11 +2088,14 @@ export async function clearMessages() {
 
 export async function addDocument(id: string, title: string, content: string) {
   const database = await initDB();
-  database.run('INSERT INTO documents (id, title, content) VALUES (?, ?, ?)', [
-    id,
-    title,
-    content,
-  ]);
+  const exists = Number(getScalar(database, 'SELECT COUNT(*) FROM documents WHERE id = ?', [id]) ?? 0);
+  if (exists > 0) {
+    database.run('UPDATE documents SET title = ?, content = ? WHERE id = ?', [title, content, id]);
+  } else {
+    database.run('INSERT INTO documents (id, title, content) VALUES (?, ?, ?)', [id, title, content]);
+  }
+  indexDocumentChunks(database, { id, title, content });
+  clearDocumentSearchCache(database);
   await saveDB();
 }
 
@@ -1927,44 +2119,119 @@ export async function getDocuments() {
 
 export async function deleteDocument(id: string) {
   const database = await initDB();
+  clearDocumentChunks(database, id);
   database.run('DELETE FROM documents WHERE id = ?', [id]);
+  clearDocumentSearchCache(database);
   await saveDB();
 }
 
-export async function searchDocuments(query: string) {
-  const database = await initDB();
+export async function searchDocumentsInDatabase(database: Database, query: string) {
   try {
-    if (!query.trim()) {
+    const normalizedQuery = query.trim();
+    if (!normalizedQuery) {
       return [];
     }
 
-    const words = query
-      .trim()
-      .split(/\s+/)
-      .filter((word) => word.length > 1);
-
-    if (words.length === 0) {
+    const cacheKey = buildSemanticCacheKey(normalizedQuery);
+    if (!cacheKey) {
       return [];
     }
 
-    const conditions = words.map(() => '(title LIKE ? OR content LIKE ?)').join(' OR ');
-    const params = words.flatMap((word) => [`%${word}%`, `%${word}%`]);
-    const result = database.exec(
-      `SELECT id, title, content FROM documents WHERE ${conditions} LIMIT 5`,
-      params,
-    );
-
-    if (result.length === 0) {
-      return [];
+    const cached = readDocumentSearchCache(database, cacheKey);
+    if (cached) {
+      return cached;
     }
 
-    return result[0]!.values.map((row) => ({
-      id: String(row[0]),
-      title: String(row[1]),
-      content: String(row[2]),
-    }));
+    const subqueries = decomposeTaskQuery(normalizedQuery);
+    const seen = new Map<string, { id: string; title: string; content: string; score: number }>();
+    const ftsEnabled = getDocumentFtsEnabled(database);
+
+    for (const subquery of subqueries) {
+      const matchQuery = buildFtsMatchQuery(subquery);
+      if (ftsEnabled && matchQuery) {
+        const rows = mapRows<DocumentSearchRow>(
+          database.exec(
+            `
+              SELECT
+                d.id,
+                d.title,
+                c.content,
+                bm25(document_chunks_fts, 1.0, 0.6) AS score
+              FROM document_chunks_fts
+              JOIN document_chunks c ON c.id = document_chunks_fts.chunk_id
+              JOIN documents d ON d.id = c.document_id
+              WHERE document_chunks_fts MATCH ?
+              ORDER BY score ASC
+              LIMIT 8
+            `,
+            [matchQuery],
+          ),
+        );
+
+        rows.forEach((row) => {
+          const existing = seen.get(row.id);
+          if (!existing || row.score < existing.score) {
+            seen.set(row.id, {
+              id: row.id,
+              title: row.title,
+              content: row.content,
+              score: row.score,
+            });
+          }
+        });
+        continue;
+      }
+
+      const terms = buildSemanticCacheKey(subquery)
+        .split(/\s+/)
+        .filter((word) => word.length > 0);
+      if (terms.length === 0) {
+        continue;
+      }
+
+      const conditions = terms.map(() => '(title LIKE ? OR content LIKE ?)').join(' OR ');
+      const params = terms.flatMap((word) => [`%${word}%`, `%${word}%`]);
+      const rows = mapRows<{ id: string; title: string; content: string }>(
+        database.exec(
+          `SELECT id, title, content FROM documents WHERE ${conditions} LIMIT 8`,
+          params,
+        ),
+      );
+
+      rows.forEach((row, index) => {
+        const existing = seen.get(row.id);
+        const fallbackScore = index + 1;
+        if (!existing || fallbackScore < existing.score) {
+          seen.set(row.id, {
+            id: row.id,
+            title: row.title,
+            content: row.content,
+            score: fallbackScore,
+          });
+        }
+      });
+    }
+
+    const results = [...seen.values()]
+      .sort((left, right) => left.score - right.score)
+      .slice(0, 5)
+      .map((row) => ({
+        id: row.id,
+        title: row.title,
+        content: row.content,
+      }));
+
+    writeDocumentSearchCache(database, cacheKey, normalizedQuery, results);
+    return results;
   } catch (error) {
     console.error('Search error:', error);
     return [];
   }
+}
+
+export async function searchDocuments(query: string) {
+  const database = await initDB();
+  const results = await searchDocumentsInDatabase(database, query);
+  await saveDB();
+  return results;
 }
