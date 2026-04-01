@@ -12,7 +12,8 @@ export type MemoryLifecycleTier = 'hot' | 'warm' | 'cold';
 
 const DAILY_LINE_LIMIT = 5;
 const WARM_SUMMARY_LINE_LIMIT = 4;
-const COLD_SUMMARY_LINE_LIMIT = 2;
+const COLD_SUMMARY_LINE_LIMIT = 1;
+const COLD_KEYWORD_LIMIT = 6;
 
 function stripDailyLineNoise(line: string) {
   return line
@@ -121,8 +122,7 @@ export function buildColdMemorySurrogate(input: {
 }) {
   const now = input.now ?? new Date().toISOString();
   const significantLines = collectSignificantDailyLines(input.sourceMarkdown);
-  const keywords = extractMemoryKeywords(significantLines.join('\n'), 8);
-  const openLoops = buildOpenLoopLines(input.date, input.sourceMarkdown, 2);
+  const keywords = extractMemoryKeywords(significantLines.join('\n'), COLD_KEYWORD_LIMIT);
   const importance = scoreMemoryImportance(input.sourceMarkdown, 'conversation_log');
 
   return serializeMemoryMarkdown({
@@ -141,12 +141,6 @@ export function buildColdMemorySurrogate(input: {
       '',
       '## Keywords',
       compactBulletList(keywords),
-      '',
-      '## Index',
-      compactBulletList(buildIndexLines(significantLines, input.date)),
-      '',
-      '## Open Loops',
-      compactBulletList(openLoops),
     ].join('\n'),
   });
 }

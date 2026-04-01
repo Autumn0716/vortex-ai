@@ -255,6 +255,31 @@ test('syncAgentMemoryLifecycleFromStore removes stale surrogates when tier chang
   assert.equal(await hotFileStore.readText('memory/agents/core/daily/2026-04-19.cold.md'), null);
 });
 
+test('syncAgentMemoryLifecycleFromStore removes the old warm surrogate after a date enters cold tier', async () => {
+  const fileStore = new InMemoryFileStore(
+    new Map([
+      ['memory/agents/core/daily/2026-03-01.md', '- [09:00] Legacy Topic · You: 旧项目背景。\n- [10:00] TODO 清理遗留状态。'],
+      ['memory/agents/core/daily/2026-03-01.warm.md', 'stale warm surrogate'],
+    ]),
+  );
+
+  const result = await syncAgentMemoryLifecycleFromStore({
+    agentSlug: 'core',
+    fileStore,
+    now: '2026-04-20T12:00:00.000Z',
+  });
+
+  assert.deepEqual(result, {
+    scannedCount: 1,
+    warmUpdated: 0,
+    coldUpdated: 1,
+    skippedCount: 0,
+    failures: [],
+  });
+  assert.equal(await fileStore.readText('memory/agents/core/daily/2026-03-01.warm.md'), null);
+  assert.match((await fileStore.readText('memory/agents/core/daily/2026-03-01.cold.md')) ?? '', /tier: "cold"/);
+});
+
 test('syncAgentMemoryLifecycleFromStore removes orphaned surrogates when the source daily file is missing', async () => {
   const fileStore = new InMemoryFileStore(
     new Map([

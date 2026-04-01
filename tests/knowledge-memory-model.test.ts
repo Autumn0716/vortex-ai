@@ -329,6 +329,12 @@ test('buildWarmMemorySurrogate includes summary key fragments open loops and key
 });
 
 test('buildColdMemorySurrogate aggressively compresses the source log', () => {
+  const warmMarkdown = buildWarmMemorySurrogate({
+    date: '2026-03-01',
+    sourcePath: 'memory/agents/core/daily/2026-03-01.md',
+    sourceMarkdown: '- [09:00] Legacy Topic · You: 旧项目背景。\n- [10:00] TODO 清理遗留状态。',
+    now: '2026-04-20T12:00:00.000Z',
+  });
   const markdown = buildColdMemorySurrogate({
     date: '2026-03-01',
     sourcePath: 'memory/agents/core/daily/2026-03-01.md',
@@ -339,7 +345,10 @@ test('buildColdMemorySurrogate aggressively compresses the source log', () => {
   assert.match(markdown, /tier: "cold"/);
   assert.match(markdown, /## Summary/);
   assert.match(markdown, /## Keywords/);
+  assert.equal(markdown.length < warmMarkdown.length, true);
   assert.doesNotMatch(markdown, /## Key Fragments/);
+  assert.doesNotMatch(markdown, /## Open Loops/);
+  assert.doesNotMatch(markdown, /## Index/);
 });
 
 test('buildWarmMemorySurrogate and buildColdMemorySurrogate are byte-identical for repeated inputs', () => {
