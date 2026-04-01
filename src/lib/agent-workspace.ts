@@ -1,6 +1,5 @@
 import localforage from 'localforage';
-import type { Database, QueryExecResult, SqlValue } from 'sql.js';
-import type { StoredToolRun } from './db';
+import type { Database, QueryExecResult, SqlValue, StoredToolRun } from './db';
 import { initDB, saveDB } from './db';
 import {
   buildAgentWorkspacePath,

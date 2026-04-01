@@ -1,11 +1,67 @@
-import initSqlJs, { Database, type QueryExecResult, type SqlValue } from 'sql.js';
-import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
+import initSqlite, {
+  type Database as SQLiteDatabase,
+  type SqlValue as SQLiteSqlValue,
+} from '@sqlite.org/sqlite-wasm';
 import localforage from 'localforage';
 
+export type SqlValue = SQLiteSqlValue;
+
+export interface QueryExecResult {
+  columns: string[];
+  values: SqlValue[][];
+}
+
+type SQLiteModule = Awaited<ReturnType<typeof initSqlite>>;
+
+export class Database {
+  constructor(
+    private readonly sqlite3: SQLiteModule,
+    private readonly inner: SQLiteDatabase,
+  ) {}
+
+  exec(query: string, params: SqlValue[] = []): QueryExecResult[] {
+    const stmt = this.inner.prepare(query);
+    try {
+      if (params.length > 0) {
+        stmt.bind(params);
+      }
+      const columns = stmt.columnCount > 0 ? stmt.getColumnNames() : [];
+      const values: SqlValue[][] = [];
+      while (stmt.step()) {
+        values.push(stmt.get([]) as SqlValue[]);
+      }
+      return columns.length > 0 || values.length > 0 ? [{ columns, values }] : [];
+    } finally {
+      stmt.finalize();
+    }
+  }
+
+  run(query: string, params: SqlValue[] = []) {
+    if (params.length > 0) {
+      this.inner.exec({
+        sql: query,
+        bind: params,
+      });
+      return;
+    }
+    this.inner.exec(query);
+  }
+
+  export() {
+    return this.sqlite3.capi.sqlite3_js_db_export(this.inner);
+  }
+
+  close() {
+    this.inner.close();
+  }
+}
+
+let sqlite3Module: SQLiteModule | null = null;
 let db: Database | null = null;
 let initPromise: Promise<Database> | null = null;
 
 const DB_STORAGE_KEY = 'sqlite_db';
+const DB_FILENAME = '/flowagent.sqlite3';
 const ACTIVE_CONVERSATION_KEY = 'flowagent_active_conversation_id';
 const DEFAULT_CONVERSATION_TITLE = 'New Conversation';
 const LEGACY_WELCOME_MESSAGE =
@@ -812,21 +868,20 @@ export async function initDB(): Promise<Database> {
 
   initPromise = (async () => {
     try {
-      const SQL = await initSqlJs({
-        locateFile: () => sqlWasmUrl,
-      });
+      sqlite3Module = await initSqlite();
 
       const savedData = await localforage.getItem<Uint8Array>(DB_STORAGE_KEY);
       if (savedData) {
         try {
-          db = new SQL.Database(savedData);
+          sqlite3Module.capi.sqlite3_js_posix_create_file(DB_FILENAME, savedData);
+          db = new Database(sqlite3Module, new sqlite3Module.oo1.DB(DB_FILENAME, 'w'));
         } catch (error) {
           console.warn('Failed to load saved database, recreating it:', error);
           await localforage.removeItem(DB_STORAGE_KEY);
-          db = new SQL.Database();
+          db = new Database(sqlite3Module, new sqlite3Module.oo1.DB(DB_FILENAME, 'c'));
         }
       } else {
-        db = new SQL.Database();
+        db = new Database(sqlite3Module, new sqlite3Module.oo1.DB(DB_FILENAME, 'c'));
       }
 
       await ensureSchema(db);

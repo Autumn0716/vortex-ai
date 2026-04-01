@@ -15,6 +15,9 @@ export default defineConfig(({mode}) => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    optimizeDeps: {
+      exclude: ['@sqlite.org/sqlite-wasm'],
+    },
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
       headers: {
