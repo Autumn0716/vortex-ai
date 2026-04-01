@@ -2381,6 +2381,7 @@ export async function clearMessages() {
 export async function upsertKnowledgeDocument(
   record: Pick<KnowledgeDocumentRecord, 'id' | 'title' | 'content'> &
     Partial<Pick<KnowledgeDocumentRecord, 'sourceType' | 'sourceUri' | 'tags' | 'syncedAt'>>,
+  options?: { skipEmbeddings?: boolean },
 ) {
   const database = await initDB();
   const derived = classifyKnowledgeDocument({
@@ -2426,11 +2427,17 @@ export async function upsertKnowledgeDocument(
     syncedAt: record.syncedAt,
   });
   indexDocumentChunks(database, { id: record.id, title: record.title, content: record.content });
-  const embeddingConfig = await getEmbeddingConfig();
-  if (embeddingConfig) {
-    await syncDocumentChunkEmbeddings(database, record.id, embeddingConfig);
-  } else {
-    deleteDocumentChunkEmbeddings(database, record.id);
+  if (!options?.skipEmbeddings) {
+    const embeddingConfig = await getEmbeddingConfig();
+    if (embeddingConfig) {
+      try {
+        await syncDocumentChunkEmbeddings(database, record.id, embeddingConfig);
+      } catch (error) {
+        console.warn('Embedding sync failed, keeping lexical index only:', error);
+      }
+    } else {
+      deleteDocumentChunkEmbeddings(database, record.id);
+    }
   }
   clearDocumentSearchCache(database);
   await saveDB();
@@ -2442,10 +2449,11 @@ export async function syncKnowledgeDocuments(
     Pick<KnowledgeDocumentRecord, 'id' | 'title' | 'content'> &
       Partial<Pick<KnowledgeDocumentRecord, 'sourceType' | 'sourceUri' | 'tags' | 'syncedAt'>>
   >,
+  options?: { skipEmbeddings?: boolean },
 ) {
   let changed = 0;
   for (const record of records) {
-    if (await upsertKnowledgeDocument(record)) {
+    if (await upsertKnowledgeDocument(record, options)) {
       changed += 1;
     }
   }
@@ -2687,22 +2695,26 @@ export async function searchDocumentsInDatabase(
     }
 
     if (options?.embeddingConfig) {
-      await ensureDocumentEmbeddings(database, options.embeddingConfig);
-      const embeddingResponse = await createEmbeddings(normalizedQuery, options.embeddingConfig);
-      const queryEmbedding = embeddingResponse.data[0]?.embedding;
-      if (Array.isArray(queryEmbedding) && queryEmbedding.length > 0) {
-        const vectorCandidates = await readVectorCandidates(database, queryEmbedding);
-        vectorCandidates.forEach((candidate) => {
-          const existing = seen.get(candidate.id);
-          if (existing) {
-            existing.vectorScore = Math.max(existing.vectorScore ?? 0, candidate.vectorScore);
-            if (!existing.content.trim()) {
-              existing.content = candidate.content;
+      try {
+        await ensureDocumentEmbeddings(database, options.embeddingConfig);
+        const embeddingResponse = await createEmbeddings(normalizedQuery, options.embeddingConfig);
+        const queryEmbedding = embeddingResponse.data[0]?.embedding;
+        if (Array.isArray(queryEmbedding) && queryEmbedding.length > 0) {
+          const vectorCandidates = await readVectorCandidates(database, queryEmbedding);
+          vectorCandidates.forEach((candidate) => {
+            const existing = seen.get(candidate.id);
+            if (existing) {
+              existing.vectorScore = Math.max(existing.vectorScore ?? 0, candidate.vectorScore);
+              if (!existing.content.trim()) {
+                existing.content = candidate.content;
+              }
+              return;
             }
-            return;
-          }
-          seen.set(candidate.id, candidate);
-        });
+            seen.set(candidate.id, candidate);
+          });
+        }
+      } catch (error) {
+        console.warn('Vector search failed, falling back to lexical results:', error);
       }
     }
 

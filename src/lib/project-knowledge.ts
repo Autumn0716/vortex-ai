@@ -35,5 +35,5 @@ export async function syncBundledKnowledgeDocuments() {
     };
   });
 
-  return syncKnowledgeDocuments(records);
+  return syncKnowledgeDocuments(records, { skipEmbeddings: true });
 }

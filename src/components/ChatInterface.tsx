@@ -261,7 +261,6 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           getAgentConfig(),
           getSearchCapabilities(),
           ensureAgentWorkspaceBootstrap(),
-          syncBundledKnowledgeDocuments(),
         ]);
 
         if (cancelled) {
@@ -277,12 +276,24 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
         if (!bootstrap) {
           setLoadingWorkspace(false);
+          void syncBundledKnowledgeDocuments().catch((error) => {
+            console.warn('Bundled knowledge sync failed after bootstrap:', error);
+          });
           return;
         }
 
         await hydrateTopic(bootstrap.topic.id);
+        void syncBundledKnowledgeDocuments().catch((error) => {
+          console.warn('Bundled knowledge sync failed after bootstrap:', error);
+        });
       } catch (error) {
         console.error('Failed to initialize agent workspace:', error);
+        if (!cancelled) {
+          startTransition(() => {
+            setLoadingWorkspace(false);
+            setComposerNotice('Workspace bootstrap hit an error. You can still open Settings and retry.');
+          });
+        }
       }
     };
 
