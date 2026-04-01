@@ -11,6 +11,11 @@ RAG策略:
 当前检索链路已具备“关键词检索 + BM25 排序 + 任务拆解 + 缓存”的本地基础能力，作为第一阶段的混合检索骨架先落地；向量检索、重排序和多层记忆生命周期仍待继续实现。
 已补充自动化测试覆盖 chunking、任务拆解、缓存键、FTS 可用性检测、索引写入和缓存清理。
 
+进度汇报（2026-04-01，第三次更新）:
+已接入第一版向量检索：文档 chunk 现在可按 `text-embedding-v4` 生成向量并落到 `document_chunk_embeddings` 表，检索时会把 BM25 结果与向量相似度做混合排序。
+文档设置页已新增 `enableVectorSearch / embeddingModel / embeddingBaseUrl / embeddingApiKey / embeddingDimensions` 本地配置项，不会写入 git。
+已完成 live smoke test：通过 DashScope 兼容 `/embeddings` 接口成功返回 `text-embedding-v4` 的 1024 维向量，说明当前模型与 API key 可用。
+
 第二阶段（进阶 RAG）：加入查询预处理（改写、扩展、分解）、重排序（Cross Encoder）、上下文压缩、后处理（忠实度检查）。
 
 第三阶段（高级 RAG）：根据实际痛点选择引入 1-2 项高级技术。如果幻觉严重就加 Self-RAG，如果知识库不完整就加 Corrective RAG，如果需要关系推理就加 Graph RAG，如果文档很长就加 RAPTOR。

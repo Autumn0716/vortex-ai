@@ -110,6 +110,11 @@ export interface ApiServerSettings {
 export interface DocumentProcessingSettings {
   maxSearchResults: number;
   maxDocumentPreviewLength: number;
+  enableVectorSearch: boolean;
+  embeddingModel: string;
+  embeddingBaseUrl: string;
+  embeddingApiKey: string;
+  embeddingDimensions: number;
 }
 
 export interface DataSettings {
@@ -333,6 +338,11 @@ export const DEFAULT_CONFIG: AgentConfig = {
   documents: {
     maxSearchResults: 5,
     maxDocumentPreviewLength: 240,
+    enableVectorSearch: false,
+    embeddingModel: 'text-embedding-v4',
+    embeddingBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    embeddingApiKey: '',
+    embeddingDimensions: 1024,
   },
   data: {
     minimalBackup: false,

@@ -1933,6 +1933,88 @@ export const SettingsView = ({
                 className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
               />
             </SectionCard>
+            <SectionCard title="启用向量检索" description="开启后会调用 embedding 接口，为知识库追加语义召回。">
+              <ToggleCard
+                title="Hybrid Search"
+                description="保留 BM25，同时叠加向量相似度排序。"
+                checked={draft.documents.enableVectorSearch}
+                onChange={(checked) =>
+                  updateDraft((current) => ({
+                    ...current,
+                    documents: {
+                      ...current.documents,
+                      enableVectorSearch: checked,
+                    },
+                  }))
+                }
+              />
+            </SectionCard>
+            <SectionCard title="Embedding 模型" description="默认按阿里 DashScope 兼容接口调用。">
+              <div className="space-y-3">
+                <input
+                  value={draft.documents.embeddingModel}
+                  onChange={(event) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      documents: {
+                        ...current.documents,
+                        embeddingModel: event.target.value,
+                      },
+                    }))
+                  }
+                  placeholder="text-embedding-v4"
+                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                />
+                <input
+                  value={draft.documents.embeddingBaseUrl}
+                  onChange={(event) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      documents: {
+                        ...current.documents,
+                        embeddingBaseUrl: event.target.value,
+                      },
+                    }))
+                  }
+                  placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                />
+                <input
+                  type="number"
+                  min={64}
+                  max={2048}
+                  step={64}
+                  value={draft.documents.embeddingDimensions}
+                  onChange={(event) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      documents: {
+                        ...current.documents,
+                        embeddingDimensions: Number(event.target.value),
+                      },
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                />
+              </div>
+            </SectionCard>
+            <SectionCard title="Embedding API Key" description="只保存在本地配置中，不会写入 git。">
+              <input
+                type="password"
+                value={draft.documents.embeddingApiKey}
+                onChange={(event) =>
+                  updateDraft((current) => ({
+                    ...current,
+                    documents: {
+                      ...current.documents,
+                      embeddingApiKey: event.target.value,
+                    },
+                  }))
+                }
+                placeholder="sk-..."
+                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+              />
+            </SectionCard>
           </div>
         );
 

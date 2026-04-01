@@ -3,6 +3,7 @@ import initSqlite, {
   type SqlValue as SQLiteSqlValue,
 } from '@sqlite.org/sqlite-wasm';
 import localforage from 'localforage';
+import { getAgentConfig } from './agent/config';
 import {
   buildSemanticCacheKey,
   chunkDocumentContent,
@@ -13,6 +14,15 @@ import {
   normalizeKnowledgeTags,
   type KnowledgeDocumentSourceType,
 } from './knowledge-document-model';
+import {
+  buildEmbeddingContentHash,
+  createEmbeddings,
+  DEFAULT_EMBEDDING_BASE_URL,
+  DEFAULT_EMBEDDING_DIMENSIONS,
+  DEFAULT_EMBEDDING_MODEL,
+  type EmbeddingProviderConfig,
+} from './embedding-client';
+import { cosineSimilarity, hybridScoreDocuments } from './vector-search-model';
 
 export type SqlValue = SQLiteSqlValue;
 
@@ -210,6 +220,13 @@ interface DocumentSearchRow {
   title: string;
   content: string;
   score: number;
+}
+
+interface DocumentChunkEmbeddingRow {
+  chunk_id: string;
+  document_id: string;
+  content: string;
+  embedding_json: string;
 }
 
 const DEFAULT_ASSISTANTS: AssistantSeed[] = [
@@ -835,6 +852,16 @@ async function ensureSchema(database: Database) {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS document_chunk_embeddings (
+      chunk_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      dimensions INTEGER NOT NULL,
+      content_hash TEXT NOT NULL,
+      embedding_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS global_memory_documents (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -905,6 +932,7 @@ async function ensureSchema(database: Database) {
     CREATE INDEX IF NOT EXISTS idx_memory_docs_updated ON global_memory_documents(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_document_chunks_document ON document_chunks(document_id, chunk_index ASC);
     CREATE INDEX IF NOT EXISTS idx_document_metadata_source ON document_metadata(source_type, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_document_chunk_embeddings_doc ON document_chunk_embeddings(document_id, updated_at DESC);
   `);
 
   try {
@@ -1132,6 +1160,154 @@ function upsertDocumentMetadata(
       timestamp,
     ],
   );
+}
+
+function parseEmbeddingJson(raw: string) {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map((value) => Number(value) || 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+function buildEmbeddingConfigFromDocuments(documents: {
+  enableVectorSearch: boolean;
+  embeddingApiKey: string;
+  embeddingModel: string;
+  embeddingBaseUrl: string;
+  embeddingDimensions: number;
+}): EmbeddingProviderConfig | null {
+  if (!documents.enableVectorSearch || !documents.embeddingApiKey.trim()) {
+    return null;
+  }
+
+  return {
+    apiKey: documents.embeddingApiKey.trim(),
+    model: documents.embeddingModel.trim() || DEFAULT_EMBEDDING_MODEL,
+    baseUrl: documents.embeddingBaseUrl.trim() || DEFAULT_EMBEDDING_BASE_URL,
+    dimensions: documents.embeddingDimensions || DEFAULT_EMBEDDING_DIMENSIONS,
+    encodingFormat: 'float',
+  };
+}
+
+async function getEmbeddingConfig() {
+  const config = await getAgentConfig();
+  return buildEmbeddingConfigFromDocuments(config.documents);
+}
+
+function deleteDocumentChunkEmbeddings(database: Database, documentId: string) {
+  database.run('DELETE FROM document_chunk_embeddings WHERE document_id = ?', [documentId]);
+}
+
+async function syncDocumentChunkEmbeddings(
+  database: Database,
+  documentId: string,
+  embeddingConfig: EmbeddingProviderConfig,
+) {
+  const rows = mapRows<{
+    id: string;
+    document_id: string;
+    content: string;
+  }>(
+    database.exec(
+      `
+        SELECT id, document_id, content
+        FROM document_chunks
+        WHERE document_id = ?
+        ORDER BY chunk_index ASC
+      `,
+      [documentId],
+    ),
+  );
+
+  if (rows.length === 0) {
+    deleteDocumentChunkEmbeddings(database, documentId);
+    return;
+  }
+
+  const existingRows = mapRows<{
+    chunk_id: string;
+    content_hash: string;
+  }>(
+    database.exec(
+      `
+        SELECT chunk_id, content_hash
+        FROM document_chunk_embeddings
+        WHERE document_id = ?
+      `,
+      [documentId],
+    ),
+  );
+  const existingHashes = new Map(existingRows.map((row) => [row.chunk_id, row.content_hash]));
+  const staleChunkIds = existingRows
+    .map((row) => row.chunk_id)
+    .filter((chunkId) => !rows.some((row) => row.id === chunkId));
+  staleChunkIds.forEach((chunkId) => {
+    database.run('DELETE FROM document_chunk_embeddings WHERE chunk_id = ?', [chunkId]);
+  });
+
+  const missingRows = rows.filter((row) => existingHashes.get(row.id) !== buildEmbeddingContentHash(row.content));
+  if (missingRows.length === 0) {
+    return;
+  }
+
+  const batchSize = 10;
+  for (let offset = 0; offset < missingRows.length; offset += batchSize) {
+    const batch = missingRows.slice(offset, offset + batchSize);
+    const response = await createEmbeddings(
+      batch.map((row) => row.content),
+      embeddingConfig,
+    );
+
+    batch.forEach((row, index) => {
+      const embedding = response.data[index]?.embedding;
+      if (!Array.isArray(embedding) || embedding.length === 0) {
+        return;
+      }
+
+      database.run(
+        `
+          INSERT INTO document_chunk_embeddings (
+            chunk_id,
+            document_id,
+            model,
+            dimensions,
+            content_hash,
+            embedding_json,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(chunk_id) DO UPDATE SET
+            document_id = excluded.document_id,
+            model = excluded.model,
+            dimensions = excluded.dimensions,
+            content_hash = excluded.content_hash,
+            embedding_json = excluded.embedding_json,
+            updated_at = excluded.updated_at
+        `,
+        [
+          row.id,
+          row.document_id,
+          embeddingConfig.model,
+          embedding.length,
+          buildEmbeddingContentHash(row.content),
+          JSON.stringify(embedding),
+          nowIso(),
+        ],
+      );
+    });
+  }
+}
+
+async function ensureDocumentEmbeddings(database: Database, embeddingConfig: EmbeddingProviderConfig) {
+  const documentIds = mapRows<{ id: string }>(
+    database.exec('SELECT id FROM documents ORDER BY rowid ASC'),
+  ).map((row) => row.id);
+
+  for (const documentId of documentIds) {
+    await syncDocumentChunkEmbeddings(database, documentId, embeddingConfig);
+  }
 }
 
 function writeDocumentSearchCache(
@@ -1963,6 +2139,7 @@ export async function importWorkspaceData(payload: {
       'prompt_snippets',
       'documents',
       'document_chunks',
+      'document_chunk_embeddings',
       'document_search_cache',
       'document_metadata',
       'global_memory_documents',
@@ -2249,6 +2426,12 @@ export async function upsertKnowledgeDocument(
     syncedAt: record.syncedAt,
   });
   indexDocumentChunks(database, { id: record.id, title: record.title, content: record.content });
+  const embeddingConfig = await getEmbeddingConfig();
+  if (embeddingConfig) {
+    await syncDocumentChunkEmbeddings(database, record.id, embeddingConfig);
+  } else {
+    deleteDocumentChunkEmbeddings(database, record.id);
+  }
   clearDocumentSearchCache(database);
   await saveDB();
   return true;
@@ -2344,23 +2527,78 @@ export async function getDocuments() {
 export async function deleteDocument(id: string) {
   const database = await initDB();
   clearDocumentChunks(database, id);
+  deleteDocumentChunkEmbeddings(database, id);
   database.run('DELETE FROM document_metadata WHERE document_id = ?', [id]);
   database.run('DELETE FROM documents WHERE id = ?', [id]);
   clearDocumentSearchCache(database);
   await saveDB();
 }
 
-export async function searchDocumentsInDatabase(database: Database, query: string) {
+async function readVectorCandidates(
+  database: Database,
+  queryEmbedding: number[],
+): Promise<Array<{ id: string; title: string; content: string; vectorScore: number }>> {
+  const rows = mapRows<DocumentChunkEmbeddingRow>(
+    database.exec(
+      `
+        SELECT
+          e.chunk_id,
+          e.document_id,
+          c.content,
+          e.embedding_json
+        FROM document_chunk_embeddings e
+        JOIN document_chunks c ON c.id = e.chunk_id
+      `,
+    ),
+  );
+
+  const scored = new Map<string, { id: string; title: string; content: string; vectorScore: number }>();
+  const titles = new Map(
+    mapRows<{ id: string; title: string }>(database.exec('SELECT id, title FROM documents')).map((row) => [
+      row.id,
+      row.title,
+    ]),
+  );
+
+  rows.forEach((row) => {
+    const embedding = parseEmbeddingJson(row.embedding_json);
+    const similarity = cosineSimilarity(queryEmbedding, embedding);
+    if (similarity <= 0) {
+      return;
+    }
+
+    const existing = scored.get(row.document_id);
+    if (!existing || similarity > existing.vectorScore) {
+      scored.set(row.document_id, {
+        id: row.document_id,
+        title: titles.get(row.document_id) ?? row.document_id,
+        content: row.content,
+        vectorScore: similarity,
+      });
+    }
+  });
+
+  return [...scored.values()].sort((left, right) => right.vectorScore - left.vectorScore).slice(0, 8);
+}
+
+export async function searchDocumentsInDatabase(
+  database: Database,
+  query: string,
+  options?: { embeddingConfig?: EmbeddingProviderConfig | null; maxResults?: number },
+) {
   try {
     const normalizedQuery = query.trim();
     if (!normalizedQuery) {
       return [];
     }
 
-    const cacheKey = buildSemanticCacheKey(normalizedQuery);
-    if (!cacheKey) {
+    const baseCacheKey = buildSemanticCacheKey(normalizedQuery);
+    if (!baseCacheKey) {
       return [];
     }
+    const cacheKey = options?.embeddingConfig
+      ? `${baseCacheKey}::hybrid::${options.embeddingConfig.model}`
+      : `${baseCacheKey}::lexical`;
 
     const cached = readDocumentSearchCache(database, cacheKey);
     if (cached) {
@@ -2368,7 +2606,16 @@ export async function searchDocumentsInDatabase(database: Database, query: strin
     }
 
     const subqueries = decomposeTaskQuery(normalizedQuery);
-    const seen = new Map<string, { id: string; title: string; content: string; score: number }>();
+    const seen = new Map<
+      string,
+      {
+        id: string;
+        title: string;
+        content: string;
+        lexicalScore?: number;
+        vectorScore?: number;
+      }
+    >();
     const ftsEnabled = getDocumentFtsEnabled(database);
 
     for (const subquery of subqueries) {
@@ -2395,12 +2642,13 @@ export async function searchDocumentsInDatabase(database: Database, query: strin
 
         rows.forEach((row) => {
           const existing = seen.get(row.id);
-          if (!existing || row.score < existing.score) {
+          if (!existing || row.score < (existing.lexicalScore ?? Number.POSITIVE_INFINITY)) {
             seen.set(row.id, {
               id: row.id,
               title: row.title,
               content: row.content,
-              score: row.score,
+              lexicalScore: row.score,
+              vectorScore: existing?.vectorScore,
             });
           }
         });
@@ -2426,20 +2674,40 @@ export async function searchDocumentsInDatabase(database: Database, query: strin
       rows.forEach((row, index) => {
         const existing = seen.get(row.id);
         const fallbackScore = index + 1;
-        if (!existing || fallbackScore < existing.score) {
+        if (!existing || fallbackScore < (existing.lexicalScore ?? Number.POSITIVE_INFINITY)) {
           seen.set(row.id, {
             id: row.id,
             title: row.title,
             content: row.content,
-            score: fallbackScore,
+            lexicalScore: fallbackScore,
+            vectorScore: existing?.vectorScore,
           });
         }
       });
     }
 
-    const results = [...seen.values()]
-      .sort((left, right) => left.score - right.score)
-      .slice(0, 5)
+    if (options?.embeddingConfig) {
+      await ensureDocumentEmbeddings(database, options.embeddingConfig);
+      const embeddingResponse = await createEmbeddings(normalizedQuery, options.embeddingConfig);
+      const queryEmbedding = embeddingResponse.data[0]?.embedding;
+      if (Array.isArray(queryEmbedding) && queryEmbedding.length > 0) {
+        const vectorCandidates = await readVectorCandidates(database, queryEmbedding);
+        vectorCandidates.forEach((candidate) => {
+          const existing = seen.get(candidate.id);
+          if (existing) {
+            existing.vectorScore = Math.max(existing.vectorScore ?? 0, candidate.vectorScore);
+            if (!existing.content.trim()) {
+              existing.content = candidate.content;
+            }
+            return;
+          }
+          seen.set(candidate.id, candidate);
+        });
+      }
+    }
+
+    const results = hybridScoreDocuments([...seen.values()])
+      .slice(0, options?.maxResults ?? 5)
       .map((row) => ({
         id: row.id,
         title: row.title,
@@ -2456,7 +2724,11 @@ export async function searchDocumentsInDatabase(database: Database, query: strin
 
 export async function searchDocuments(query: string) {
   const database = await initDB();
-  const results = await searchDocumentsInDatabase(database, query);
+  const config = await getAgentConfig();
+  const results = await searchDocumentsInDatabase(database, query, {
+    embeddingConfig: buildEmbeddingConfigFromDocuments(config.documents),
+    maxResults: config.documents.maxSearchResults,
+  });
   await saveDB();
   return results;
 }
