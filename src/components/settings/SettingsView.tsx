@@ -782,7 +782,7 @@ export const SettingsView = ({
   };
 
   const removeActiveDailyFile = async () => {
-    if (!activeMemoryAgent || !activeMemoryFile || activeMemoryFile.kind !== 'daily') {
+    if (!activeMemoryAgent || !activeMemoryFile || activeMemoryFile.kind === 'memory') {
       return;
     }
 
@@ -2030,7 +2030,13 @@ export const SettingsView = ({
                       <div className="flex items-center justify-between gap-3">
                         <div className="truncate text-sm font-medium">{file.label}</div>
                         <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">
-                          {file.kind === 'memory' ? 'LONG-TERM' : 'DAILY'}
+                          {file.kind === 'memory'
+                            ? 'LONG-TERM'
+                            : file.kind === 'daily_source'
+                              ? 'SOURCE'
+                              : file.kind === 'daily_warm'
+                                ? 'WARM'
+                                : 'COLD'}
                         </div>
                       </div>
                       <div className="mt-1 text-xs text-white/45">
@@ -2081,7 +2087,7 @@ export const SettingsView = ({
                         disabled={
                           !draft.apiServer.enabled ||
                           !activeMemoryFile ||
-                          activeMemoryFile.kind !== 'daily' ||
+                          activeMemoryFile.kind === 'memory' ||
                           memoryFileLoading
                         }
                         className="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm text-red-200 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50"

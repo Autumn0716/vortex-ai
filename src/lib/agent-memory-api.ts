@@ -1,6 +1,17 @@
 import type { ApiServerSettings } from './agent/config';
-import { buildAgentMemoryPaths, serializeMemoryMarkdown } from './agent-memory-files';
-import { setAgentMemoryFileStore, type AgentMemoryFileStore } from './agent-memory-sync';
+import {
+  buildAgentMemoryPaths,
+  detectMemoryFileKind,
+  resolveDailyMemoryDate,
+  serializeMemoryMarkdown,
+  type AgentMemoryFileKind,
+} from './agent-memory-files';
+import {
+  setAgentMemoryFileStore,
+  syncAgentMemoryLifecycleFromStore,
+  type AgentMemoryFileStore,
+  type AgentMemoryLifecycleResult,
+} from './agent-memory-sync';
 
 export const DEFAULT_API_SERVER_BASE_URL = 'http://127.0.0.1:3850';
 
@@ -19,10 +30,14 @@ interface ApiHealthResponse {
 
 export interface AgentMemoryFileEntry {
   path: string;
-  kind: 'memory' | 'daily';
+  kind: Exclude<AgentMemoryFileKind, 'unknown'>;
   label: string;
   exists: boolean;
   date?: string;
+}
+
+function isListedMemoryFileKind(kind: AgentMemoryFileKind): kind is Exclude<AgentMemoryFileKind, 'unknown'> {
+  return kind !== 'unknown';
 }
 
 function trimTrailingSlash(value: string) {
@@ -103,6 +118,12 @@ class ApiAgentMemoryFileStore implements AgentMemoryFileStore {
       body: JSON.stringify({ path, content }),
     });
   }
+
+  async deleteText(path: string) {
+    await requestApi(this.settings, `/api/memory/file?path=${encodeURIComponent(path)}`, {
+      method: 'DELETE',
+    });
+  }
 }
 
 export function createAgentMemoryApiFileStore(settings: ApiServerSettings): AgentMemoryFileStore | null {
@@ -158,8 +179,11 @@ export async function listAgentMemoryFiles(
   const paths = buildAgentMemoryPaths(agentSlug, today);
   const memoryExists = (await fileStore.readText(paths.memoryFile)) !== null;
   const dailyPaths = (await fileStore.listPaths(paths.dailyDir))
-    .filter((path) => path.endsWith('.md'))
-    .sort((left, right) => right.localeCompare(left));
+    .map((path) => ({ path, kind: detectMemoryFileKind(path) }))
+    .filter((entry): entry is { path: string; kind: Exclude<AgentMemoryFileKind, 'unknown'> } =>
+      isListedMemoryFileKind(entry.kind),
+    )
+    .sort((left, right) => right.path.localeCompare(left.path));
 
   return [
     {
@@ -168,12 +192,16 @@ export async function listAgentMemoryFiles(
       label: 'MEMORY.md',
       exists: memoryExists,
     },
-    ...dailyPaths.map((path) => {
-      const date = path.match(/(\d{4}-\d{2}-\d{2})\.md$/)?.[1];
+    ...dailyPaths.map(({ path, kind }) => {
+      const date = resolveDailyMemoryDate(path);
       return {
         path,
-        kind: 'daily' as const,
-        label: date ? `${date}.md` : path.split('/').pop() ?? path,
+        kind,
+        label: date
+          ? kind === 'daily_source'
+            ? `${date}.md`
+            : `${date}.${kind === 'daily_warm' ? 'warm' : 'cold'}.md`
+          : path.split('/').pop() ?? path,
         exists: true,
         date,
       };
@@ -239,4 +267,21 @@ export async function ensureAgentMemoryFile(
     path: targetPath,
     content,
   };
+}
+
+export async function syncAgentMemoryLifecycleForAgent(
+  agentSlug: string,
+  settings: ApiServerSettings,
+  now?: string,
+): Promise<AgentMemoryLifecycleResult> {
+  const fileStore = createAgentMemoryApiFileStore(settings);
+  if (!fileStore) {
+    throw new Error('The local API server is disabled.');
+  }
+
+  return syncAgentMemoryLifecycleFromStore({
+    agentSlug,
+    fileStore,
+    now,
+  });
 }

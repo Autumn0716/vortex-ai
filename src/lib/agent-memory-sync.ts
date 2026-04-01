@@ -1,11 +1,31 @@
 import type { Database } from './db';
-import { buildAgentMemoryPaths, parseMemoryMarkdown, serializeMemoryMarkdown } from './agent-memory-files';
+import {
+  buildAgentMemoryPaths,
+  detectMemoryFileKind,
+  parseMemoryMarkdown,
+  resolveDailyMemoryDate,
+  serializeMemoryMarkdown,
+} from './agent-memory-files';
+import {
+  buildColdMemorySurrogate,
+  buildWarmMemorySurrogate,
+  resolveLifecycleTier,
+} from './agent-memory-lifecycle';
 import { scoreMemoryImportance, type MemoryScope, type MemorySourceType } from './agent-memory-model';
 
 export interface AgentMemoryFileStore {
   listPaths(prefix: string): Promise<string[]>;
   readText(path: string): Promise<string | null>;
   writeText(path: string, content: string): Promise<void>;
+  deleteText?(path: string): Promise<void>;
+}
+
+export interface AgentMemoryLifecycleResult {
+  scannedCount: number;
+  warmUpdated: number;
+  coldUpdated: number;
+  skippedCount: number;
+  failures: Array<{ path: string; message: string }>;
 }
 
 interface DerivedMemoryDocument {
@@ -405,6 +425,64 @@ function deleteMigratedLegacyRows(database: Database, rows: LegacyMemoryRow[]) {
   return deletableIds.length > 0;
 }
 
+async function writeIfChanged(fileStore: AgentMemoryFileStore, path: string, content: string) {
+  const existing = await fileStore.readText(path);
+  if (existing !== null && normalizeLifecycleMarkdown(existing) === normalizeLifecycleMarkdown(content)) {
+    return false;
+  }
+
+  await fileStore.writeText(path, content);
+  return true;
+}
+
+async function deleteIfExists(fileStore: AgentMemoryFileStore, path: string) {
+  if ((await fileStore.readText(path)) === null) {
+    return false;
+  }
+
+  if (typeof fileStore.deleteText !== 'function') {
+    throw new Error(`The active memory file store cannot delete ${path}.`);
+  }
+
+  await fileStore.deleteText(path);
+  return true;
+}
+
+function pushLifecycleFailure(
+  failures: AgentMemoryLifecycleResult['failures'],
+  path: string,
+  error: unknown,
+  fallbackMessage: string,
+) {
+  failures.push({
+    path,
+    message: error instanceof Error ? error.message : fallbackMessage,
+  });
+}
+
+async function deleteWithFailureCapture(
+  fileStore: AgentMemoryFileStore,
+  path: string,
+  failures: AgentMemoryLifecycleResult['failures'],
+) {
+  try {
+    await deleteIfExists(fileStore, path);
+  } catch (error) {
+    pushLifecycleFailure(failures, path, error, 'Lifecycle cleanup failed.');
+  }
+}
+
+function normalizeLifecycleMarkdown(markdown: string) {
+  const { frontmatter, body } = parseMemoryMarkdown(markdown);
+  const normalizedFrontmatter = { ...frontmatter };
+  delete normalizedFrontmatter.updatedAt;
+
+  return serializeMemoryMarkdown({
+    frontmatter: normalizedFrontmatter,
+    body,
+  });
+}
+
 export async function syncAgentMemoryFromStore(
   database: Database,
   input: {
@@ -448,5 +526,106 @@ export async function syncAgentMemoryFromStore(
     changed: migration.changed || upserted || deleted || deletedLegacy,
     migrated: migration.changed,
     syncedCount: documents.length,
+  };
+}
+
+export async function syncAgentMemoryLifecycleFromStore(input: {
+  agentSlug: string;
+  fileStore: AgentMemoryFileStore;
+  now?: string;
+}): Promise<AgentMemoryLifecycleResult> {
+  const now = input.now ?? new Date().toISOString();
+  const dailyDir = buildAgentMemoryPaths(input.agentSlug, now.slice(0, 10)).dailyDir;
+  const paths = (await input.fileStore.listPaths(dailyDir)).sort();
+  const sourcePaths = paths.filter((path) => detectMemoryFileKind(path) === 'daily_source');
+  const availableSourceDates = new Set(
+    sourcePaths.map((path) => resolveDailyMemoryDate(path)).filter((date): date is string => Boolean(date)),
+  );
+
+  let warmUpdated = 0;
+  let coldUpdated = 0;
+  let skippedCount = 0;
+  const failures: Array<{ path: string; message: string }> = [];
+
+  for (const path of sourcePaths) {
+    try {
+      const date = resolveDailyMemoryDate(path);
+      const sourceMarkdown = (await input.fileStore.readText(path)) ?? '';
+      if (!date) {
+        skippedCount += 1;
+        continue;
+      }
+
+      if (!sourceMarkdown.trim()) {
+        const dailyPaths = buildAgentMemoryPaths(input.agentSlug, date);
+        await deleteWithFailureCapture(input.fileStore, dailyPaths.warmFile, failures);
+        await deleteWithFailureCapture(input.fileStore, dailyPaths.coldFile, failures);
+        skippedCount += 1;
+        continue;
+      }
+
+      const tier = resolveLifecycleTier(date, now);
+      const dailyPaths = buildAgentMemoryPaths(input.agentSlug, date);
+
+      if (tier === 'warm') {
+        const nextWarm = buildWarmMemorySurrogate({
+          date,
+          sourcePath: path,
+          sourceMarkdown,
+          now,
+        });
+        if (await writeIfChanged(input.fileStore, dailyPaths.warmFile, nextWarm)) {
+          warmUpdated += 1;
+        } else {
+          skippedCount += 1;
+        }
+        await deleteWithFailureCapture(input.fileStore, dailyPaths.coldFile, failures);
+        continue;
+      }
+
+      if (tier === 'cold') {
+        const nextCold = buildColdMemorySurrogate({
+          date,
+          sourcePath: path,
+          sourceMarkdown,
+          now,
+        });
+        if (await writeIfChanged(input.fileStore, dailyPaths.coldFile, nextCold)) {
+          coldUpdated += 1;
+        } else {
+          skippedCount += 1;
+        }
+        await deleteWithFailureCapture(input.fileStore, dailyPaths.warmFile, failures);
+        continue;
+      }
+
+      await deleteWithFailureCapture(input.fileStore, dailyPaths.warmFile, failures);
+      await deleteWithFailureCapture(input.fileStore, dailyPaths.coldFile, failures);
+      skippedCount += 1;
+    } catch (error) {
+      pushLifecycleFailure(failures, path, error, 'Lifecycle sync failed.');
+    }
+  }
+
+  for (const path of paths) {
+    const kind = detectMemoryFileKind(path);
+    if (kind !== 'daily_warm' && kind !== 'daily_cold') {
+      continue;
+    }
+
+    const date = resolveDailyMemoryDate(path);
+    if (!date || availableSourceDates.has(date)) {
+      continue;
+    }
+
+    await deleteWithFailureCapture(input.fileStore, path, failures);
+  }
+
+  return {
+    scannedCount: sourcePaths.length,
+    warmUpdated,
+    coldUpdated,
+    skippedCount,
+    failures,
   };
 }
