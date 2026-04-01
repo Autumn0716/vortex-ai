@@ -80,6 +80,18 @@ let sqlite3Module: SQLiteModule | null = null;
 let db: Database | null = null;
 let initPromise: Promise<Database> | null = null;
 
+function resetDatabaseConnectionState() {
+  try {
+    db?.close();
+  } catch (error) {
+    console.warn('Failed to close SQLite during reset:', error);
+  }
+
+  db = null;
+  sqlite3Module = null;
+  initPromise = null;
+}
+
 const DB_STORAGE_KEY = 'sqlite_db';
 const DB_FILENAME = '/flowagent.sqlite3';
 const ACTIVE_CONVERSATION_KEY = 'flowagent_active_conversation_id';
@@ -1362,6 +1374,7 @@ export async function initDB(): Promise<Database> {
       return db;
     } catch (error) {
       console.error('Failed to initialize SQLite:', error);
+      resetDatabaseConnectionState();
       throw error;
     }
   })();

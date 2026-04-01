@@ -7,6 +7,7 @@ import {
   DEFAULT_TOPIC_PREVIEW,
   DEFAULT_TOPIC_TITLE,
   formatTopicPreview,
+  resolveActiveAgentId,
 } from './agent-workspace-model';
 import {
   buildConversationMemoryEntry,
@@ -25,6 +26,15 @@ const ACTIVE_TOPIC_KEY = 'flowagent_active_topic_id_v2';
 
 let ensuredPromise: Promise<void> | null = null;
 let fts5Available: boolean | null = null;
+
+const FALLBACK_AGENT_SEED = {
+  id: 'agent_flowagent_core',
+  name: 'FlowAgent Core',
+  description: 'Balanced general-purpose agent for research, planning, and implementation.',
+  systemPrompt:
+    'You are FlowAgent Core. Be pragmatic, structured, and concise. Use tools when they materially improve the answer.',
+  accentColor: 'from-blue-500/20 to-violet-500/20',
+};
 
 export interface AgentProfile {
   id: string;
@@ -379,7 +389,8 @@ async function ensureAgentSchema(): Promise<Database> {
   const database = await initDB();
   if (!ensuredPromise) {
     ensuredPromise = (async () => {
-      database.run(`
+      try {
+        database.run(`
         CREATE TABLE IF NOT EXISTS agents (
           id TEXT PRIMARY KEY,
           slug TEXT NOT NULL UNIQUE,
@@ -465,8 +476,15 @@ async function ensureAgentSchema(): Promise<Database> {
         fts5Available = false;
       }
 
-      await migrateLegacyWorkspace(database);
-      await saveDB();
+        const migrated = await migrateLegacyWorkspace(database);
+        const seeded = seedFallbackWorkspace(database);
+        if (migrated || seeded) {
+          await saveDB();
+        }
+      } catch (error) {
+        ensuredPromise = null;
+        throw error;
+      }
     })();
   }
 
@@ -474,13 +492,74 @@ async function ensureAgentSchema(): Promise<Database> {
   return database;
 }
 
-async function migrateLegacyWorkspace(database: Database) {
+function seedFallbackWorkspace(database: Database): boolean {
   const agentCount = Number(getScalar(database, 'SELECT COUNT(*) FROM agents') ?? 0);
   if (agentCount > 0) {
-    if (fts5Available) {
-      rebuildFtsIndexes(database);
-    }
-    return;
+    return false;
+  }
+
+  const timestamp = nowIso();
+  const workspaceRelpath = buildAgentWorkspacePath(FALLBACK_AGENT_SEED.name);
+  database.run(
+    `
+      INSERT INTO agents (
+        id,
+        slug,
+        name,
+        description,
+        system_prompt,
+        provider_id,
+        model,
+        accent_color,
+        workspace_relpath,
+        is_default,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      FALLBACK_AGENT_SEED.id,
+      workspaceRelpath.replace(/^agents\//, ''),
+      FALLBACK_AGENT_SEED.name,
+      FALLBACK_AGENT_SEED.description,
+      FALLBACK_AGENT_SEED.systemPrompt,
+      null,
+      null,
+      FALLBACK_AGENT_SEED.accentColor,
+      workspaceRelpath,
+      1,
+      timestamp,
+      timestamp,
+    ],
+  );
+  database.run(
+    `
+      INSERT INTO topics (
+        id,
+        agent_id,
+        title,
+        title_source,
+        created_at,
+        updated_at,
+        last_message_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `,
+    [createId('topic'), FALLBACK_AGENT_SEED.id, DEFAULT_TOPIC_TITLE, 'auto', timestamp, timestamp, timestamp],
+  );
+
+  if (fts5Available) {
+    rebuildFtsIndexes(database);
+  }
+
+  return true;
+}
+
+async function migrateLegacyWorkspace(database: Database): Promise<boolean> {
+  const agentCount = Number(getScalar(database, 'SELECT COUNT(*) FROM agents') ?? 0);
+  if (agentCount > 0) {
+    return false;
   }
 
   const assistants = mapRows<{
@@ -750,6 +829,7 @@ async function migrateLegacyWorkspace(database: Database) {
     }
 
     database.run('COMMIT');
+    return true;
   } catch (error) {
     database.run('ROLLBACK');
     throw error;
@@ -953,12 +1033,21 @@ export async function saveAgent(
 export async function getActiveAgentId(): Promise<string | null> {
   await ensureAgentSchema();
   const stored = await localforage.getItem<string>(ACTIVE_AGENT_KEY);
-  if (stored) {
-    return stored;
+  const agents = await listAgents();
+  const resolved = resolveActiveAgentId(
+    stored,
+    agents.map((agent) => agent.id),
+  );
+
+  if (stored !== resolved) {
+    if (resolved) {
+      await localforage.setItem(ACTIVE_AGENT_KEY, resolved);
+    } else {
+      await localforage.removeItem(ACTIVE_AGENT_KEY);
+    }
   }
 
-  const agents = await listAgents();
-  return agents[0]?.id ?? null;
+  return resolved;
 }
 
 export async function setActiveAgentId(agentId: string) {

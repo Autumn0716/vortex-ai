@@ -26,3 +26,14 @@ export function buildMigratedTopicTitle(
 export function formatTopicPreview(content: string): string {
   return content.replace(/\s+/g, ' ').trim() || DEFAULT_TOPIC_PREVIEW;
 }
+
+export function resolveActiveAgentId(
+  storedAgentId: string | null | undefined,
+  agentIds: string[],
+): string | null {
+  if (storedAgentId && agentIds.includes(storedAgentId)) {
+    return storedAgentId;
+  }
+
+  return agentIds[0] ?? null;
+}
