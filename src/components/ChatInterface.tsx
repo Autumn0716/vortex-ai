@@ -47,7 +47,12 @@ import {
   type WorkspaceSearchResult,
   updateTopicTitle,
 } from '../lib/agent-workspace';
-import { type AgentConfig, getAgentConfig, saveAgentConfig } from '../lib/agent/config';
+import {
+  type AgentConfig,
+  getAgentConfig,
+  normalizeAgentConfig,
+  saveAgentConfig,
+} from '../lib/agent/config';
 import { applyThemePreferences } from '../lib/theme';
 import { syncBundledKnowledgeDocuments } from '../lib/project-knowledge';
 
@@ -156,6 +161,24 @@ function extractToolUsage(messages: any[], initialCount: number) {
   return tools;
 }
 
+const WORKSPACE_BOOT_TIMEOUT_MS = 8000;
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallbackMessage: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = globalThis.setTimeout(() => reject(new Error(fallbackMessage)), timeoutMs);
+
+    promise
+      .then((value) => {
+        globalThis.clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        globalThis.clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
+
 export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState<ChatTab>('chat');
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -168,7 +191,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [snippets, setSnippets] = useState<PromptSnippet[]>([]);
   const [memoryDocuments, setMemoryDocuments] = useState<AgentMemoryDocument[]>([]);
-  const [config, setConfig] = useState<AgentConfig | null>(null);
+  const [config, setConfig] = useState<AgentConfig>(() => normalizeAgentConfig());
   const [activeAgentId, setActiveAgentIdState] = useState<string | null>(null);
   const [activeTopicId, setActiveTopicIdState] = useState<string | null>(null);
   const [loadingWorkspace, setLoadingWorkspace] = useState(true);
@@ -239,6 +262,64 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     });
   };
 
+  const bootstrapWorkspace = async () => {
+    setLoadingWorkspace(true);
+
+    try {
+      const [searchCapabilities, bootstrap] = await Promise.all([
+        withTimeout(
+          getSearchCapabilities(),
+          WORKSPACE_BOOT_TIMEOUT_MS,
+          'Timed out while checking local search capabilities.',
+        ),
+        withTimeout(
+          ensureAgentWorkspaceBootstrap(),
+          WORKSPACE_BOOT_TIMEOUT_MS,
+          'Timed out while opening the local workspace.',
+        ),
+      ]);
+
+      startTransition(() => {
+        setFts5Enabled(searchCapabilities.fts5Available);
+      });
+
+      if (!bootstrap) {
+        startTransition(() => {
+          setWorkspace(null);
+          setTopics([]);
+          setAgents([]);
+          setMemoryDocuments([]);
+          setActiveTopicIdState(null);
+          setLoadingWorkspace(false);
+          setComposerNotice(
+            'Local workspace is empty or did not finish initializing. You can still open Settings or retry.',
+          );
+        });
+        return;
+      }
+
+      await withTimeout(
+        hydrateTopic(bootstrap.topic.id),
+        WORKSPACE_BOOT_TIMEOUT_MS,
+        'Timed out while loading the current topic.',
+      );
+      setComposerNotice('');
+    } catch (error) {
+      console.error('Failed to initialize agent workspace:', error);
+      startTransition(() => {
+        setWorkspace(null);
+        setTopics([]);
+        setAgents([]);
+        setMemoryDocuments([]);
+        setActiveTopicIdState(null);
+        setLoadingWorkspace(false);
+        setComposerNotice(
+          'Local workspace failed to open. Settings is still available, and you can retry the workspace bootstrap.',
+        );
+      });
+    }
+  };
+
   const activateAgent = async (agentId: string) => {
     const topic = await getOrCreateActiveTopic(agentId);
     await hydrateTopic(topic.id);
@@ -256,42 +337,26 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     let cancelled = false;
 
     const setup = async () => {
-      try {
-        const [currentConfig, searchCapabilities, bootstrap] = await Promise.all([
-          getAgentConfig(),
-          getSearchCapabilities(),
-          ensureAgentWorkspaceBootstrap(),
-        ]);
+      getAgentConfig()
+        .then((currentConfig) => {
+          if (cancelled) {
+            return;
+          }
 
-        if (cancelled) {
-          return;
-        }
-
-        startTransition(() => {
-          setConfig(currentConfig);
-          setFts5Enabled(searchCapabilities.fts5Available);
+          startTransition(() => {
+            setConfig(currentConfig);
+          });
+        })
+        .catch((error) => {
+          console.error('Failed to load agent config:', error);
         });
 
-        await refreshLibrary();
-
-        if (!bootstrap) {
-          setLoadingWorkspace(false);
+      try {
+        await bootstrapWorkspace();
+      } finally {
+        if (!cancelled) {
           void syncBundledKnowledgeDocuments().catch((error) => {
             console.warn('Bundled knowledge sync failed after bootstrap:', error);
-          });
-          return;
-        }
-
-        await hydrateTopic(bootstrap.topic.id);
-        void syncBundledKnowledgeDocuments().catch((error) => {
-          console.warn('Bundled knowledge sync failed after bootstrap:', error);
-        });
-      } catch (error) {
-        console.error('Failed to initialize agent workspace:', error);
-        if (!cancelled) {
-          startTransition(() => {
-            setLoadingWorkspace(false);
-            setComposerNotice('Workspace bootstrap hit an error. You can still open Settings and retry.');
           });
         }
       }
@@ -304,9 +369,6 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   }, []);
 
   useEffect(() => {
-    if (!config) {
-      return;
-    }
     applyThemePreferences(config);
   }, [config]);
 
@@ -348,9 +410,6 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   };
 
   const handleModelChange = async (value: string) => {
-    if (!config) {
-      return;
-    }
     const [providerId, model] = value.split('::');
     const nextConfig: AgentConfig = {
       ...config,
@@ -473,7 +532,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   };
 
   const handleSend = async () => {
-    if (!workspace || !config || !input.trim() || isGenerating) {
+    if (!workspace || !input.trim() || isGenerating) {
       return;
     }
 
@@ -572,7 +631,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }
   };
 
-  const enabledProviders = config?.providers.filter((provider) => provider.enabled) ?? [];
+  const enabledProviders = config.providers.filter((provider) => provider.enabled);
 
   return (
     <div className="app-shell relative z-10 flex h-screen w-full overflow-hidden font-sans text-white">
@@ -804,7 +863,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               <div className="flex items-center gap-2">
                 <div className="rounded-lg border border-white/10 bg-white/5 px-2">
                   <select
-                    value={config ? `${config.activeProviderId}::${config.activeModel}` : ''}
+                    value={`${config.activeProviderId}::${config.activeModel}`}
                     onChange={(event) => handleModelChange(event.target.value)}
                     className="bg-transparent py-2 text-sm text-white outline-none"
                   >
@@ -831,9 +890,33 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             </header>
 
             <div className="min-h-0 flex-1 overflow-hidden">
-              {loadingWorkspace || !workspace ? (
+              {loadingWorkspace ? (
                 <div className="flex h-full items-center justify-center text-sm text-white/40">
                   Loading agent workspace...
+                </div>
+              ) : !workspace ? (
+                <div className="flex h-full items-center justify-center p-6">
+                  <div className="w-full max-w-xl rounded-[28px] border border-white/10 bg-white/[0.03] p-6 text-white/80">
+                    <div className="text-lg font-semibold text-white">Local workspace unavailable</div>
+                    <p className="mt-3 text-sm leading-6 text-white/55">
+                      {composerNotice ||
+                        'The current topic could not be opened, but the rest of the interface is still available.'}
+                    </p>
+                    <div className="mt-5 flex flex-wrap gap-3">
+                      <button
+                        onClick={() => bootstrapWorkspace().catch(console.error)}
+                        className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
+                      >
+                        Retry Workspace
+                      </button>
+                      <button
+                        onClick={() => openSettings('data')}
+                        className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
+                      >
+                        Open Settings
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="h-full overflow-x-auto custom-scrollbar">
@@ -849,10 +932,10 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       }}
                       messages={workspace.messages}
                       isGenerating={isGenerating}
-                      showTimestamps={config?.ui.showTimestamps ?? true}
-                      showToolResults={config?.ui.showToolResults ?? true}
-                      autoScroll={config?.ui.autoScroll ?? true}
-                      compact={config?.ui.compactLanes ?? false}
+                      showTimestamps={config.ui.showTimestamps}
+                      showToolResults={config.ui.showToolResults}
+                      autoScroll={config.ui.autoScroll}
+                      compact={config.ui.compactLanes}
                     />
                   </div>
                 </div>
@@ -924,7 +1007,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-white/35">
                   <span>
                     {selectedAgent?.name ?? 'Agent'} ·{' '}
-                    {config?.memory.includeGlobalMemory ? 'Agent memory injected' : 'Agent memory paused'} · Shared knowledge base
+                    {config.memory.includeGlobalMemory ? 'Agent memory injected' : 'Agent memory paused'} · Shared knowledge base
                   </span>
                   <span>
                     {composerNotice || 'FlowAgent can make mistakes. Verify important output before shipping.'}
@@ -982,7 +1065,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         )}
       </div>
 
-      {showSettings && config ? (
+      {showSettings ? (
         <Suspense fallback={null}>
           <SettingsView
             config={config}

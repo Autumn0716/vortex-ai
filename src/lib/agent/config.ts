@@ -139,6 +139,13 @@ export interface AgentConfig {
   data: DataSettings;
 }
 
+interface EmbeddingEnvironmentDefaults {
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+  dimensions?: number;
+}
+
 const DEFAULT_PROVIDERS: ModelProvider[] = [
   {
     id: 'openai',
@@ -349,6 +356,51 @@ export const DEFAULT_CONFIG: AgentConfig = {
   },
 };
 
+function readEnvString(key: string): string | undefined {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
+  const value = env?.[key]?.trim();
+  return value ? value : undefined;
+}
+
+function readEnvInteger(key: string): number | undefined {
+  const value = readEnvString(key);
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function readEmbeddingEnvironmentDefaults(): EmbeddingEnvironmentDefaults {
+  return {
+    apiKey: readEnvString('VITE_EMBEDDING_API_KEY'),
+    model: readEnvString('VITE_EMBEDDING_MODEL'),
+    baseUrl: readEnvString('VITE_EMBEDDING_BASE_URL'),
+    dimensions: readEnvInteger('VITE_EMBEDDING_DIMENSIONS'),
+  };
+}
+
+export function resolveDocumentProcessingSettings(
+  value?: Partial<DocumentProcessingSettings>,
+  envDefaults: EmbeddingEnvironmentDefaults = readEmbeddingEnvironmentDefaults(),
+): DocumentProcessingSettings {
+  const merged: DocumentProcessingSettings = {
+    ...DEFAULT_CONFIG.documents,
+    ...(value ?? {}),
+  };
+
+  return {
+    ...merged,
+    embeddingApiKey: merged.embeddingApiKey.trim() || envDefaults.apiKey || '',
+    embeddingModel: merged.embeddingModel.trim() || envDefaults.model || DEFAULT_CONFIG.documents.embeddingModel,
+    embeddingBaseUrl:
+      merged.embeddingBaseUrl.trim() || envDefaults.baseUrl || DEFAULT_CONFIG.documents.embeddingBaseUrl,
+    embeddingDimensions:
+      merged.embeddingDimensions || envDefaults.dimensions || DEFAULT_CONFIG.documents.embeddingDimensions,
+  };
+}
+
 function normalizeStringArray(values?: string[]) {
   return values?.filter((value): value is string => Boolean(value && value.trim())) ?? [];
 }
@@ -528,10 +580,7 @@ export function normalizeAgentConfig(value?: Partial<AgentConfig> | null): Agent
       ...DEFAULT_CONFIG.apiServer,
       ...(value?.apiServer ?? {}),
     },
-    documents: {
-      ...DEFAULT_CONFIG.documents,
-      ...(value?.documents ?? {}),
-    },
+    documents: resolveDocumentProcessingSettings(value?.documents),
     data: {
       ...DEFAULT_CONFIG.data,
       ...(value?.data ?? {}),
