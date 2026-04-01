@@ -1174,7 +1174,7 @@ function upsertDocumentMetadata(
   );
 }
 
-function parseEmbeddingJson(raw: string) {
+export function parseEmbeddingJson(raw: string) {
   try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.map((value) => Number(value) || 0) : [];
@@ -1183,7 +1183,7 @@ function parseEmbeddingJson(raw: string) {
   }
 }
 
-function buildEmbeddingConfigFromDocuments(documents: {
+export function buildEmbeddingConfigFromDocuments(documents: {
   enableVectorSearch: boolean;
   embeddingApiKey: string;
   embeddingModel: string;

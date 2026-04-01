@@ -13,6 +13,7 @@ import { ensureAgentWorkspaceSchema } from '../src/lib/agent-workspace-schema';
 import { buildAgentMemoryPaths } from '../src/lib/agent-memory-files';
 import { getAgentMemoryContext, saveAgent, syncCurrentAgentMemory } from '../src/lib/agent-workspace';
 import { Database } from '../src/lib/db';
+import type { EmbeddingProviderConfig } from '../src/lib/embedding-client';
 
 const localforageState = new Map<string, unknown>();
 
@@ -115,6 +116,34 @@ function selectDerivedRows(database: Database) {
     )[0]?.values ?? []
   );
 }
+
+function selectColdEmbeddingRows(database: Database) {
+  return (
+    database.exec(
+      `
+        SELECT
+          memory_document_id,
+          agent_id,
+          event_date,
+          source_type,
+          embedding_model,
+          embedding_dimensions,
+          content_hash,
+          content_preview
+        FROM agent_memory_embeddings
+        ORDER BY event_date ASC
+      `,
+    )[0]?.values ?? []
+  );
+}
+
+const TEST_EMBEDDING_CONFIG: EmbeddingProviderConfig = {
+  apiKey: 'test-key',
+  model: 'test-embedding',
+  baseUrl: 'https://example.invalid/v1',
+  dimensions: 3,
+  encodingFormat: 'float',
+};
 
 test('syncAgentMemoryFromStore upserts derived rows for long-term and daily markdown files', async () => {
   const database = await createDatabase();
@@ -752,4 +781,121 @@ test('getAgentMemoryContext does not add cold fallback when default routing alre
   } finally {
     setAgentMemoryFileStore(null);
   }
+});
+
+test('syncAgentMemoryFromStore upserts cold memory embeddings when embedding config is available', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    ({
+      ok: true,
+      async json() {
+        return {
+          data: [{ index: 0, embedding: [0.2, 0.4, 0.8] }],
+          model: 'test-embedding',
+        };
+      },
+    }) as Response) as typeof fetch;
+
+  const database = await createDatabase();
+  const coldPaths = buildAgentMemoryPaths('flowagent-core', '2026-03-01');
+  const fileStore = new InMemoryFileStore(
+    new Map([
+      [coldPaths.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Cold source detail.\n- TODO archive it.'],
+      [coldPaths.coldFile, '---\ntitle: "2026-03-01 Cold Memory"\n---\n\n## Summary\nCold source detail.\n\n## Keywords\n- archive'],
+    ]),
+  );
+
+  try {
+    await syncAgentMemoryFromStore(database, {
+      agentId: 'agent_flowagent_core',
+      agentSlug: 'flowagent-core',
+      fileStore,
+      now: '2026-04-20T12:00:00.000Z',
+      embeddingConfig: TEST_EMBEDDING_CONFIG,
+    });
+
+    const rows = selectColdEmbeddingRows(database);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.[1], 'agent_flowagent_core');
+    assert.equal(rows[0]?.[2], '2026-03-01');
+    assert.equal(rows[0]?.[3], 'cold_summary');
+    assert.equal(rows[0]?.[4], 'test-embedding');
+    assert.equal(rows[0]?.[5], 3);
+    assert.match(String(rows[0]?.[7] ?? ''), /Cold source detail\./);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test('syncAgentMemoryFromStore deletes stale cold embeddings when cold surrogate disappears', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    ({
+      ok: true,
+      async json() {
+        return {
+          data: [{ index: 0, embedding: [0.1, 0.3, 0.9] }],
+          model: 'test-embedding',
+        };
+      },
+    }) as Response) as typeof fetch;
+
+  const database = await createDatabase();
+  const coldPaths = buildAgentMemoryPaths('flowagent-core', '2026-03-01');
+  const fullStore = new InMemoryFileStore(
+    new Map([
+      [coldPaths.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Cold source detail.'],
+      [coldPaths.coldFile, '---\ntitle: "2026-03-01 Cold Memory"\n---\n\n## Summary\nCold source detail.\n\n## Keywords\n- archive'],
+    ]),
+  );
+
+  try {
+    await syncAgentMemoryFromStore(database, {
+      agentId: 'agent_flowagent_core',
+      agentSlug: 'flowagent-core',
+      fileStore: fullStore,
+      now: '2026-04-20T12:00:00.000Z',
+      embeddingConfig: TEST_EMBEDDING_CONFIG,
+    });
+
+    const sourceOnlyStore = new InMemoryFileStore(
+      new Map([[coldPaths.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Cold source detail.']]),
+    );
+
+    await syncAgentMemoryFromStore(database, {
+      agentId: 'agent_flowagent_core',
+      agentSlug: 'flowagent-core',
+      fileStore: sourceOnlyStore,
+      now: '2026-04-05T12:00:00.000Z',
+      embeddingConfig: TEST_EMBEDDING_CONFIG,
+    });
+
+    assert.equal(selectColdEmbeddingRows(database).length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    database.close();
+  }
+});
+
+test('syncAgentMemoryFromStore skips cold vector sync when embedding config is unavailable', async () => {
+  const database = await createDatabase();
+  const coldPaths = buildAgentMemoryPaths('flowagent-core', '2026-03-01');
+  const fileStore = new InMemoryFileStore(
+    new Map([
+      [coldPaths.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Cold source detail.'],
+      [coldPaths.coldFile, '---\ntitle: "2026-03-01 Cold Memory"\n---\n\n## Summary\nCold source detail.\n\n## Keywords\n- archive'],
+    ]),
+  );
+
+  await syncAgentMemoryFromStore(database, {
+    agentId: 'agent_flowagent_core',
+    agentSlug: 'flowagent-core',
+    fileStore,
+    now: '2026-04-20T12:00:00.000Z',
+    embeddingConfig: null,
+  });
+
+  assert.equal(selectColdEmbeddingRows(database).length, 0);
+  database.close();
 });

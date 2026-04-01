@@ -1,4 +1,6 @@
+import { getAgentConfig } from './agent/config';
 import type { Database } from './db';
+import { buildEmbeddingConfigFromDocuments } from './db';
 import {
   buildAgentMemoryPaths,
   detectMemoryFileKind,
@@ -17,6 +19,11 @@ import {
   type MemoryScope,
   type MemorySourceType,
 } from './agent-memory-model';
+import {
+  buildEmbeddingContentHash,
+  createEmbeddings,
+  type EmbeddingProviderConfig,
+} from './embedding-client';
 
 export interface AgentMemoryFileStore {
   listPaths(prefix: string): Promise<string[]>;
@@ -42,6 +49,11 @@ interface DerivedMemoryDocument {
   importanceScore: number;
   eventDate: string | null;
   updatedAt: string;
+}
+
+interface AgentMemoryEmbeddingRow {
+  memory_document_id: string;
+  content_hash: string;
 }
 
 interface LegacyMemoryRow {
@@ -451,6 +463,149 @@ function deleteStaleDerivedDocuments(database: Database, agentId: string, synced
   return staleIds.length > 0;
 }
 
+function readColdMemoryEmbeddingRows(database: Database, agentId: string) {
+  return mapRows<AgentMemoryEmbeddingRow>(
+    database.exec(
+      `
+        SELECT memory_document_id, content_hash
+        FROM agent_memory_embeddings
+        WHERE agent_id = ?
+          AND source_type = 'cold_summary'
+      `,
+      [agentId],
+    ),
+  );
+}
+
+function deleteColdMemoryEmbedding(database: Database, memoryDocumentId: string) {
+  database.run('DELETE FROM agent_memory_embeddings WHERE memory_document_id = ?', [memoryDocumentId]);
+}
+
+function upsertColdMemoryEmbedding(
+  database: Database,
+  input: {
+    memoryDocumentId: string;
+    agentId: string;
+    eventDate: string | null;
+    sourceType: MemorySourceType;
+    embeddingModel: string;
+    embeddingDimensions: number;
+    contentHash: string;
+    embeddingJson: string;
+    contentPreview: string;
+    updatedAt: string;
+  },
+) {
+  database.run(
+    `
+      INSERT INTO agent_memory_embeddings (
+        memory_document_id,
+        agent_id,
+        event_date,
+        source_type,
+        embedding_model,
+        embedding_dimensions,
+        content_hash,
+        embedding_json,
+        content_preview,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(memory_document_id) DO UPDATE SET
+        agent_id = excluded.agent_id,
+        event_date = excluded.event_date,
+        source_type = excluded.source_type,
+        embedding_model = excluded.embedding_model,
+        embedding_dimensions = excluded.embedding_dimensions,
+        content_hash = excluded.content_hash,
+        embedding_json = excluded.embedding_json,
+        content_preview = excluded.content_preview,
+        updated_at = excluded.updated_at
+    `,
+    [
+      input.memoryDocumentId,
+      input.agentId,
+      input.eventDate,
+      input.sourceType,
+      input.embeddingModel,
+      input.embeddingDimensions,
+      input.contentHash,
+      input.embeddingJson,
+      input.contentPreview,
+      input.updatedAt,
+    ],
+  );
+}
+
+async function resolveEmbeddingConfig(override?: EmbeddingProviderConfig | null) {
+  if (override !== undefined) {
+    return override;
+  }
+
+  const config = await getAgentConfig();
+  return buildEmbeddingConfigFromDocuments(config.documents);
+}
+
+async function syncColdMemoryEmbeddings(
+  database: Database,
+  input: {
+    agentId: string;
+    documents: DerivedMemoryDocument[];
+    embeddingConfig?: EmbeddingProviderConfig | null;
+  },
+) {
+  const coldDocuments = input.documents.filter((document) => document.sourceType === 'cold_summary');
+  const currentIds = new Set(coldDocuments.map((document) => document.id));
+  const existingRows = readColdMemoryEmbeddingRows(database, input.agentId);
+
+  existingRows.forEach((row) => {
+    if (!currentIds.has(row.memory_document_id)) {
+      deleteColdMemoryEmbedding(database, row.memory_document_id);
+    }
+  });
+
+  const embeddingConfig = await resolveEmbeddingConfig(input.embeddingConfig);
+  const existingById = new Map(existingRows.map((row) => [row.memory_document_id, row]));
+
+  if (!embeddingConfig) {
+    coldDocuments.forEach((document) => {
+      const contentHash = buildEmbeddingContentHash(document.content);
+      const existing = existingById.get(document.id);
+      if (existing && existing.content_hash !== contentHash) {
+        deleteColdMemoryEmbedding(database, document.id);
+      }
+    });
+    return;
+  }
+
+  for (const document of coldDocuments) {
+    const contentHash = buildEmbeddingContentHash(document.content);
+    const existing = existingById.get(document.id);
+    if (existing?.content_hash === contentHash) {
+      continue;
+    }
+
+    const response = await createEmbeddings(document.content, embeddingConfig);
+    const embedding = response.data[0]?.embedding;
+    if (!Array.isArray(embedding) || embedding.length === 0) {
+      continue;
+    }
+
+    upsertColdMemoryEmbedding(database, {
+      memoryDocumentId: document.id,
+      agentId: input.agentId,
+      eventDate: document.eventDate,
+      sourceType: document.sourceType,
+      embeddingModel: embeddingConfig.model,
+      embeddingDimensions: embedding.length,
+      contentHash,
+      embeddingJson: JSON.stringify(embedding),
+      contentPreview: document.content.slice(0, 240),
+      updatedAt: document.updatedAt,
+    });
+  }
+}
+
 function deleteMigratedLegacyRows(database: Database, rows: LegacyMemoryRow[]) {
   const deletableIds = rows.map((row) => row.id);
   deletableIds.forEach((id) => {
@@ -524,6 +679,7 @@ export async function syncAgentMemoryFromStore(
     agentSlug: string;
     fileStore: AgentMemoryFileStore;
     now?: string;
+    embeddingConfig?: EmbeddingProviderConfig | null;
   },
 ) {
   const now = input.now ?? new Date().toISOString();
@@ -554,6 +710,11 @@ export async function syncAgentMemoryFromStore(
     input.agentId,
     documents.map((document) => document.id),
   );
+  await syncColdMemoryEmbeddings(database, {
+    agentId: input.agentId,
+    documents,
+    embeddingConfig: input.embeddingConfig,
+  });
   const deletedLegacy = deleteMigratedLegacyRows(database, migration.rows);
 
   return {

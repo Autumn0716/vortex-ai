@@ -84,6 +84,19 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS agent_memory_embeddings (
+      memory_document_id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      event_date TEXT,
+      source_type TEXT NOT NULL,
+      embedding_model TEXT NOT NULL,
+      embedding_dimensions INTEGER NOT NULL,
+      content_hash TEXT NOT NULL,
+      embedding_json TEXT NOT NULL,
+      content_preview TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   ensureColumn(database, 'agent_memory_documents', 'memory_scope', "memory_scope TEXT NOT NULL DEFAULT 'global'");
@@ -99,5 +112,7 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
     CREATE INDEX IF NOT EXISTS idx_topic_messages_agent_created ON topic_messages(agent_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_agent_memory_agent_updated ON agent_memory_documents(agent_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_agent_memory_scope_updated ON agent_memory_documents(agent_id, memory_scope, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_embeddings_agent_source ON agent_memory_embeddings(agent_id, source_type, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_embeddings_agent_event ON agent_memory_embeddings(agent_id, event_date DESC);
   `);
 }

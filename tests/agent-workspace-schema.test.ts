@@ -40,3 +40,43 @@ test('ensureAgentWorkspaceSchema adds missing memory columns before creating ind
   assert.notEqual(createIndex, -1);
   assert.ok(alterIndex < createIndex);
 });
+
+test('ensureAgentWorkspaceSchema creates cold memory embedding storage', () => {
+  const runs: string[] = [];
+
+  const database = {
+    run(sql: string) {
+      runs.push(sql);
+    },
+    exec(sql: string) {
+      if (sql === 'PRAGMA table_info(agent_memory_documents)') {
+        return [
+          {
+            columns: ['name'],
+            values: [
+              ['id'],
+              ['agent_id'],
+              ['title'],
+              ['content'],
+              ['memory_scope'],
+              ['source_type'],
+              ['importance_score'],
+              ['topic_id'],
+              ['event_date'],
+              ['created_at'],
+              ['updated_at'],
+            ],
+          },
+        ];
+      }
+
+      return [];
+    },
+  };
+
+  ensureAgentWorkspaceSchema(database);
+
+  assert.ok(runs.some((sql) => sql.includes('CREATE TABLE IF NOT EXISTS agent_memory_embeddings')));
+  assert.ok(runs.some((sql) => sql.includes('CREATE INDEX IF NOT EXISTS idx_agent_memory_embeddings_agent_source')));
+  assert.ok(runs.some((sql) => sql.includes('CREATE INDEX IF NOT EXISTS idx_agent_memory_embeddings_agent_event')));
+});
