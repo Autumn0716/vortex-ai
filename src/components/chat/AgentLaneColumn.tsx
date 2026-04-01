@@ -2,8 +2,26 @@ import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Bot, User, Zap } from 'lucide-react';
-import { type AgentLane, type ChatMessage } from '../../lib/db';
+import type { StoredToolRun } from '../../lib/db';
 import { estimateMessageCardHeight } from '../../lib/pretext';
+
+interface LaneLike {
+  id: string;
+  name: string;
+  description: string;
+  model?: string;
+  accentColor: string;
+  position?: number;
+}
+
+interface MessageLike {
+  id: string;
+  role: 'user' | 'assistant' | 'system' | 'tool';
+  authorName: string;
+  content: string;
+  createdAt: string;
+  tools?: StoredToolRun[];
+}
 
 function resolveAccentColor(input?: string) {
   if (!input) {
@@ -30,8 +48,8 @@ function resolveAccentColor(input?: string) {
 }
 
 export interface AgentLaneColumnProps {
-  lane: AgentLane;
-  messages: ChatMessage[];
+  lane: LaneLike;
+  messages: MessageLike[];
   isGenerating: boolean;
   showTimestamps: boolean;
   showToolResults: boolean;
@@ -104,7 +122,7 @@ export function AgentLaneColumn({
                 {lane.model}
               </span>
             ) : null}
-            <span>Lane {lane.position + 1}</span>
+            <span>Agent View {typeof lane.position === 'number' ? lane.position + 1 : 1}</span>
           </div>
         </div>
       </header>
