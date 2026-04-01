@@ -3,9 +3,12 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { createNightlyMemoryArchiveScheduler } from './nightly-memory-archive';
+
 export interface FlowAgentApiServerOptions {
   authToken?: string;
   rootDir?: string;
+  nightlyArchiveNow?: () => string | Date;
 }
 
 function normalizeRelativePath(input: string) {
@@ -99,17 +102,64 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
   const rootDir = path.resolve(options.rootDir ?? process.env.FLOWAGENT_PROJECT_ROOT ?? process.cwd());
   const authToken = (options.authToken ?? process.env.FLOWAGENT_API_TOKEN ?? '').trim();
   const memoryRootDir = path.resolve(rootDir, 'memory/agents');
+  const nightlyArchiveScheduler = createNightlyMemoryArchiveScheduler({
+    rootDir,
+    now: options.nightlyArchiveNow,
+  });
+  const nightlyArchiveReady = nightlyArchiveScheduler.start();
   const app = express();
 
   app.use(express.json({ limit: '2mb' }));
   applyCors(app);
   applyAuth(app, authToken);
 
-  app.get('/health', (_request, response) => {
+  app.get('/health', async (_request, response) => {
+    const nightlyArchive = await nightlyArchiveScheduler.getStatus();
     response.json({
       ok: true,
       rootDir,
+      nightlyArchive: {
+        enabled: nightlyArchive.settings.enabled,
+        time: nightlyArchive.settings.time,
+        running: nightlyArchive.running,
+        nextRunAt: nightlyArchive.nextRunAt,
+        catchUpDue: nightlyArchive.catchUpDue,
+        lastSuccessfulRunAt: nightlyArchive.state.lastSuccessfulRunAt,
+        lastAttemptedRunAt: nightlyArchive.state.lastAttemptedRunAt,
+        lastRunSummary: nightlyArchive.state.lastRunSummary
+          ? {
+              processedAgents: nightlyArchive.state.lastRunSummary.processedAgents,
+              successfulAgents: nightlyArchive.state.lastRunSummary.successfulAgents,
+              failedAgents: nightlyArchive.state.lastRunSummary.failedAgents,
+              failures: nightlyArchive.state.lastRunSummary.failures,
+            }
+          : null,
+      },
     });
+  });
+
+  app.get('/api/nightly-archive', async (_request, response) => {
+    try {
+      response.json(await nightlyArchiveScheduler.getStatus());
+    } catch (error) {
+      response.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to read nightly archive status.',
+      });
+    }
+  });
+
+  app.put('/api/nightly-archive', async (request, response) => {
+    try {
+      const nextSettings = await nightlyArchiveScheduler.updateSettings({
+        enabled: typeof request.body?.enabled === 'boolean' ? request.body.enabled : undefined,
+        time: typeof request.body?.time === 'string' ? request.body.time : undefined,
+      });
+      response.json(nextSettings);
+    } catch (error) {
+      response.status(400).json({
+        error: error instanceof Error ? error.message : 'Failed to update nightly archive settings.',
+      });
+    }
   });
 
   app.get('/api/memory/paths', async (request, response) => {
@@ -203,13 +253,16 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     app,
     rootDir,
     memoryRootDir,
+    nightlyArchiveScheduler,
+    nightlyArchiveReady,
   };
 }
 
 async function startServer() {
   const port = Number(process.env.FLOWAGENT_API_PORT ?? 3850);
   const host = process.env.FLOWAGENT_API_HOST ?? '127.0.0.1';
-  const { app, memoryRootDir } = createFlowAgentApiServer();
+  const { app, memoryRootDir, nightlyArchiveReady } = createFlowAgentApiServer();
+  await nightlyArchiveReady;
 
   app.listen(port, host, () => {
     console.log(`FlowAgent API server listening on http://${host}:${port}`);

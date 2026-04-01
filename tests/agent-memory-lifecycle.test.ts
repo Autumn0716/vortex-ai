@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -23,7 +23,12 @@ async function createTempRoot() {
 }
 
 async function startServer(rootDir: string) {
-  const { app } = createFlowAgentApiServer({ rootDir, authToken: '' });
+  const { app, nightlyArchiveReady } = createFlowAgentApiServer({
+    rootDir,
+    authToken: '',
+    nightlyArchiveNow: () => '2026-04-20T12:00:00.000Z',
+  });
+  await nightlyArchiveReady;
   const server = await new Promise<Server>((resolve, reject) => {
     const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
     instance.on('error', reject);
@@ -428,6 +433,32 @@ test('listAgentMemoryFiles exposes warm and cold surrogate entries distinctly', 
         .sort(),
       ['2026-04-10.cold.md', '2026-04-10.md', '2026-04-10.warm.md'],
     );
+  } finally {
+    await server.close();
+  }
+});
+
+test('API server startup catch-up generates warm and cold surrogate files before the server is used', async () => {
+  const rootDir = await createTempRoot();
+  await mkdir(path.join(rootDir, 'memory/agents/core/daily'), { recursive: true });
+  await writeFile(
+    path.join(rootDir, 'memory/agents/core/daily/2026-04-10.md'),
+    '- TODO warm summary from startup catch-up.',
+    'utf8',
+  );
+  await writeFile(
+    path.join(rootDir, 'memory/agents/core/daily/2026-03-01.md'),
+    '- TODO cold summary from startup catch-up.',
+    'utf8',
+  );
+
+  const server = await startServer(rootDir);
+  try {
+    const warm = await readFile(path.join(rootDir, 'memory/agents/core/daily/2026-04-10.warm.md'), 'utf8');
+    const cold = await readFile(path.join(rootDir, 'memory/agents/core/daily/2026-03-01.cold.md'), 'utf8');
+
+    assert.match(warm, /tier: "warm"/);
+    assert.match(cold, /tier: "cold"/);
   } finally {
     await server.close();
   }

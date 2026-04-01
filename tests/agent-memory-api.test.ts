@@ -30,7 +30,8 @@ async function createTempRoot() {
 }
 
 async function startServer(rootDir: string, authToken = '') {
-  const { app } = createFlowAgentApiServer({ rootDir, authToken });
+  const { app, nightlyArchiveReady } = createFlowAgentApiServer({ rootDir, authToken });
+  await nightlyArchiveReady;
   const server = await new Promise<Server>((resolve, reject) => {
     const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
     instance.on('error', reject);
@@ -93,6 +94,47 @@ test('API server health and file operations work through the registered memory f
 
     const diskContent = await readFile(path.join(rootDir, 'memory/agents/flowagent-core/MEMORY.md'), 'utf8');
     assert.equal(diskContent, '# Memory\n\n默认使用中文输出。');
+  } finally {
+    await server.close();
+  }
+});
+
+test('API server exposes readable and writable nightly archive settings', async () => {
+  const rootDir = await createTempRoot();
+  const server = await startServer(rootDir);
+
+  try {
+    const initialResponse = await fetch(`${server.baseUrl}/api/nightly-archive`);
+    const initialStatus = await initialResponse.json();
+    assert.equal(initialStatus.settings.enabled, true);
+    assert.equal(initialStatus.settings.time, '03:00');
+
+    const updateResponse = await fetch(`${server.baseUrl}/api/nightly-archive`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        enabled: false,
+        time: '04:30',
+      }),
+    });
+    assert.equal(updateResponse.ok, true);
+
+    const nextStatus = await updateResponse.json();
+    assert.equal(nextStatus.settings.enabled, false);
+    assert.equal(nextStatus.settings.time, '04:30');
+
+    const settingsFile = await readFile(path.join(rootDir, '.flowagent/nightly-memory-archive-settings.json'), 'utf8');
+    assert.match(settingsFile, /"time": "04:30"/);
+
+    const health = await getApiServerHealth({
+      enabled: true,
+      baseUrl: server.baseUrl,
+      authToken: '',
+    });
+    assert.equal(health?.nightlyArchive?.enabled, false);
+    assert.equal(health?.nightlyArchive?.time, '04:30');
   } finally {
     await server.close();
   }

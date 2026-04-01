@@ -23,9 +23,39 @@ interface ApiFileResponse {
   content?: string;
 }
 
-interface ApiHealthResponse {
+export interface ApiHealthResponse {
   ok?: boolean;
   rootDir?: string;
+  nightlyArchive?: {
+    enabled: boolean;
+    time: string;
+    running: boolean;
+    nextRunAt: string | null;
+    catchUpDue: boolean;
+    lastSuccessfulRunAt: string | null;
+    lastAttemptedRunAt: string | null;
+    lastRunSummary: {
+      processedAgents: number;
+      successfulAgents: number;
+      failedAgents: number;
+      failures: Array<{ agentSlug: string; message: string }>;
+    } | null;
+  };
+}
+
+export interface NightlyArchiveStatus {
+  settings: {
+    enabled: boolean;
+    time: string;
+  };
+  state: {
+    lastSuccessfulRunAt: string | null;
+    lastAttemptedRunAt: string | null;
+    lastRunSummary: ApiHealthResponse['nightlyArchive'] extends { lastRunSummary: infer T } ? T : never;
+  };
+  nextRunAt: string | null;
+  catchUpDue: boolean;
+  running: boolean;
 }
 
 export interface AgentMemoryFileEntry {
@@ -143,6 +173,28 @@ export async function getApiServerHealth(settings: ApiServerSettings): Promise<A
   }
 
   return requestApi<ApiHealthResponse>(settings, '/health', {}, { allowNotFound: true });
+}
+
+export async function getNightlyArchiveStatus(settings: ApiServerSettings): Promise<NightlyArchiveStatus | null> {
+  if (!settings.enabled) {
+    return null;
+  }
+
+  return requestApi<NightlyArchiveStatus>(settings, '/api/nightly-archive', {}, { allowNotFound: true });
+}
+
+export async function saveNightlyArchiveSettings(
+  settings: ApiServerSettings,
+  value: { enabled?: boolean; time?: string },
+): Promise<NightlyArchiveStatus | null> {
+  if (!settings.enabled) {
+    throw new Error('The local API server is disabled.');
+  }
+
+  return requestApi<NightlyArchiveStatus>(settings, '/api/nightly-archive', {
+    method: 'PUT',
+    body: JSON.stringify(value),
+  });
 }
 
 function createMemoryTemplate(agentName: string) {
