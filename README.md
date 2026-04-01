@@ -4,60 +4,142 @@
 
 # FlowAgent AI
 
-This repository contains the local-first FlowAgent workspace, including agent lanes, local SQLite-backed knowledge retrieval, LangGraph-based runtime execution, and the new file-backed agent memory model.
+FlowAgent AI 是一个本地优先的智能代理工作空间，集成了智能体通道、基于本地 SQLite 的知识检索、LangGraph 运行时执行，以及创新的基于文件的代理记忆模型。
 
-## Run Locally
+## 核心特性
 
-Prerequisites:
+### 🧠 智能记忆系统
+- **分层记忆架构**: 实现长期记忆（全局记忆）和短期记忆（每日日志）
+- **自动晋升机制**: 用户明确标记的重要信息会自动晋升为长期记忆
+- **文件化存储**: 记忆以 Markdown 文件为真实来源，支持本地编辑
+- **智能检索**: 支持热/温/冷三层记忆检索，按重要性和时效性分层管理
+
+### 🔍 本地 RAG 引擎
+- **混合检索**: 结合向量检索和关键词检索（BM25）
+- **多模型支持**: 支持 text-embedding-v4 等多种嵌入模型
+- **语义缓存**: 避免重复计算，提升检索效率
+- **任务拆解**: 将复杂查询分解为多个子任务
+
+### 💾 本地优先架构
+- **离线可用**: 所有数据存储在本地，保护隐私
+- **SQLite WASM**: 使用官方 SQLite WASM 实现本地存储
+- **实时同步**: 记忆和知识库实时同步到本地数据库
+
+### 🌐 知识库管理
+- **自动同步**: 项目内的 Markdown 文档自动同步到知识库
+- **动态索引**: 支持实时更新和重建索引
+- **文档分块**: 智能文档解析和递归切分
+
+## 快速开始
+
+### 环境要求
 
 - Node.js
 - npm
 
-Install and start the web app:
+### 安装和启动
+
+安装依赖并启动 Web 应用：
 
 ```bash
 npm install
 npm run dev
 ```
 
-The Vite app runs on `http://127.0.0.1:3000` by default.
+Vite 应用默认运行在 `http://127.0.0.1:3000`。
 
-## Local Memory API Server
+### 本地记忆 API 服务器
 
-The frontend can now edit real project memory files through a local API server. Start it from the repository root:
+前端可以通过本地 API 服务器编辑项目记忆文件。从仓库根目录启动：
 
 ```bash
 npm run api-server
 ```
 
-By default it listens on `http://127.0.0.1:3850`.
+默认监听端口为 `http://127.0.0.1:3850`。
 
-Optional environment variables:
+可选环境变量：
 
-- `FLOWAGENT_API_PORT`: override the local API port
-- `FLOWAGENT_PROJECT_ROOT`: override the project root used for memory file resolution
-- `FLOWAGENT_API_TOKEN`: require `Authorization: Bearer <token>` on API requests
+- `FLOWAGENT_API_PORT`: 覆盖本地 API 端口
+- `FLOWAGENT_PROJECT_ROOT`: 覆盖用于记忆文件解析的项目根目录
+- `FLOWAGENT_API_TOKEN`: 在 API 请求上要求 `Authorization: Bearer <token>`
 
-In Settings -> `API 服务器`:
+在设置 -> `API 服务器` 中：
 
-- enable the local API server toggle
-- keep `http://127.0.0.1:3850` as the default `baseUrl`, or point it to your custom server
-- if you configured `FLOWAGENT_API_TOKEN`, put the same token in `authToken`
+- 启用本地 API 服务器开关
+- 保持 `http://127.0.0.1:3850` 作为默认 `baseUrl`，或指向自定义服务器
+- 如果配置了 `FLOWAGENT_API_TOKEN`，在 `authToken` 中放入相同令牌
 
-## Memory Storage
+## 记忆存储机制
 
-Agent memory now uses Markdown files as the only source of truth.
+代理记忆现在使用 Markdown 文件作为唯一真实来源。
 
-- Long-term memory: `memory/agents/<agent-slug>/MEMORY.md`
-- Daily short-term memory: `memory/agents/<agent-slug>/daily/YYYY-MM-DD.md`
-- Default scan scope: only the current agent's own memory directory
-- Cross-agent scanning: only when the user explicitly asks for it
+- **长期记忆**: `memory/agents/<agent-slug>/MEMORY.md`
+- **每日短期记忆**: `memory/agents/<agent-slug>/daily/YYYY-MM-DD.md`
+- **默认扫描范围**: 仅当前代理自己的记忆目录
+- **跨代理扫描**: 仅在用户明确要求时启用
 
-Rules:
+规则：
 
-- Markdown files are authoritative
-- SQLite is only a rebuildable index and cache layer
-- UI edits write Markdown first, then refresh the current agent's derived index
-- Manual edits outside the app can be restored by rescanning the current agent memory files
+- Markdown 文件具有权威性
+- SQLite 仅为可重建的索引和缓存层
+- UI 编辑首先写入 Markdown，然后刷新当前代理的派生索引
+- 通过重新扫描当前代理记忆文件可以恢复对应用之外的手动编辑
 
-The runtime remains on the existing LangGraph stack in [`src/lib/agent/runtime.ts`](src/lib/agent/runtime.ts); memory changes feed that runtime through file-backed derived records rather than a second agent framework.
+### 温冷层生命周期
+
+- 原始每日记忆继续保留在 `memory/agents/<agent-slug>/daily/YYYY-MM-DD.md`
+- 温层替身位于 `memory/agents/<agent-slug>/daily/YYYY-MM-DD.warm.md`
+- 冷层替身位于 `memory/agents/<agent-slug>/daily/YYYY-MM-DD.cold.md`
+- 热层（0-2 天）优先读取原始 daily 文件
+- 温层（3-15 天）优先读取 `*.warm.md`，缺失时回退到原始 daily
+- 冷层（15 天以上）优先读取 `*.cold.md`，缺失时再回退到 warm/source
+- 设置页 `Memory` 分类可以手动触发“同步温冷层”，生成替身并刷新当前 agent 的派生索引
+- 当前阶段原始 daily 文件不会删除，仍作为唯一真源保留
+
+## 技术架构
+
+### 记忆生命周期管理
+- **热层** (0-2天): 完整文档内容，支持全文检索
+- **温层** (3-15天): 摘要、元数据、关键词替身
+- **冷层** (15天以上): 超精简摘要、关键词标签、时间索引
+
+### 智能查询路由
+- 根据问题的时间指向性智能选择检索层
+- 支持时间敏感查询（如"上个月的计划"）直接跳转到相应记忆层
+
+### 重要性评分系统
+- LLM 自动为记忆内容打分（1-5分）
+- 高分信息（身份、偏好、重要决策）长期驻留
+- 低分信息（日常闲聊）执行自动压缩
+
+运行时仍然基于现有的 LangGraph 栈在 [`src/lib/agent/runtime.ts`](src/lib/agent/runtime.ts)；记忆变化通过基于文件的派生记录馈送到运行时，而不是使用第二个代理框架。
+
+## 开发计划
+
+### 已完成
+- ✅ 本地优先 RAG 基础设施
+- ✅ 混合检索（关键词 + 向量）
+- ✅ 分层记忆系统
+- ✅ 记忆文件化存储
+- ✅ 语义缓存
+- ✅ 任务拆解层
+
+### 正在进行
+- 🔄 Query Router（查询路由）
+- 🔄 温层摘要替身
+- 🔄 冷层压缩与向量化
+
+### 计划中
+- 📋 知识图谱（GraphRAG）
+- 📋 高级 RAG 技术（Self-RAG、Corrective RAG）
+- 📋 重排序和上下文压缩
+- 📋 完整的技能系统集成
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request 来帮助改进 FlowAgent AI！
+
+## 许可证
+
+本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。

@@ -63,6 +63,7 @@ import {
   listAgentMemoryFiles,
   readAgentMemoryFile,
   resolveApiServerBaseUrl,
+  syncAgentMemoryLifecycleForAgent,
   writeAgentMemoryFile,
   type AgentMemoryFileEntry,
 } from '../../lib/agent-memory-api';
@@ -160,6 +161,26 @@ interface ProviderModelFetchResult {
 interface MemoryFileStatus {
   tone: 'neutral' | 'success' | 'error';
   message: string;
+}
+
+function formatLifecycleSyncStatus(input: {
+  scannedCount: number;
+  warmUpdated: number;
+  coldUpdated: number;
+  skippedCount: number;
+  failures: Array<{ path: string; message: string }>;
+}) {
+  const summary = `温冷层同步完成：扫描 ${input.scannedCount} 个源文件，更新 warm ${input.warmUpdated}、cold ${input.coldUpdated}，跳过 ${input.skippedCount}，失败 ${input.failures.length}。`;
+  if (input.failures.length === 0) {
+    return summary;
+  }
+
+  const failurePreview = input.failures
+    .slice(0, 2)
+    .map((failure) => `${failure.path}: ${failure.message}`)
+    .join('；');
+  const suffix = input.failures.length > 2 ? `；其余 ${input.failures.length - 2} 项见控制台` : '';
+  return `${summary} ${failurePreview}${suffix}`;
 }
 
 function createProviderId() {
@@ -729,6 +750,34 @@ export const SettingsView = ({
         tone: 'error',
         message: error instanceof Error ? error.message : '重扫索引失败。',
       });
+    }
+  };
+
+  const handleLifecycleSync = async () => {
+    if (!activeMemoryAgent) {
+      return;
+    }
+
+    setMemoryFileLoading(true);
+    try {
+      const lifecycleResult = await syncAgentMemoryLifecycleForAgent(activeMemoryAgent.slug, draft.apiServer);
+      await rescanAgentMemory(
+        activeMemoryAgent.id,
+        `${formatLifecycleSyncStatus(lifecycleResult)} 已刷新当前 agent 索引。`,
+      );
+      await loadMemoryFiles({
+        preferredPath: activeMemoryFilePath,
+      });
+      if (lifecycleResult.failures.length > 0) {
+        console.warn('Memory lifecycle sync failures:', lifecycleResult.failures);
+      }
+    } catch (error) {
+      setMemoryFileStatus({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '同步温冷层失败。',
+      });
+    } finally {
+      setMemoryFileLoading(false);
     }
   };
 
@@ -2079,6 +2128,16 @@ export const SettingsView = ({
                       >
                         <RefreshCw size={14} />
                         重扫索引
+                      </button>
+                      <button
+                        onClick={() => {
+                          handleLifecycleSync().catch(console.error);
+                        }}
+                        disabled={!draft.apiServer.enabled || !activeMemoryAgent || memoryFileLoading}
+                        className="inline-flex items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-500/10 px-4 py-2 text-sm text-amber-100 hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <RefreshCw size={14} />
+                        同步温冷层
                       </button>
                       <button
                         onClick={() => {

@@ -9,6 +9,7 @@ import { after, test } from 'node:test';
 import { createFlowAgentApiServer, resolveAllowedPath } from '../server/api-server';
 import {
   getApiServerHealth,
+  listAgentMemoryFiles,
   readAgentMemoryFile,
   registerConfiguredAgentMemoryFileStore,
   writeAgentMemoryFile,
@@ -121,6 +122,35 @@ test('API file helpers respect auth token protection', async () => {
     await assert.rejects(
       () => readAgentMemoryFile('memory/agents/flowagent-core/MEMORY.md', unauthorized),
       /Unauthorized/,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test('API memory file listing includes warm and cold surrogate markdown files', async () => {
+  const rootDir = await createTempRoot();
+  const server = await startServer(rootDir);
+  const settings = {
+    enabled: true,
+    baseUrl: server.baseUrl,
+    authToken: '',
+  };
+
+  try {
+    await writeAgentMemoryFile('memory/agents/flowagent-core/MEMORY.md', '# Memory', settings);
+    await writeAgentMemoryFile('memory/agents/flowagent-core/daily/2026-04-01.md', '# Source', settings);
+    await writeAgentMemoryFile('memory/agents/flowagent-core/daily/2026-04-01.warm.md', '# Warm', settings);
+    await writeAgentMemoryFile('memory/agents/flowagent-core/daily/2026-04-01.cold.md', '# Cold', settings);
+
+    const files = await listAgentMemoryFiles('flowagent-core', settings);
+    assert.deepEqual(
+      files.filter((file) => file.path.includes('/daily/')).map((file) => [file.path, file.kind, file.label]),
+      [
+        ['memory/agents/flowagent-core/daily/2026-04-01.warm.md', 'daily_warm', '2026-04-01.warm.md'],
+        ['memory/agents/flowagent-core/daily/2026-04-01.md', 'daily_source', '2026-04-01.md'],
+        ['memory/agents/flowagent-core/daily/2026-04-01.cold.md', 'daily_cold', '2026-04-01.cold.md'],
+      ],
     );
   } finally {
     await server.close();

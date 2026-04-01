@@ -17,3 +17,5 @@
 - Added an agent-scoped Markdown memory sync layer so `MEMORY.md` and `daily/*.md` can populate derived `agent_memory_documents` rows.
 - Added a local Express-based memory API server plus frontend file-store registration so FlowAgent can read and write `memory/agents/<agent-slug>/...` directly from the Settings UI.
 - Switched the Settings memory page from legacy global-memory document editing to raw Markdown file editing while preserving the existing theme shell.
+- Added warm/cold lifecycle surrogate sync so `daily/*.warm.md` and `daily/*.cold.md` can be generated deterministically while SQLite only indexes the effective representation for each day.
+- Added a manual `同步温冷层` control in Settings so users can regenerate lifecycle surrogates, refresh derived memory rows, and inspect `SOURCE / WARM / COLD` files without leaving the existing theme shell.
