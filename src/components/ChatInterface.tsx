@@ -55,6 +55,8 @@ import {
 } from '../lib/agent/config';
 import { applyThemePreferences } from '../lib/theme';
 import { syncBundledKnowledgeDocuments } from '../lib/project-knowledge';
+import { TimeoutError, withSoftTimeout } from '../lib/async-timeout';
+import { formatErrorDetails, wrapErrorWithContext } from '../lib/error-details';
 
 const TerminalPanel = lazy(() =>
   import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
@@ -161,23 +163,8 @@ function extractToolUsage(messages: any[], initialCount: number) {
   return tools;
 }
 
-const WORKSPACE_BOOT_TIMEOUT_MS = 8000;
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallbackMessage: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = globalThis.setTimeout(() => reject(new Error(fallbackMessage)), timeoutMs);
-
-    promise
-      .then((value) => {
-        globalThis.clearTimeout(timer);
-        resolve(value);
-      })
-      .catch((error) => {
-        globalThis.clearTimeout(timer);
-        reject(error);
-      });
-  });
-}
+const WORKSPACE_BOOT_SOFT_TIMEOUT_MS = 8000;
+const WORKSPACE_BOOT_HARD_TIMEOUT_MS = 45000;
 
 export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState<ChatTab>('chat');
@@ -197,6 +184,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [loadingWorkspace, setLoadingWorkspace] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [composerNotice, setComposerNotice] = useState('');
+  const [bootstrapErrorDetails, setBootstrapErrorDetails] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<WorkspaceSearchResult[]>([]);
   const [fts5Enabled, setFts5Enabled] = useState(false);
@@ -264,20 +252,32 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   const bootstrapWorkspace = async () => {
     setLoadingWorkspace(true);
+    setComposerNotice('');
+    setBootstrapErrorDetails('');
 
     try {
-      const [searchCapabilities, bootstrap] = await Promise.all([
-        withTimeout(
-          getSearchCapabilities(),
-          WORKSPACE_BOOT_TIMEOUT_MS,
-          'Timed out while checking local search capabilities.',
-        ),
-        withTimeout(
-          ensureAgentWorkspaceBootstrap(),
-          WORKSPACE_BOOT_TIMEOUT_MS,
-          'Timed out while opening the local workspace.',
-        ),
-      ]);
+      const [searchCapabilities, bootstrap] = await withSoftTimeout(
+        Promise.all([
+          getSearchCapabilities().catch((error) => {
+            throw wrapErrorWithContext('Checking local search capabilities failed', error);
+          }),
+          ensureAgentWorkspaceBootstrap().catch((error) => {
+            throw wrapErrorWithContext('Opening local workspace failed', error);
+          }),
+        ]),
+        {
+          softTimeoutMs: WORKSPACE_BOOT_SOFT_TIMEOUT_MS,
+          hardTimeoutMs: WORKSPACE_BOOT_HARD_TIMEOUT_MS,
+          onSoftTimeout: () => {
+            startTransition(() => {
+              setComposerNotice(
+                'Opening the local workspace is taking longer than usual. FlowAgent is still loading your local data.',
+              );
+            });
+          },
+          hardTimeoutMessage: 'Timed out while opening the local workspace.',
+        },
+      );
 
       startTransition(() => {
         setFts5Enabled(searchCapabilities.fts5Available);
@@ -298,14 +298,27 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         return;
       }
 
-      await withTimeout(
-        hydrateTopic(bootstrap.topic.id),
-        WORKSPACE_BOOT_TIMEOUT_MS,
-        'Timed out while loading the current topic.',
+      await withSoftTimeout(
+        hydrateTopic(bootstrap.topic.id).catch((error) => {
+          throw wrapErrorWithContext('Loading the current topic failed', error);
+        }),
+        {
+          softTimeoutMs: WORKSPACE_BOOT_SOFT_TIMEOUT_MS,
+          hardTimeoutMs: WORKSPACE_BOOT_HARD_TIMEOUT_MS,
+          onSoftTimeout: () => {
+            startTransition(() => {
+              setComposerNotice(
+                'Loading the current topic is taking longer than usual. FlowAgent is still waiting on local workspace data.',
+              );
+            });
+          },
+          hardTimeoutMessage: 'Timed out while loading the current topic.',
+        },
       );
       setComposerNotice('');
     } catch (error) {
       console.error('Failed to initialize agent workspace:', error);
+      const errorDetails = formatErrorDetails(error);
       startTransition(() => {
         setWorkspace(null);
         setTopics([]);
@@ -313,8 +326,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         setMemoryDocuments([]);
         setActiveTopicIdState(null);
         setLoadingWorkspace(false);
+        setBootstrapErrorDetails(errorDetails);
         setComposerNotice(
-          'Local workspace failed to open. Settings is still available, and you can retry the workspace bootstrap.',
+          error instanceof TimeoutError
+            ? 'Local workspace is still taking too long to open. Settings is still available, and you can retry the workspace bootstrap.'
+            : 'Local workspace failed to open. Settings is still available, and you can retry the workspace bootstrap.',
         );
       });
     }
@@ -902,6 +918,16 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       {composerNotice ||
                         'The current topic could not be opened, but the rest of the interface is still available.'}
                     </p>
+                    {bootstrapErrorDetails ? (
+                      <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
+                        <div className="text-[11px] font-semibold uppercase tracking-wider text-red-200/80">
+                          Bootstrap Error Details
+                        </div>
+                        <pre className="mt-3 whitespace-pre-wrap break-words text-xs leading-6 text-red-100/85">
+                          {bootstrapErrorDetails}
+                        </pre>
+                      </div>
+                    ) : null}
                     <div className="mt-5 flex flex-wrap gap-3">
                       <button
                         onClick={() => bootstrapWorkspace().catch(console.error)}

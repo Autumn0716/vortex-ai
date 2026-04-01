@@ -1,0 +1,103 @@
+import type { QueryExecResult, SqlValue } from './db';
+
+type SchemaDatabase = {
+  exec: (query: string, params?: SqlValue[]) => QueryExecResult[];
+  run: (query: string, params?: SqlValue[]) => void;
+};
+
+type SqlRow = Record<string, unknown>;
+
+function mapRows<T = SqlRow>(result: QueryExecResult[]): T[] {
+  if (result.length === 0) {
+    return [];
+  }
+
+  const entry = result[0]!;
+  return entry.values.map((row) => {
+    const mapped: SqlRow = {};
+    entry.columns.forEach((column, index) => {
+      mapped[column] = row[index];
+    });
+    return mapped as T;
+  });
+}
+
+function hasColumn(database: SchemaDatabase, table: string, column: string) {
+  const rows = mapRows<{ name: string }>(database.exec(`PRAGMA table_info(${table})`));
+  return rows.some((row) => row.name === column);
+}
+
+function ensureColumn(database: SchemaDatabase, table: string, column: string, definition: string) {
+  if (!hasColumn(database, table, column)) {
+    database.run(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  }
+}
+
+export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
+  database.run(`
+    CREATE TABLE IF NOT EXISTS agents (
+      id TEXT PRIMARY KEY,
+      slug TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      system_prompt TEXT NOT NULL,
+      provider_id TEXT,
+      model TEXT,
+      accent_color TEXT NOT NULL,
+      workspace_relpath TEXT NOT NULL,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS topics (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      title_source TEXT NOT NULL DEFAULT 'auto',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_message_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS topic_messages (
+      id TEXT PRIMARY KEY,
+      topic_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      author_name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      tools_json TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_memory_documents (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      memory_scope TEXT NOT NULL DEFAULT 'global',
+      source_type TEXT NOT NULL DEFAULT 'manual',
+      importance_score INTEGER NOT NULL DEFAULT 3,
+      topic_id TEXT,
+      event_date TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  ensureColumn(database, 'agent_memory_documents', 'memory_scope', "memory_scope TEXT NOT NULL DEFAULT 'global'");
+  ensureColumn(database, 'agent_memory_documents', 'source_type', "source_type TEXT NOT NULL DEFAULT 'manual'");
+  ensureColumn(database, 'agent_memory_documents', 'importance_score', "importance_score INTEGER NOT NULL DEFAULT 3");
+  ensureColumn(database, 'agent_memory_documents', 'topic_id', 'topic_id TEXT');
+  ensureColumn(database, 'agent_memory_documents', 'event_date', 'event_date TEXT');
+
+  database.run(`
+    CREATE INDEX IF NOT EXISTS idx_agents_default ON agents(is_default DESC, created_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_topics_agent_updated ON topics(agent_id, last_message_at DESC, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_topic_messages_topic_created ON topic_messages(topic_id, created_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_topic_messages_agent_created ON topic_messages(agent_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_agent_updated ON agent_memory_documents(agent_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_scope_updated ON agent_memory_documents(agent_id, memory_scope, updated_at DESC);
+  `);
+}
