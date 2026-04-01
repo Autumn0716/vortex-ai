@@ -8,6 +8,17 @@ import {
   DEFAULT_TOPIC_TITLE,
   formatTopicPreview,
 } from './agent-workspace-model';
+import {
+  buildConversationMemoryEntry,
+  buildMemoryPromotionTitle,
+  buildPromotionFingerprint,
+  formatLayeredMemoryContext,
+  resolveMemoryTier,
+  scoreMemoryImportance,
+  shouldPromoteMemory,
+  type MemoryScope,
+  type MemorySourceType,
+} from './agent-memory-model';
 
 const ACTIVE_AGENT_KEY = 'flowagent_active_agent_id_v2';
 const ACTIVE_TOPIC_KEY = 'flowagent_active_topic_id_v2';
@@ -69,6 +80,11 @@ export interface AgentMemoryDocument {
   agentId: string;
   title: string;
   content: string;
+  memoryScope: MemoryScope;
+  sourceType: MemorySourceType;
+  importanceScore: number;
+  topicId?: string;
+  eventDate?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -223,6 +239,11 @@ function toAgentMemoryDocument(row: {
   agent_id: string;
   title: string;
   content: string;
+  memory_scope: MemoryScope;
+  source_type: MemorySourceType;
+  importance_score: number;
+  topic_id: string | null;
+  event_date: string | null;
   created_at: string;
   updated_at: string;
 }): AgentMemoryDocument {
@@ -231,9 +252,25 @@ function toAgentMemoryDocument(row: {
     agentId: row.agent_id,
     title: row.title,
     content: row.content,
+    memoryScope: row.memory_scope ?? 'global',
+    sourceType: row.source_type ?? 'manual',
+    importanceScore: Number(row.importance_score) || 3,
+    topicId: row.topic_id ?? undefined,
+    eventDate: row.event_date ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function hasColumn(database: Database, table: string, column: string) {
+  const rows = mapRows<{ name: string }>(database.exec(`PRAGMA table_info(${table})`));
+  return rows.some((row) => row.name === column);
+}
+
+function ensureColumn(database: Database, table: string, column: string, definition: string) {
+  if (!hasColumn(database, table, column)) {
+    database.run(`ALTER TABLE ${table} ADD COLUMN ${definition}`);
+  }
 }
 
 function getAgentRow(database: Database, agentId: string): AgentProfile | null {
@@ -384,6 +421,11 @@ async function ensureAgentSchema(): Promise<Database> {
           agent_id TEXT NOT NULL,
           title TEXT NOT NULL,
           content TEXT NOT NULL,
+          memory_scope TEXT NOT NULL DEFAULT 'global',
+          source_type TEXT NOT NULL DEFAULT 'manual',
+          importance_score INTEGER NOT NULL DEFAULT 3,
+          topic_id TEXT,
+          event_date TEXT,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
@@ -393,7 +435,14 @@ async function ensureAgentSchema(): Promise<Database> {
         CREATE INDEX IF NOT EXISTS idx_topic_messages_topic_created ON topic_messages(topic_id, created_at ASC);
         CREATE INDEX IF NOT EXISTS idx_topic_messages_agent_created ON topic_messages(agent_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_agent_memory_agent_updated ON agent_memory_documents(agent_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_agent_memory_scope_updated ON agent_memory_documents(agent_id, memory_scope, updated_at DESC);
       `);
+
+      ensureColumn(database, 'agent_memory_documents', 'memory_scope', "memory_scope TEXT NOT NULL DEFAULT 'global'");
+      ensureColumn(database, 'agent_memory_documents', 'source_type', "source_type TEXT NOT NULL DEFAULT 'manual'");
+      ensureColumn(database, 'agent_memory_documents', 'importance_score', "importance_score INTEGER NOT NULL DEFAULT 3");
+      ensureColumn(database, 'agent_memory_documents', 'topic_id', 'topic_id TEXT');
+      ensureColumn(database, 'agent_memory_documents', 'event_date', 'event_date TEXT');
 
       try {
         database.run(`
@@ -526,12 +575,29 @@ async function migrateLegacyWorkspace(database: Database) {
               agent_id,
               title,
               content,
+              memory_scope,
+              source_type,
+              importance_score,
+              topic_id,
+              event_date,
               created_at,
               updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `,
-          [document.id, defaultAgentId, document.title, document.content, document.created_at, document.updated_at],
+          [
+            document.id,
+            defaultAgentId,
+            document.title,
+            document.content,
+            'global',
+            'manual',
+            5,
+            null,
+            null,
+            document.created_at,
+            document.updated_at,
+          ],
         );
       });
     }
@@ -1111,14 +1177,31 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
     agent_id: string;
     title: string;
     content: string;
+    memory_scope: MemoryScope;
+    source_type: MemorySourceType;
+    importance_score: number;
+    topic_id: string | null;
+    event_date: string | null;
     created_at: string;
     updated_at: string;
   }>(
     database.exec(
       `
-        SELECT id, agent_id, title, content, created_at, updated_at
+        SELECT
+          id,
+          agent_id,
+          title,
+          content,
+          memory_scope,
+          source_type,
+          importance_score,
+          topic_id,
+          event_date,
+          created_at,
+          updated_at
         FROM agent_memory_documents
         WHERE agent_id = ?
+          AND memory_scope = 'global'
         ORDER BY updated_at DESC, created_at DESC
       `,
       [agent.id],
@@ -1131,6 +1214,212 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
     messages: messageRows.map(toTopicMessage),
     memoryDocuments: memoryRows.map(toAgentMemoryDocument),
   };
+}
+
+function appendMemoryLine(existingContent: string, line: string) {
+  const trimmed = existingContent.trim();
+  return trimmed ? `${trimmed}\n${line}` : line;
+}
+
+function dateKeyFromIso(timestamp: string) {
+  return timestamp.slice(0, 10);
+}
+
+function upsertDailyMemoryLog(
+  database: Database,
+  input: {
+    agentId: string;
+    topicId: string;
+    topicTitle: string;
+    authorName: string;
+    content: string;
+    createdAt: string;
+  },
+) {
+  const eventDate = dateKeyFromIso(input.createdAt);
+  const line = buildConversationMemoryEntry({
+    topicTitle: input.topicTitle,
+    authorName: input.authorName,
+    createdAt: input.createdAt,
+    content: input.content,
+  });
+  const importanceScore = scoreMemoryImportance(input.content, 'conversation_log');
+  const existing = mapRows<{
+    id: string;
+    content: string;
+    importance_score: number;
+  }>(
+    database.exec(
+      `
+        SELECT id, content, importance_score
+        FROM agent_memory_documents
+        WHERE agent_id = ?
+          AND memory_scope = 'daily'
+          AND event_date = ?
+        LIMIT 1
+      `,
+      [input.agentId, eventDate],
+    ),
+  )[0];
+
+  if (existing) {
+    database.run(
+      `
+        UPDATE agent_memory_documents
+        SET
+          content = ?,
+          importance_score = ?,
+          updated_at = ?
+        WHERE id = ?
+      `,
+      [
+        appendMemoryLine(existing.content, line),
+        Math.max(Number(existing.importance_score) || 0, importanceScore),
+        input.createdAt,
+        existing.id,
+      ],
+    );
+    return;
+  }
+
+  database.run(
+    `
+      INSERT INTO agent_memory_documents (
+        id,
+        agent_id,
+        title,
+        content,
+        memory_scope,
+        source_type,
+        importance_score,
+        topic_id,
+        event_date,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      createId('memory'),
+      input.agentId,
+      `${eventDate} Activity Log`,
+      line,
+      'daily',
+      'conversation_log',
+      importanceScore,
+      input.topicId,
+      eventDate,
+      input.createdAt,
+      input.createdAt,
+    ],
+  );
+}
+
+function upsertPromotedMemory(
+  database: Database,
+  input: {
+    agentId: string;
+    topicId: string;
+    content: string;
+    createdAt: string;
+  },
+) {
+  const normalizedTitle = buildMemoryPromotionTitle(input.content);
+  const id = buildPromotionFingerprint(`${input.agentId}:${input.content}`);
+  const importanceScore = scoreMemoryImportance(input.content, 'promotion');
+  const existing = Number(
+    getScalar(database, 'SELECT COUNT(*) FROM agent_memory_documents WHERE id = ?', [id]) ?? 0,
+  );
+
+  if (existing > 0) {
+    database.run(
+      `
+        UPDATE agent_memory_documents
+        SET
+          title = ?,
+          content = ?,
+          importance_score = ?,
+          topic_id = ?,
+          updated_at = ?
+        WHERE id = ?
+      `,
+      [normalizedTitle, input.content.trim(), importanceScore, input.topicId, input.createdAt, id],
+    );
+    return;
+  }
+
+  database.run(
+    `
+      INSERT INTO agent_memory_documents (
+        id,
+        agent_id,
+        title,
+        content,
+        memory_scope,
+        source_type,
+        importance_score,
+        topic_id,
+        event_date,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      id,
+      input.agentId,
+      normalizedTitle,
+      input.content.trim(),
+      'global',
+      'promotion',
+      importanceScore,
+      input.topicId,
+      null,
+      input.createdAt,
+      input.createdAt,
+    ],
+  );
+}
+
+function recordMemoryFromMessages(database: Database, messages: TopicMessageInput[]) {
+  const topicIds = [...new Set(messages.map((message) => message.topicId))];
+  const topicRows = mapRows<{ id: string; title: string }>(
+    database.exec(
+      `
+        SELECT id, title
+        FROM topics
+        WHERE id IN (${topicIds.map(() => '?').join(', ')})
+      `,
+      topicIds,
+    ),
+  );
+  const topicTitles = new Map(topicRows.map((topic) => [topic.id, topic.title]));
+
+  messages.forEach((message) => {
+    if ((message.role !== 'user' && message.role !== 'assistant') || !message.content.trim()) {
+      return;
+    }
+
+    const createdAt = message.createdAt ?? nowIso();
+    const topicTitle = topicTitles.get(message.topicId) ?? DEFAULT_TOPIC_TITLE;
+    upsertDailyMemoryLog(database, {
+      agentId: message.agentId,
+      topicId: message.topicId,
+      topicTitle,
+      authorName: message.authorName,
+      content: message.content,
+      createdAt,
+    });
+
+    if (shouldPromoteMemory(message.content, message.role)) {
+      upsertPromotedMemory(database, {
+        agentId: message.agentId,
+        topicId: message.topicId,
+        content: message.content,
+        createdAt,
+      });
+    }
+  });
 }
 
 export async function addTopicMessages(messages: TopicMessageInput[]): Promise<void> {
@@ -1180,6 +1469,7 @@ export async function addTopicMessages(messages: TopicMessageInput[]): Promise<v
         [createdAt, createdAt, message.topicId],
       );
     });
+    recordMemoryFromMessages(database, messages);
     database.run('COMMIT');
   } catch (error) {
     database.run('ROLLBACK');
@@ -1222,24 +1512,46 @@ export async function maybeAutoTitleTopic(topicId: string, input: string): Promi
   await persistAndMaybeRebuildFts(database);
 }
 
-export async function listAgentMemoryDocuments(agentId: string): Promise<AgentMemoryDocument[]> {
+export async function listAgentMemoryDocuments(
+  agentId: string,
+  options?: { scopes?: MemoryScope[] },
+): Promise<AgentMemoryDocument[]> {
   const database = await ensureAgentSchema();
+  const scopes = options?.scopes?.length ? options.scopes : (['global'] as MemoryScope[]);
+  const placeholders = scopes.map(() => '?').join(', ');
   const rows = mapRows<{
     id: string;
     agent_id: string;
     title: string;
     content: string;
+    memory_scope: MemoryScope;
+    source_type: MemorySourceType;
+    importance_score: number;
+    topic_id: string | null;
+    event_date: string | null;
     created_at: string;
     updated_at: string;
   }>(
     database.exec(
       `
-        SELECT id, agent_id, title, content, created_at, updated_at
+        SELECT
+          id,
+          agent_id,
+          title,
+          content,
+          memory_scope,
+          source_type,
+          importance_score,
+          topic_id,
+          event_date,
+          created_at,
+          updated_at
         FROM agent_memory_documents
         WHERE agent_id = ?
+          AND memory_scope IN (${placeholders})
         ORDER BY updated_at DESC, created_at DESC
       `,
-      [agentId],
+      [agentId, ...scopes],
     ),
   );
 
@@ -1251,20 +1563,46 @@ export async function saveAgentMemoryDocument(draft: {
   agentId: string;
   title: string;
   content: string;
+  memoryScope?: MemoryScope;
+  sourceType?: MemorySourceType;
+  importanceScore?: number;
+  topicId?: string;
+  eventDate?: string;
 }): Promise<AgentMemoryDocument> {
   const database = await ensureAgentSchema();
   const timestamp = nowIso();
   const id = draft.id || createId('memory');
   const exists = Number(getScalar(database, 'SELECT COUNT(*) FROM agent_memory_documents WHERE id = ?', [id]) ?? 0);
+  const memoryScope = draft.memoryScope ?? 'global';
+  const sourceType = draft.sourceType ?? 'manual';
+  const importanceScore = draft.importanceScore ?? scoreMemoryImportance(draft.content, sourceType);
 
   if (exists > 0) {
     database.run(
       `
         UPDATE agent_memory_documents
-        SET title = ?, content = ?, updated_at = ?
+        SET
+          title = ?,
+          content = ?,
+          memory_scope = ?,
+          source_type = ?,
+          importance_score = ?,
+          topic_id = ?,
+          event_date = ?,
+          updated_at = ?
         WHERE id = ?
       `,
-      [draft.title.trim() || 'Untitled Memory', draft.content, timestamp, id],
+      [
+        draft.title.trim() || 'Untitled Memory',
+        draft.content,
+        memoryScope,
+        sourceType,
+        importanceScore,
+        draft.topicId ?? null,
+        draft.eventDate ?? null,
+        timestamp,
+        id,
+      ],
     );
   } else {
     database.run(
@@ -1274,12 +1612,29 @@ export async function saveAgentMemoryDocument(draft: {
           agent_id,
           title,
           content,
+          memory_scope,
+          source_type,
+          importance_score,
+          topic_id,
+          event_date,
           created_at,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
-      [id, draft.agentId, draft.title.trim() || 'Untitled Memory', draft.content, timestamp, timestamp],
+      [
+        id,
+        draft.agentId,
+        draft.title.trim() || 'Untitled Memory',
+        draft.content,
+        memoryScope,
+        sourceType,
+        importanceScore,
+        draft.topicId ?? null,
+        draft.eventDate ?? null,
+        timestamp,
+        timestamp,
+      ],
     );
   }
 
@@ -1289,12 +1644,28 @@ export async function saveAgentMemoryDocument(draft: {
     agent_id: string;
     title: string;
     content: string;
+    memory_scope: MemoryScope;
+    source_type: MemorySourceType;
+    importance_score: number;
+    topic_id: string | null;
+    event_date: string | null;
     created_at: string;
     updated_at: string;
   }>(
     database.exec(
       `
-        SELECT id, agent_id, title, content, created_at, updated_at
+        SELECT
+          id,
+          agent_id,
+          title,
+          content,
+          memory_scope,
+          source_type,
+          importance_score,
+          topic_id,
+          event_date,
+          created_at,
+          updated_at
         FROM agent_memory_documents
         WHERE id = ?
         LIMIT 1
@@ -1308,6 +1679,29 @@ export async function saveAgentMemoryDocument(draft: {
   }
 
   return toAgentMemoryDocument(row);
+}
+
+export async function getAgentMemoryContext(agentId: string): Promise<string> {
+  const documents = await listAgentMemoryDocuments(agentId, {
+    scopes: ['global', 'daily', 'session'],
+  });
+  const tierRank: Record<string, number> = { hot: 0, warm: 1, cold: 2 };
+  const sorted = [...documents].sort((left, right) => {
+    if (left.memoryScope === 'global' && right.memoryScope !== 'global') {
+      return -1;
+    }
+    if (left.memoryScope !== 'global' && right.memoryScope === 'global') {
+      return 1;
+    }
+    if (left.memoryScope !== right.memoryScope) {
+      const leftTier = resolveMemoryTier(left.updatedAt);
+      const rightTier = resolveMemoryTier(right.updatedAt);
+      return tierRank[leftTier] - tierRank[rightTier];
+    }
+    return right.importanceScore - left.importanceScore || right.updatedAt.localeCompare(left.updatedAt);
+  });
+
+  return formatLayeredMemoryContext(sorted);
 }
 
 export async function deleteAgentMemoryDocument(id: string): Promise<void> {

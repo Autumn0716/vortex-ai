@@ -45,7 +45,7 @@ export const KnowledgePanel = ({ onClose }: { onClose: () => void }) => {
   return (
     <div className="flex flex-col h-full bg-[#05050A] border-l border-white/10 w-80 md:w-[400px] flex-shrink-0 shadow-2xl z-20">
       <div className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-white/[0.02]">
-        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
           <Database size={16} className="text-emerald-400" />
           <span className="text-sm font-semibold tracking-tight">SQLite Knowledge Base</span>
         </div>
@@ -99,6 +99,9 @@ export const KnowledgePanel = ({ onClose }: { onClose: () => void }) => {
 
         <div className="mt-6 space-y-3">
           <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3">Stored Documents</h3>
+          <p className="mb-3 text-xs text-white/35">
+            Project markdown and future <code className="rounded bg-white/5 px-1 py-0.5">skills</code> docs are synced into the local index automatically on app startup.
+          </p>
           
           {isLoading ? (
             <div className="text-center py-8 text-white/40 text-sm">Loading database...</div>
@@ -113,8 +116,27 @@ export const KnowledgePanel = ({ onClose }: { onClose: () => void }) => {
                       <FileText size={14} className="text-emerald-400" />
                     </div>
                     <div className="min-w-0">
-                      <h4 className="text-sm font-medium text-white/90 truncate">{doc.title}</h4>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-medium text-white/90 truncate">{doc.title}</h4>
+                        {doc.sourceType ? (
+                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/45">
+                            {doc.sourceType === 'skill_doc' ? 'skill' : doc.sourceType.replace(/_/g, ' ')}
+                          </span>
+                        ) : null}
+                      </div>
                       <p className="text-xs text-white/50 line-clamp-2 mt-1">{doc.content}</p>
+                      {Array.isArray(doc.tags) && doc.tags.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {doc.tags.slice(0, 3).map((tag: string) => (
+                            <span
+                              key={`${doc.id}_${tag}`}
+                              className="rounded-full border border-emerald-500/15 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-300/80"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                   <button 

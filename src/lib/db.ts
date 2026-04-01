@@ -8,6 +8,11 @@ import {
   chunkDocumentContent,
   decomposeTaskQuery,
 } from './local-rag-helpers';
+import {
+  classifyKnowledgeDocument,
+  normalizeKnowledgeTags,
+  type KnowledgeDocumentSourceType,
+} from './knowledge-document-model';
 
 export type SqlValue = SQLiteSqlValue;
 
@@ -169,6 +174,17 @@ export interface GlobalMemoryDocument {
   content: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface KnowledgeDocumentRecord {
+  id: string;
+  title: string;
+  content: string;
+  sourceType: KnowledgeDocumentSourceType;
+  sourceUri?: string;
+  tags: string[];
+  syncedAt?: string;
+  updatedAt?: string;
 }
 
 interface AssistantSeed {
@@ -810,6 +826,15 @@ async function ensureSchema(database: Database) {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS document_metadata (
+      document_id TEXT PRIMARY KEY,
+      source_type TEXT NOT NULL,
+      source_uri TEXT,
+      tags_json TEXT NOT NULL,
+      synced_at TEXT,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS global_memory_documents (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
@@ -879,6 +904,7 @@ async function ensureSchema(database: Database) {
     CREATE INDEX IF NOT EXISTS idx_chat_messages_lane ON chat_messages(lane_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_memory_docs_updated ON global_memory_documents(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_document_chunks_document ON document_chunks(document_id, chunk_index ASC);
+    CREATE INDEX IF NOT EXISTS idx_document_metadata_source ON document_metadata(source_type, updated_at DESC);
   `);
 
   try {
@@ -1018,6 +1044,94 @@ function readDocumentSearchCache(database: Database, cacheKey: string) {
   } catch {
     return null;
   }
+}
+
+function getDocumentMetadataRecord(database: Database, documentId: string): KnowledgeDocumentRecord | null {
+  const row = mapRows<{
+    id: string;
+    title: string;
+    content: string;
+    source_type: KnowledgeDocumentSourceType;
+    source_uri: string | null;
+    tags_json: string;
+    synced_at: string | null;
+    updated_at: string;
+  }>(
+    database.exec(
+      `
+        SELECT
+          d.id,
+          d.title,
+          d.content,
+          m.source_type,
+          m.source_uri,
+          m.tags_json,
+          m.synced_at,
+          m.updated_at
+        FROM documents d
+        LEFT JOIN document_metadata m ON m.document_id = d.id
+        WHERE d.id = ?
+        LIMIT 1
+      `,
+      [documentId],
+    ),
+  )[0];
+
+  if (!row) {
+    return null;
+  }
+
+  let tags: string[] = [];
+  try {
+    tags = Array.isArray(JSON.parse(row.tags_json)) ? JSON.parse(row.tags_json) : [];
+  } catch {
+    tags = [];
+  }
+
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    sourceType: row.source_type ?? 'user_upload',
+    sourceUri: row.source_uri ?? undefined,
+    tags,
+    syncedAt: row.synced_at ?? undefined,
+    updatedAt: row.updated_at,
+  };
+}
+
+function upsertDocumentMetadata(
+  database: Database,
+  record: Pick<KnowledgeDocumentRecord, 'id' | 'sourceType' | 'sourceUri' | 'tags' | 'syncedAt'>,
+) {
+  const timestamp = nowIso();
+  database.run(
+    `
+      INSERT INTO document_metadata (
+        document_id,
+        source_type,
+        source_uri,
+        tags_json,
+        synced_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(document_id) DO UPDATE SET
+        source_type = excluded.source_type,
+        source_uri = excluded.source_uri,
+        tags_json = excluded.tags_json,
+        synced_at = excluded.synced_at,
+        updated_at = excluded.updated_at
+    `,
+    [
+      record.id,
+      record.sourceType,
+      record.sourceUri ?? null,
+      JSON.stringify(normalizeKnowledgeTags(record.tags)),
+      record.syncedAt ?? null,
+      timestamp,
+    ],
+  );
 }
 
 function writeDocumentSearchCache(
@@ -1850,6 +1964,7 @@ export async function importWorkspaceData(payload: {
       'documents',
       'document_chunks',
       'document_search_cache',
+      'document_metadata',
       'global_memory_documents',
     ].forEach((table) => {
       database.run(`DELETE FROM ${table}`);
@@ -2086,32 +2201,141 @@ export async function clearMessages() {
   await saveDB();
 }
 
-export async function addDocument(id: string, title: string, content: string) {
+export async function upsertKnowledgeDocument(
+  record: Pick<KnowledgeDocumentRecord, 'id' | 'title' | 'content'> &
+    Partial<Pick<KnowledgeDocumentRecord, 'sourceType' | 'sourceUri' | 'tags' | 'syncedAt'>>,
+) {
   const database = await initDB();
-  const exists = Number(getScalar(database, 'SELECT COUNT(*) FROM documents WHERE id = ?', [id]) ?? 0);
-  if (exists > 0) {
-    database.run('UPDATE documents SET title = ?, content = ? WHERE id = ?', [title, content, id]);
-  } else {
-    database.run('INSERT INTO documents (id, title, content) VALUES (?, ?, ?)', [id, title, content]);
+  const derived = classifyKnowledgeDocument({
+    title: record.title,
+    sourceUri: record.sourceUri,
+  });
+  const sourceType = record.sourceType ?? derived.sourceType;
+  const tags = normalizeKnowledgeTags([...(record.tags ?? []), ...derived.tags]);
+  const existing = getDocumentMetadataRecord(database, record.id);
+
+  const isUnchanged =
+    existing &&
+    existing.title === record.title &&
+    existing.content === record.content &&
+    existing.sourceType === sourceType &&
+    (existing.sourceUri ?? '') === (record.sourceUri ?? '') &&
+    JSON.stringify(existing.tags) === JSON.stringify(tags) &&
+    (existing.syncedAt ?? '') === (record.syncedAt ?? '');
+
+  if (isUnchanged) {
+    return false;
   }
-  indexDocumentChunks(database, { id, title, content });
+
+  const exists = Number(getScalar(database, 'SELECT COUNT(*) FROM documents WHERE id = ?', [record.id]) ?? 0);
+  if (exists > 0) {
+    database.run('UPDATE documents SET title = ?, content = ? WHERE id = ?', [
+      record.title,
+      record.content,
+      record.id,
+    ]);
+  } else {
+    database.run('INSERT INTO documents (id, title, content) VALUES (?, ?, ?)', [
+      record.id,
+      record.title,
+      record.content,
+    ]);
+  }
+  upsertDocumentMetadata(database, {
+    id: record.id,
+    sourceType,
+    sourceUri: record.sourceUri,
+    tags,
+    syncedAt: record.syncedAt,
+  });
+  indexDocumentChunks(database, { id: record.id, title: record.title, content: record.content });
   clearDocumentSearchCache(database);
   await saveDB();
+  return true;
+}
+
+export async function syncKnowledgeDocuments(
+  records: Array<
+    Pick<KnowledgeDocumentRecord, 'id' | 'title' | 'content'> &
+      Partial<Pick<KnowledgeDocumentRecord, 'sourceType' | 'sourceUri' | 'tags' | 'syncedAt'>>
+  >,
+) {
+  let changed = 0;
+  for (const record of records) {
+    if (await upsertKnowledgeDocument(record)) {
+      changed += 1;
+    }
+  }
+  return changed;
+}
+
+export async function addDocument(
+  id: string,
+  title: string,
+  content: string,
+  options?: Partial<Pick<KnowledgeDocumentRecord, 'sourceType' | 'sourceUri' | 'tags' | 'syncedAt'>>,
+) {
+  await upsertKnowledgeDocument({
+    id,
+    title,
+    content,
+    ...options,
+  });
+}
+
+export async function getDocumentById(id: string) {
+  const database = await initDB();
+  return getDocumentMetadataRecord(database, id);
 }
 
 export async function getDocuments() {
   const database = await initDB();
   try {
-    const res = database.exec('SELECT id, title, content FROM documents ORDER BY rowid DESC');
-    if (res.length === 0) {
-      return [];
-    }
+    const rows = mapRows<{
+      id: string;
+      title: string;
+      content: string;
+      source_type: KnowledgeDocumentSourceType | null;
+      source_uri: string | null;
+      tags_json: string | null;
+      synced_at: string | null;
+      updated_at: string | null;
+    }>(
+      database.exec(`
+        SELECT
+          d.id,
+          d.title,
+          d.content,
+          m.source_type,
+          m.source_uri,
+          m.tags_json,
+          m.synced_at,
+          m.updated_at
+        FROM documents d
+        LEFT JOIN document_metadata m ON m.document_id = d.id
+        ORDER BY COALESCE(m.updated_at, '') DESC, d.rowid DESC
+      `),
+    );
 
-    return res[0]!.values.map((row) => ({
-      id: String(row[0]),
-      title: String(row[1]),
-      content: String(row[2]),
-    }));
+    return rows.map((row) => {
+      let tags: string[] = [];
+      try {
+        tags = row.tags_json ? (JSON.parse(row.tags_json) as string[]) : [];
+      } catch {
+        tags = [];
+      }
+
+      return {
+        id: row.id,
+        title: row.title,
+        content: row.content,
+        sourceType: row.source_type ?? 'user_upload',
+        sourceUri: row.source_uri ?? undefined,
+        tags,
+        syncedAt: row.synced_at ?? undefined,
+        updatedAt: row.updated_at ?? undefined,
+      };
+    });
   } catch {
     return [];
   }
@@ -2120,6 +2344,7 @@ export async function getDocuments() {
 export async function deleteDocument(id: string) {
   const database = await initDB();
   clearDocumentChunks(database, id);
+  database.run('DELETE FROM document_metadata WHERE document_id = ?', [id]);
   database.run('DELETE FROM documents WHERE id = ?', [id]);
   clearDocumentSearchCache(database);
   await saveDB();

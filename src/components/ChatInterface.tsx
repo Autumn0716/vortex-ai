@@ -27,6 +27,7 @@ import {
   createTopic,
   deleteAgentMemoryDocument,
   ensureAgentWorkspaceBootstrap,
+  getAgentMemoryContext,
   getOrCreateActiveTopic,
   getSearchCapabilities,
   getTopicWorkspace,
@@ -48,6 +49,7 @@ import {
 } from '../lib/agent-workspace';
 import { type AgentConfig, getAgentConfig, saveAgentConfig } from '../lib/agent/config';
 import { applyThemePreferences } from '../lib/theme';
+import { syncBundledKnowledgeDocuments } from '../lib/project-knowledge';
 
 const TerminalPanel = lazy(() =>
   import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
@@ -259,6 +261,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           getAgentConfig(),
           getSearchCapabilities(),
           ensureAgentWorkspaceBootstrap(),
+          syncBundledKnowledgeDocuments(),
         ]);
 
         if (cancelled) {
@@ -500,11 +503,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       );
 
       const memoryContext = configSnapshot.memory.includeGlobalMemory
-        ? workspaceSnapshot.memoryDocuments
-            .map((document) => `# ${document.title}\n${document.content.trim()}`)
-            .filter(Boolean)
-            .join('\n\n')
-            .slice(0, 4000)
+        ? (await getAgentMemoryContext(workspaceSnapshot.agent.id)).slice(0, 4000)
         : '';
 
       const runtime = createAgentRuntime({
