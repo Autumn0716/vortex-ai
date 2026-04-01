@@ -1,0 +1,5 @@
+{
+  "name": "FlowAgent AI",
+  "description": "A multi-platform AI agent orchestration platform with LangGraph integration and persistent memory.",
+  "requestFramePermissions": []
+}
