@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   buildAgentMemoryPaths,
+  detectMemoryFileKind,
   parseMemoryMarkdown,
+  resolveDailyMemoryDate,
   serializeMemoryMarkdown,
 } from '../src/lib/agent-memory-files';
 
@@ -13,6 +15,24 @@ test('buildAgentMemoryPaths resolves MEMORY.md and daily paths for an agent slug
   assert.equal(paths.memoryFile, 'memory/agents/flowagent-core/MEMORY.md');
   assert.equal(paths.dailyDir, 'memory/agents/flowagent-core/daily');
   assert.equal(paths.dailyFile, 'memory/agents/flowagent-core/daily/2026-04-01.md');
+  assert.equal(paths.warmFile, 'memory/agents/flowagent-core/daily/2026-04-01.warm.md');
+  assert.equal(paths.coldFile, 'memory/agents/flowagent-core/daily/2026-04-01.cold.md');
+});
+
+test('detectMemoryFileKind distinguishes source warm and cold daily files', () => {
+  assert.equal(detectMemoryFileKind('memory/agents/core/MEMORY.md'), 'memory');
+  assert.equal(detectMemoryFileKind('memory/agents/core/daily/2026-04-01.md'), 'daily_source');
+  assert.equal(detectMemoryFileKind('memory/agents/core/daily/2026-04-01.warm.md'), 'daily_warm');
+  assert.equal(detectMemoryFileKind('memory/agents/core/daily/2026-04-01.cold.md'), 'daily_cold');
+  assert.equal(detectMemoryFileKind('memory/agents/core/notes/2026-04-01.md'), 'unknown');
+  assert.equal(detectMemoryFileKind('docs/2026-04-01.md'), 'unknown');
+});
+
+test('resolveDailyMemoryDate extracts the source date from surrogate file names', () => {
+  assert.equal(resolveDailyMemoryDate('memory/agents/core/MEMORY.md'), null);
+  assert.equal(resolveDailyMemoryDate('memory/agents/core/daily/2026-04-01.cold.md'), '2026-04-01');
+  assert.equal(resolveDailyMemoryDate('memory/agents/core/notes/2026-04-01.md'), null);
+  assert.equal(resolveDailyMemoryDate('docs/2026-04-01.md'), null);
 });
 
 test('serializeMemoryMarkdown round-trips frontmatter and body', () => {

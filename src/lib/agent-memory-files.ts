@@ -1,12 +1,49 @@
 export function buildAgentMemoryPaths(agentSlug: string, date: string) {
   const baseDir = `memory/agents/${agentSlug}`;
+  const dailyDir = `${baseDir}/daily`;
 
   return {
     baseDir,
     memoryFile: `${baseDir}/MEMORY.md`,
-    dailyDir: `${baseDir}/daily`,
-    dailyFile: `${baseDir}/daily/${date}.md`,
+    dailyDir,
+    dailyFile: `${dailyDir}/${date}.md`,
+    warmFile: `${dailyDir}/${date}.warm.md`,
+    coldFile: `${dailyDir}/${date}.cold.md`,
   };
+}
+
+export type AgentMemoryFileKind =
+  | 'memory'
+  | 'daily_source'
+  | 'daily_warm'
+  | 'daily_cold'
+  | 'unknown';
+
+const AGENT_MEMORY_FILE_PATTERN = /^memory\/agents\/[^/]+\/(MEMORY\.md|daily\/(\d{4}-\d{2}-\d{2})(?:\.(warm|cold))?\.md)$/;
+
+export function detectMemoryFileKind(path: string): AgentMemoryFileKind {
+  const match = path.match(AGENT_MEMORY_FILE_PATTERN);
+  if (!match) {
+    return 'unknown';
+  }
+
+  if (match[1] === 'MEMORY.md') {
+    return 'memory';
+  }
+
+  if (match[3] === 'warm') {
+    return 'daily_warm';
+  }
+  if (match[3] === 'cold') {
+    return 'daily_cold';
+  }
+
+  return 'daily_source';
+}
+
+export function resolveDailyMemoryDate(path: string): string | null {
+  const match = path.match(AGENT_MEMORY_FILE_PATTERN);
+  return match?.[2] ?? null;
 }
 
 type MemoryFrontmatterValue = string | number | boolean;
