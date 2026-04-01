@@ -6,6 +6,7 @@ import {
 } from '../src/lib/knowledge-document-model';
 import {
   buildConversationMemoryEntry,
+  extractOpenMemoryTasks,
   buildMemoryPromotionTitle,
   buildPromotionFingerprint,
   formatLayeredMemoryContext,
@@ -103,10 +104,49 @@ test('formatLayeredMemoryContext groups documents by tier', () => {
   const context = formatLayeredMemoryContext(documents, { now: '2026-04-01T12:00:00.000Z' });
 
   assert.match(context, /Long-term memory/);
+  assert.match(context, /Recent memory snapshot/);
   assert.match(context, /Hot memory/);
   assert.match(context, /Cold memory/);
 });
 
 test('buildMemoryPromotionTitle trims memory cue prefixes', () => {
   assert.equal(buildMemoryPromotionTitle('记住：我默认使用中文输出。'), '我默认使用中文输出。');
+});
+
+test('extractOpenMemoryTasks returns recent unresolved work items from hot and warm memory', () => {
+  const documents: MemoryContextDocument[] = [
+    {
+      id: 'daily_hot',
+      title: '2026-04-01 Activity Log',
+      content: '- [08:30] Agent RAG Upgrade · You: TODO 修复 workspace bootstrap 并补迁移测试。',
+      memoryScope: 'daily',
+      sourceType: 'conversation_log',
+      importanceScore: 4,
+      updatedAt: '2026-04-01T08:30:00.000Z',
+    },
+    {
+      id: 'daily_warm',
+      title: '2026-03-28 Activity Log',
+      content: '- [10:00] Memory Roadmap · You: 阻塞: 还没做近期记忆快照和未完成任务提取。',
+      memoryScope: 'daily',
+      sourceType: 'conversation_log',
+      importanceScore: 4,
+      updatedAt: '2026-03-28T10:00:00.000Z',
+    },
+    {
+      id: 'global_pref',
+      title: '语言偏好',
+      content: '默认使用中文输出。',
+      memoryScope: 'global',
+      sourceType: 'promotion',
+      importanceScore: 5,
+      updatedAt: '2026-04-01T08:00:00.000Z',
+    },
+  ];
+
+  const tasks = extractOpenMemoryTasks(documents, { now: '2026-04-01T12:00:00.000Z' });
+
+  assert.equal(tasks.length, 2);
+  assert.match(tasks[0] ?? '', /TODO 修复 workspace bootstrap/);
+  assert.match(tasks[1] ?? '', /阻塞: 还没做近期记忆快照/);
 });

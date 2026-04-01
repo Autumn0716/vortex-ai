@@ -589,7 +589,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       );
 
       const memoryContext = configSnapshot.memory.includeGlobalMemory
-        ? (await getAgentMemoryContext(workspaceSnapshot.agent.id)).slice(0, 4000)
+        ? (
+            await getAgentMemoryContext(workspaceSnapshot.agent.id, {
+              includeRecentMemorySnapshot: configSnapshot.memory.includeRecentMemorySnapshot,
+            })
+          ).slice(0, 4000)
         : '';
 
       const runtime = createAgentRuntime({

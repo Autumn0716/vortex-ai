@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveDocumentProcessingSettings } from '../src/lib/agent/config';
+import { type AgentConfig, normalizeAgentConfig, resolveDocumentProcessingSettings } from '../src/lib/agent/config';
 
 test('resolveDocumentProcessingSettings falls back to embedding environment defaults', () => {
   const settings = resolveDocumentProcessingSettings(
@@ -45,4 +45,14 @@ test('resolveDocumentProcessingSettings prefers explicit saved values over env d
   assert.equal(settings.embeddingModel, 'saved-model');
   assert.equal(settings.embeddingBaseUrl, 'https://saved.example.com/v1');
   assert.equal(settings.embeddingDimensions, 1024);
+});
+
+test('normalizeAgentConfig preserves the recent memory snapshot toggle', () => {
+  const config = normalizeAgentConfig({
+    memory: {
+      includeRecentMemorySnapshot: false,
+    },
+  } as Partial<AgentConfig>);
+
+  assert.equal(config.memory.includeRecentMemorySnapshot, false);
 });

@@ -1688,6 +1688,20 @@ export const SettingsView = ({
                 }
               />
               <ToggleCard
+                title="注入近期记忆快照"
+                description="把最近对话摘要、关键片段和未完成任务一起注入运行时上下文。"
+                checked={draft.memory.includeRecentMemorySnapshot}
+                onChange={(checked) =>
+                  updateDraft((current) => ({
+                    ...current,
+                    memory: {
+                      ...current.memory,
+                      includeRecentMemorySnapshot: checked,
+                    },
+                  }))
+                }
+              />
+              <ToggleCard
                 title="自动生成标题"
                 description="基于首条用户输入生成标题。"
                 checked={draft.memory.autoTitleFromFirstMessage}

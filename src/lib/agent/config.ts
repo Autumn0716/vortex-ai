@@ -73,6 +73,7 @@ export interface MemorySettings {
   historyWindow: number;
   keepAssistantContext: boolean;
   includeGlobalMemory: boolean;
+  includeRecentMemorySnapshot: boolean;
 }
 
 export interface SandboxSettings {
@@ -326,6 +327,7 @@ export const DEFAULT_CONFIG: AgentConfig = {
     historyWindow: 18,
     keepAssistantContext: true,
     includeGlobalMemory: true,
+    includeRecentMemorySnapshot: true,
   },
   sandbox: {
     autoBoot: false,

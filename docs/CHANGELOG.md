@@ -12,3 +12,5 @@
 
 - Replaced the previous 8-second hard failure path with soft-timeout messaging plus a longer hard timeout for slow local workspace initialization.
 - Added regression coverage for async timeout handling, bootstrap error formatting, and legacy workspace schema migration ordering.
+- Added recent memory snapshot injection with `Recent memory snapshot` and `Open loops` sections so runtime prompts now receive recent daily/session summaries plus unresolved work items.
+- Added a memory setting toggle for recent snapshot injection and recorded the incremental completion status in `todo-list.md`.

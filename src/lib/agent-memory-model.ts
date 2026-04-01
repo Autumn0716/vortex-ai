@@ -13,9 +13,15 @@ export interface MemoryContextDocument {
 }
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const OPEN_TASK_PATTERN =
+  /(todo|待办|阻塞|deadline|due|follow-up|follow up|未完成|待处理|下一步|next step)/i;
 
 function normalizeMemoryText(content: string) {
   return content.replace(/\s+/g, ' ').trim();
+}
+
+function sortMemoryDocuments(left: MemoryContextDocument, right: MemoryContextDocument) {
+  return right.importanceScore - left.importanceScore || right.updatedAt.localeCompare(left.updatedAt);
 }
 
 export function resolveMemoryTier(updatedAt: string, now = new Date().toISOString()): MemoryTier {
@@ -96,27 +102,77 @@ function renderMemoryLine(document: MemoryContextDocument, maxLength: number) {
   return `- ${document.title}: ${preview}`;
 }
 
+function extractMemoryLines(document: MemoryContextDocument) {
+  return document.content
+    .split('\n')
+    .map((line) => normalizeMemoryText(line).replace(/^-+\s*/, ''))
+    .filter(Boolean);
+}
+
+export function extractOpenMemoryTasks(
+  documents: MemoryContextDocument[],
+  options: { now?: string; limit?: number } = {},
+): string[] {
+  const now = options.now ?? new Date().toISOString();
+  const limit = options.limit ?? 4;
+  const seen = new Set<string>();
+
+  const candidates = documents
+    .filter((document) => document.memoryScope !== 'global')
+    .filter((document) => resolveMemoryTier(document.updatedAt, now) !== 'cold')
+    .sort(sortMemoryDocuments);
+
+  const tasks: string[] = [];
+  candidates.forEach((document) => {
+    extractMemoryLines(document).forEach((line) => {
+      if (tasks.length >= limit || !OPEN_TASK_PATTERN.test(line)) {
+        return;
+      }
+
+      const normalizedLine = line.slice(0, 220);
+      const fingerprint = normalizedLine.toLowerCase();
+      if (seen.has(fingerprint)) {
+        return;
+      }
+
+      seen.add(fingerprint);
+      tasks.push(`${document.title}: ${normalizedLine}`);
+    });
+  });
+
+  return tasks;
+}
+
 export function formatLayeredMemoryContext(
   documents: MemoryContextDocument[],
-  options: { now?: string } = {},
+  options: { now?: string; includeRecentMemorySnapshot?: boolean } = {},
 ): string {
   if (documents.length === 0) {
     return '';
   }
 
   const now = options.now ?? new Date().toISOString();
+  const includeRecentMemorySnapshot = options.includeRecentMemorySnapshot ?? true;
   const globalDocs = documents
     .filter((document) => document.memoryScope === 'global')
-    .sort((left, right) => right.importanceScore - left.importanceScore || right.updatedAt.localeCompare(left.updatedAt));
+    .sort(sortMemoryDocuments);
   const tieredDocs = documents.filter((document) => document.memoryScope !== 'global');
-  const hotDocs = tieredDocs.filter((document) => resolveMemoryTier(document.updatedAt, now) === 'hot');
-  const warmDocs = tieredDocs.filter((document) => resolveMemoryTier(document.updatedAt, now) === 'warm');
-  const coldDocs = tieredDocs.filter((document) => resolveMemoryTier(document.updatedAt, now) === 'cold');
+  const hotDocs = tieredDocs.filter((document) => resolveMemoryTier(document.updatedAt, now) === 'hot').sort(sortMemoryDocuments);
+  const warmDocs = tieredDocs.filter((document) => resolveMemoryTier(document.updatedAt, now) === 'warm').sort(sortMemoryDocuments);
+  const coldDocs = tieredDocs.filter((document) => resolveMemoryTier(document.updatedAt, now) === 'cold').sort(sortMemoryDocuments);
+  const openTasks = includeRecentMemorySnapshot ? extractOpenMemoryTasks(documents, { now }) : [];
+  const recentSnapshotDocs = includeRecentMemorySnapshot ? [...hotDocs.slice(0, 3), ...warmDocs.slice(0, 2)] : [];
 
   const sections = [
     globalDocs.length > 0
       ? `Long-term memory:\n${globalDocs.slice(0, 6).map((document) => renderMemoryLine(document, 240)).join('\n')}`
       : '',
+    recentSnapshotDocs.length > 0
+      ? `Recent memory snapshot:\n${recentSnapshotDocs
+          .map((document) => renderMemoryLine(document, document.memoryScope === 'daily' ? 220 : 180))
+          .join('\n')}`
+      : '',
+    openTasks.length > 0 ? `Open loops:\n${openTasks.map((task) => `- ${task}`).join('\n')}` : '',
     hotDocs.length > 0
       ? `Hot memory:\n${hotDocs.slice(0, 4).map((document) => renderMemoryLine(document, 320)).join('\n')}`
       : '',

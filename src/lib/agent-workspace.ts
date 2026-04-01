@@ -1697,7 +1697,10 @@ export async function saveAgentMemoryDocument(draft: {
   return toAgentMemoryDocument(row);
 }
 
-export async function getAgentMemoryContext(agentId: string): Promise<string> {
+export async function getAgentMemoryContext(
+  agentId: string,
+  options?: { includeRecentMemorySnapshot?: boolean },
+): Promise<string> {
   const documents = await listAgentMemoryDocuments(agentId, {
     scopes: ['global', 'daily', 'session'],
   });
@@ -1717,7 +1720,9 @@ export async function getAgentMemoryContext(agentId: string): Promise<string> {
     return right.importanceScore - left.importanceScore || right.updatedAt.localeCompare(left.updatedAt);
   });
 
-  return formatLayeredMemoryContext(sorted);
+  return formatLayeredMemoryContext(sorted, {
+    includeRecentMemorySnapshot: options?.includeRecentMemorySnapshot,
+  });
 }
 
 export async function deleteAgentMemoryDocument(id: string): Promise<void> {
