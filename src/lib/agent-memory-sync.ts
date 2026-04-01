@@ -149,6 +149,10 @@ function resolveDailyMemoryMetadata(path: string, eventDate: string) {
   return null;
 }
 
+function buildDerivedDailyUpdatedAt(eventDate: string) {
+  return `${eventDate}T23:59:59.999Z`;
+}
+
 function composeMigratedMarkdown(rows: LegacyMemoryRow[], fallbackTitle: string) {
   const normalizedRows = rows
     .filter((row) => row.content.trim())
@@ -299,11 +303,14 @@ function buildDerivedDocuments(input: {
         sourceType: metadata.sourceType,
         importanceScore: scoreMemoryImportance(content, metadata.sourceType),
         eventDate,
-        updatedAt: input.now,
+        updatedAt: buildDerivedDailyUpdatedAt(eventDate),
       });
     });
 
-  return selectEffectiveMemoryDocuments(documents);
+  return selectEffectiveMemoryDocuments(documents, {
+    now: input.now,
+    requireSourceDocument: true,
+  });
 }
 
 function upsertDerivedDocuments(database: Database, agentId: string, documents: DerivedMemoryDocument[]) {
@@ -349,7 +356,8 @@ function upsertDerivedDocuments(database: Database, agentId: string, documents: 
       existing.memory_scope === document.memoryScope &&
       existing.source_type === document.sourceType &&
       Number(existing.importance_score) === document.importanceScore &&
-      existing.event_date === document.eventDate
+      existing.event_date === document.eventDate &&
+      (document.memoryScope !== 'daily' || existing.updated_at === document.updatedAt)
     ) {
       return;
     }

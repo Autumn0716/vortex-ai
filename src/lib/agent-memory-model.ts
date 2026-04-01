@@ -18,14 +18,6 @@ export interface MemoryContextDocument {
   updatedAt: string;
 }
 
-const EFFECTIVE_DAILY_SOURCE_PRIORITY: Record<MemorySourceType, number> = {
-  manual: 0,
-  conversation_log: 1,
-  warm_summary: 2,
-  cold_summary: 3,
-  promotion: 0,
-};
-
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const OPEN_TASK_PATTERN =
   /(todo|待办|阻塞|deadline|due|follow-up|follow up|未完成|待处理|下一步|next step)/i;
@@ -74,9 +66,44 @@ function sortMemoryDocuments(left: MemoryContextDocument, right: MemoryContextDo
   return right.importanceScore - left.importanceScore || right.updatedAt.localeCompare(left.updatedAt);
 }
 
+type EffectiveDailySourceType = 'conversation_log' | 'warm_summary' | 'cold_summary';
+
+const EFFECTIVE_DAILY_SOURCE_TYPES = new Set<EffectiveDailySourceType>([
+  'conversation_log',
+  'warm_summary',
+  'cold_summary',
+]);
+
+function buildDailyTierTimestamp(eventDate: string) {
+  return `${eventDate}T23:59:59.999Z`;
+}
+
+function getEffectiveDailySourcePriority(sourceType: EffectiveDailySourceType, tier: MemoryTier) {
+  if (tier === 'hot') {
+    return sourceType === 'conversation_log' ? 0 : Number.POSITIVE_INFINITY;
+  }
+  if (tier === 'warm') {
+    return sourceType === 'warm_summary' ? 0 : sourceType === 'conversation_log' ? 1 : Number.POSITIVE_INFINITY;
+  }
+  return sourceType === 'cold_summary' ? 0 : sourceType === 'warm_summary' ? 1 : 2;
+}
+
 function compareEffectiveDailyDocuments<T extends MemoryContextDocument>(left: T, right: T) {
   return (
-    EFFECTIVE_DAILY_SOURCE_PRIORITY[right.sourceType] - EFFECTIVE_DAILY_SOURCE_PRIORITY[left.sourceType] ||
+    right.updatedAt.localeCompare(left.updatedAt) ||
+    right.importanceScore - left.importanceScore ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function compareEffectiveDailyDocumentsForTier<T extends MemoryContextDocument>(
+  left: T,
+  right: T,
+  tier: MemoryTier,
+) {
+  return (
+    getEffectiveDailySourcePriority(left.sourceType as EffectiveDailySourceType, tier) -
+      getEffectiveDailySourcePriority(right.sourceType as EffectiveDailySourceType, tier) ||
     right.updatedAt.localeCompare(left.updatedAt) ||
     right.importanceScore - left.importanceScore ||
     left.id.localeCompare(right.id)
@@ -87,12 +114,17 @@ function isDeduplicatedDailyMemoryDocument(document: MemoryContextDocument) {
   return (
     document.memoryScope === 'daily' &&
     Boolean(document.eventDate) &&
-    EFFECTIVE_DAILY_SOURCE_PRIORITY[document.sourceType] > 0
+    EFFECTIVE_DAILY_SOURCE_TYPES.has(document.sourceType as EffectiveDailySourceType)
   );
 }
 
-export function selectEffectiveMemoryDocuments<T extends MemoryContextDocument>(documents: T[]): T[] {
-  const effectiveDailyDocuments = new Map<string, T>();
+export function selectEffectiveMemoryDocuments<T extends MemoryContextDocument>(
+  documents: T[],
+  options: { now?: string; requireSourceDocument?: boolean } = {},
+): T[] {
+  const now = options.now ?? new Date().toISOString();
+  const requireSourceDocument = options.requireSourceDocument ?? false;
+  const documentsByDate = new Map<string, T[]>();
 
   documents.forEach((document) => {
     if (!isDeduplicatedDailyMemoryDocument(document)) {
@@ -100,9 +132,30 @@ export function selectEffectiveMemoryDocuments<T extends MemoryContextDocument>(
     }
 
     const eventDate = document.eventDate!;
-    const existing = effectiveDailyDocuments.get(eventDate);
-    if (!existing || compareEffectiveDailyDocuments(document, existing) < 0) {
-      effectiveDailyDocuments.set(eventDate, document);
+    const existing = documentsByDate.get(eventDate) ?? [];
+    existing.push(document);
+    documentsByDate.set(eventDate, existing);
+  });
+
+  const effectiveDailyDocuments = new Map<string, T>();
+  documentsByDate.forEach((dateDocuments, eventDate) => {
+    if (requireSourceDocument && !dateDocuments.some((document) => document.sourceType === 'conversation_log')) {
+      return;
+    }
+
+    const tier = resolveMemoryTier(buildDailyTierTimestamp(eventDate), now);
+    const eligible = dateDocuments.filter((document) =>
+      Number.isFinite(getEffectiveDailySourcePriority(document.sourceType as EffectiveDailySourceType, tier)),
+    );
+    if (eligible.length === 0) {
+      return;
+    }
+
+    const selected = eligible
+      .slice()
+      .sort((left, right) => compareEffectiveDailyDocumentsForTier(left, right, tier))[0];
+    if (selected) {
+      effectiveDailyDocuments.set(eventDate, selected);
     }
   });
 

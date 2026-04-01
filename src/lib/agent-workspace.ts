@@ -401,6 +401,7 @@ export async function syncCurrentAgentMemory(options?: {
   database?: Database;
   agentId?: string | null;
   fileStore?: ReturnType<typeof getAgentMemoryFileStore>;
+  now?: string;
   persist?: boolean;
   strict?: boolean;
 }) {
@@ -426,6 +427,7 @@ export async function syncCurrentAgentMemory(options?: {
       agentId: agent.id,
       agentSlug: agent.slug,
       fileStore,
+      now: options?.now,
     });
   } catch (error) {
     if (options?.strict) {
@@ -1610,12 +1612,13 @@ export async function maybeAutoTitleTopic(topicId: string, input: string): Promi
 
 export async function listAgentMemoryDocuments(
   agentId: string,
-  options?: { scopes?: MemoryScope[] },
+  options?: { scopes?: MemoryScope[]; now?: string },
 ): Promise<AgentMemoryDocument[]> {
   const database = await ensureAgentSchema();
   await syncCurrentAgentMemory({
     database,
     agentId,
+    now: options?.now,
     persist: true,
   });
   const scopes = options?.scopes?.length ? options.scopes : (['global'] as MemoryScope[]);
@@ -1656,7 +1659,7 @@ export async function listAgentMemoryDocuments(
     ),
   );
 
-  return selectEffectiveMemoryDocuments(rows.map(toAgentMemoryDocument));
+  return rows.map(toAgentMemoryDocument);
 }
 
 export async function saveAgentMemoryDocument(draft: {
@@ -1784,11 +1787,16 @@ export async function saveAgentMemoryDocument(draft: {
 
 export async function getAgentMemoryContext(
   agentId: string,
-  options?: { includeRecentMemorySnapshot?: boolean },
+  options?: { includeRecentMemorySnapshot?: boolean; now?: string },
 ): Promise<string> {
-  const documents = await listAgentMemoryDocuments(agentId, {
-    scopes: ['global', 'daily', 'session'],
-  });
+  const now = options?.now ?? new Date().toISOString();
+  const documents = selectEffectiveMemoryDocuments(
+    await listAgentMemoryDocuments(agentId, {
+      scopes: ['global', 'daily', 'session'],
+      now,
+    }),
+    { now },
+  );
   const tierRank: Record<string, number> = { hot: 0, warm: 1, cold: 2 };
   const sorted = [...documents].sort((left, right) => {
     if (left.memoryScope === 'global' && right.memoryScope !== 'global') {
@@ -1798,8 +1806,8 @@ export async function getAgentMemoryContext(
       return 1;
     }
     if (left.memoryScope !== right.memoryScope) {
-      const leftTier = resolveMemoryTier(left.updatedAt);
-      const rightTier = resolveMemoryTier(right.updatedAt);
+      const leftTier = resolveMemoryTier(left.updatedAt, now);
+      const rightTier = resolveMemoryTier(right.updatedAt, now);
       return tierRank[leftTier] - tierRank[rightTier];
     }
     return right.importanceScore - left.importanceScore || right.updatedAt.localeCompare(left.updatedAt);
@@ -1807,6 +1815,7 @@ export async function getAgentMemoryContext(
 
   return formatLayeredMemoryContext(sorted, {
     includeRecentMemorySnapshot: options?.includeRecentMemorySnapshot,
+    now,
   });
 }
 
