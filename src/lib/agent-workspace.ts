@@ -1,6 +1,7 @@
 import localforage from 'localforage';
+import { getAgentConfig } from './agent/config';
 import type { Database, QueryExecResult, SqlValue, StoredToolRun } from './db';
-import { initDB, saveDB } from './db';
+import { buildEmbeddingConfigFromDocuments, initDB, parseEmbeddingJson, saveDB } from './db';
 import {
   buildAgentWorkspacePath,
   buildMigratedTopicTitle,
@@ -24,9 +25,12 @@ import {
 } from './agent-memory-model';
 import { routeMemoryQuery, type MemoryRetrievalLayer } from './memory-lifecycle/query-router';
 import { getAgentMemoryFileStore, syncAgentMemoryFromStore } from './agent-memory-sync';
+import { createEmbeddings, type EmbeddingProviderConfig } from './embedding-client';
+import { cosineSimilarity } from './vector-search-model';
 
 const ACTIVE_AGENT_KEY = 'flowagent_active_agent_id_v2';
 const ACTIVE_TOPIC_KEY = 'flowagent_active_topic_id_v2';
+const MAX_COLD_MEMORY_VECTOR_HITS = 3;
 
 let ensuredPromise: Promise<void> | null = null;
 let fts5Available: boolean | null = null;
@@ -190,6 +194,78 @@ function mergeDistinctMemoryDocuments(base: AgentMemoryDocument[], additions: Ag
   });
 
   return merged;
+}
+
+async function resolveMemoryEmbeddingConfig(override?: EmbeddingProviderConfig | null) {
+  if (override !== undefined) {
+    return override;
+  }
+
+  const config = await getAgentConfig();
+  return buildEmbeddingConfigFromDocuments(config.documents);
+}
+
+async function searchColdMemoryVectorDocuments(
+  database: Database,
+  agentId: string,
+  documents: AgentMemoryDocument[],
+  query: string,
+  now: string,
+  embeddingConfig?: EmbeddingProviderConfig | null,
+) {
+  const coldDocuments = documents.filter((document) => getMemoryDocumentLayer(document, now) === 'cold');
+  if (coldDocuments.length === 0) {
+    return [];
+  }
+
+  const resolvedEmbeddingConfig = await resolveMemoryEmbeddingConfig(embeddingConfig);
+  if (!resolvedEmbeddingConfig) {
+    return [];
+  }
+
+  try {
+    const embeddingResponse = await createEmbeddings(query, resolvedEmbeddingConfig);
+    const queryEmbedding = embeddingResponse.data[0]?.embedding;
+    if (!Array.isArray(queryEmbedding) || queryEmbedding.length === 0) {
+      return [];
+    }
+
+    const rows = mapRows<{
+      memory_document_id: string;
+      embedding_json: string;
+    }>(
+      database.exec(
+        `
+          SELECT memory_document_id, embedding_json
+          FROM agent_memory_embeddings
+          WHERE agent_id = ?
+            AND source_type = 'cold_summary'
+        `,
+        [agentId],
+      ),
+    );
+    const documentsById = new Map(coldDocuments.map((document) => [document.id, document]));
+
+    return rows
+      .map((row) => {
+        const document = documentsById.get(row.memory_document_id);
+        if (!document) {
+          return null;
+        }
+
+        return {
+          document,
+          score: cosineSimilarity(queryEmbedding, parseEmbeddingJson(row.embedding_json)),
+        };
+      })
+      .filter((row): row is { document: AgentMemoryDocument; score: number } => Boolean(row && row.score > 0))
+      .sort((left, right) => right.score - left.score)
+      .slice(0, MAX_COLD_MEMORY_VECTOR_HITS)
+      .map((row) => row.document);
+  } catch (error) {
+    console.warn('Cold memory vector retrieval failed, falling back to routed memory documents:', error);
+    return [];
+  }
 }
 
 function toBoolean(value: unknown): boolean {
@@ -1825,9 +1901,15 @@ export async function saveAgentMemoryDocument(draft: {
 
 export async function getAgentMemoryContext(
   agentId: string,
-  options?: { includeRecentMemorySnapshot?: boolean; now?: string; query?: string },
+  options?: {
+    includeRecentMemorySnapshot?: boolean;
+    now?: string;
+    query?: string;
+    embeddingConfig?: EmbeddingProviderConfig | null;
+  },
 ): Promise<string> {
   const now = options?.now ?? new Date().toISOString();
+  const database = await ensureAgentSchema();
   const documents = selectEffectiveMemoryDocuments(
     await listAgentMemoryDocuments(agentId, {
       scopes: ['global', 'daily', 'session'],
@@ -1842,14 +1924,41 @@ export async function getAgentMemoryContext(
   if (normalizedQuery) {
     const route = routeMemoryQuery(normalizedQuery, { now });
     const preferredDocuments = selectMemoryDocumentsByLayers(documents, route.preferredLayers, now);
+    const preferredGlobalDocuments = preferredDocuments.filter((document) => document.memoryScope === 'global');
 
-    if (route.mode === 'default' && countNonGlobalMemoryDocuments(preferredDocuments) < 2) {
-      routedDocuments = mergeDistinctMemoryDocuments(
-        preferredDocuments,
-        selectMemoryDocumentsByLayers(documents, route.fallbackLayers, now),
+    if (route.mode === 'explicit_cold') {
+      const semanticColdDocuments = await searchColdMemoryVectorDocuments(
+        database,
+        agentId,
+        documents,
+        normalizedQuery,
+        now,
+        options?.embeddingConfig,
       );
+      routedDocuments =
+        semanticColdDocuments.length > 0
+          ? mergeDistinctMemoryDocuments(preferredGlobalDocuments, semanticColdDocuments)
+          : preferredDocuments;
     } else {
-      routedDocuments = preferredDocuments;
+      if (countNonGlobalMemoryDocuments(preferredDocuments) < 2) {
+        const semanticColdDocuments = await searchColdMemoryVectorDocuments(
+          database,
+          agentId,
+          documents,
+          normalizedQuery,
+          now,
+          options?.embeddingConfig,
+        );
+        routedDocuments =
+          semanticColdDocuments.length > 0
+            ? mergeDistinctMemoryDocuments(preferredDocuments, semanticColdDocuments)
+            : mergeDistinctMemoryDocuments(
+                preferredDocuments,
+                selectMemoryDocumentsByLayers(documents, route.fallbackLayers, now),
+              );
+      } else {
+        routedDocuments = preferredDocuments;
+      }
     }
   }
 

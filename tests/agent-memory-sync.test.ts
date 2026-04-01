@@ -12,7 +12,7 @@ import {
 import { ensureAgentWorkspaceSchema } from '../src/lib/agent-workspace-schema';
 import { buildAgentMemoryPaths } from '../src/lib/agent-memory-files';
 import { getAgentMemoryContext, saveAgent, syncCurrentAgentMemory } from '../src/lib/agent-workspace';
-import { Database } from '../src/lib/db';
+import { Database, initDB } from '../src/lib/db';
 import type { EmbeddingProviderConfig } from '../src/lib/embedding-client';
 
 const localforageState = new Map<string, unknown>();
@@ -144,6 +144,32 @@ const TEST_EMBEDDING_CONFIG: EmbeddingProviderConfig = {
   dimensions: 3,
   encodingFormat: 'float',
 };
+
+function installEmbeddingFetchMock(routes: Array<{ match: string; embedding: number[] }>) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input, init) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { input?: string | string[] };
+    const input = Array.isArray(body.input) ? body.input.join('\n') : String(body.input ?? '');
+    const route = routes.find((candidate) => input.includes(candidate.match));
+    if (!route) {
+      throw new Error(`No embedding mock configured for input: ${input}`);
+    }
+
+    return {
+      ok: true,
+      async json() {
+        return {
+          data: [{ index: 0, embedding: route.embedding }],
+          model: 'test-embedding',
+        };
+      },
+    } as Response;
+  }) as typeof fetch;
+
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
 
 test('syncAgentMemoryFromStore upserts derived rows for long-term and daily markdown files', async () => {
   const database = await createDatabase();
@@ -784,17 +810,7 @@ test('getAgentMemoryContext does not add cold fallback when default routing alre
 });
 
 test('syncAgentMemoryFromStore upserts cold memory embeddings when embedding config is available', async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    ({
-      ok: true,
-      async json() {
-        return {
-          data: [{ index: 0, embedding: [0.2, 0.4, 0.8] }],
-          model: 'test-embedding',
-        };
-      },
-    }) as Response) as typeof fetch;
+  const restoreFetch = installEmbeddingFetchMock([{ match: 'Cold source detail.', embedding: [0.2, 0.4, 0.8] }]);
 
   const database = await createDatabase();
   const coldPaths = buildAgentMemoryPaths('flowagent-core', '2026-03-01');
@@ -823,23 +839,13 @@ test('syncAgentMemoryFromStore upserts cold memory embeddings when embedding con
     assert.equal(rows[0]?.[5], 3);
     assert.match(String(rows[0]?.[7] ?? ''), /Cold source detail\./);
   } finally {
-    globalThis.fetch = originalFetch;
+    restoreFetch();
     database.close();
   }
 });
 
 test('syncAgentMemoryFromStore deletes stale cold embeddings when cold surrogate disappears', async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    ({
-      ok: true,
-      async json() {
-        return {
-          data: [{ index: 0, embedding: [0.1, 0.3, 0.9] }],
-          model: 'test-embedding',
-        };
-      },
-    }) as Response) as typeof fetch;
+  const restoreFetch = installEmbeddingFetchMock([{ match: 'Cold source detail.', embedding: [0.1, 0.3, 0.9] }]);
 
   const database = await createDatabase();
   const coldPaths = buildAgentMemoryPaths('flowagent-core', '2026-03-01');
@@ -873,7 +879,7 @@ test('syncAgentMemoryFromStore deletes stale cold embeddings when cold surrogate
 
     assert.equal(selectColdEmbeddingRows(database).length, 0);
   } finally {
-    globalThis.fetch = originalFetch;
+    restoreFetch();
     database.close();
   }
 });
@@ -898,4 +904,179 @@ test('syncAgentMemoryFromStore skips cold vector sync when embedding config is u
 
   assert.equal(selectColdEmbeddingRows(database).length, 0);
   database.close();
+});
+
+test('getAgentMemoryContext uses cold vector retrieval for explicit_cold queries', async () => {
+  const restoreFetch = installEmbeddingFetchMock([
+    { match: 'Alpha cold detail.', embedding: [1, 0, 0] },
+    { match: 'Beta cold detail.', embedding: [0, 1, 0] },
+    { match: 'Beta 方案', embedding: [0, 1, 0] },
+  ]);
+
+  const agentId = 'agent_cold_vector_explicit';
+  const slug = 'cold-vector-explicit';
+  const dayOne = buildAgentMemoryPaths(slug, '2026-03-01');
+  const dayTwo = buildAgentMemoryPaths(slug, '2026-03-02');
+  await setupMemoryContextAgent(
+    agentId,
+    `agents/${slug}`,
+    new Map([
+      ['memory/agents/cold-vector-explicit/MEMORY.md', '---\ntitle: "Global Memory"\n---\n\nGlobal preference.'],
+      [dayOne.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Alpha cold detail.'],
+      [dayOne.coldFile, '---\ntitle: "2026-03-01 Cold Memory"\n---\n\n## Summary\nAlpha cold detail.\n\n## Keywords\n- alpha'],
+      [dayTwo.dailyFile, '---\ntitle: "2026-03-02 Daily Log"\n---\n\n- Beta cold detail.'],
+      [dayTwo.coldFile, '---\ntitle: "2026-03-02 Cold Memory"\n---\n\n## Summary\nBeta cold detail.\n\n## Keywords\n- beta'],
+    ]),
+  );
+
+  try {
+    const database = await initDB();
+    await syncAgentMemoryFromStore(database, {
+      agentId,
+      agentSlug: slug,
+      fileStore: new InMemoryFileStore(
+        new Map([
+          ['memory/agents/cold-vector-explicit/MEMORY.md', '---\ntitle: "Global Memory"\n---\n\nGlobal preference.'],
+          [dayOne.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Alpha cold detail.'],
+          [dayOne.coldFile, '---\ntitle: "2026-03-01 Cold Memory"\n---\n\n## Summary\nAlpha cold detail.\n\n## Keywords\n- alpha'],
+          [dayTwo.dailyFile, '---\ntitle: "2026-03-02 Daily Log"\n---\n\n- Beta cold detail.'],
+          [dayTwo.coldFile, '---\ntitle: "2026-03-02 Cold Memory"\n---\n\n## Summary\nBeta cold detail.\n\n## Keywords\n- beta'],
+        ]),
+      ),
+      now: '2026-04-20T12:00:00.000Z',
+      embeddingConfig: TEST_EMBEDDING_CONFIG,
+    });
+
+    const context = await getAgentMemoryContext(agentId, {
+      includeRecentMemorySnapshot: false,
+      now: '2026-04-20T12:00:00.000Z',
+      query: '2026-03-02 那天的 Beta 方案是什么？',
+      embeddingConfig: TEST_EMBEDDING_CONFIG,
+    });
+
+    assert.match(context, /Long-term memory:\n- Global Memory: Global preference\./);
+    assert.match(context, /Cold memory:\n- 2026-03-02 Cold Memory: ## Summary Beta cold detail\. ## Keywords - beta/);
+    assert.doesNotMatch(context, /2026-03-01 Cold Memory: Alpha cold detail\./);
+  } finally {
+    restoreFetch();
+    setAgentMemoryFileStore(null);
+  }
+});
+
+test('getAgentMemoryContext uses cold vector fallback only when recent layers are insufficient', async () => {
+  const restoreFetch = installEmbeddingFetchMock([
+    { match: 'Old launch note.', embedding: [1, 0, 0] },
+    { match: 'Old migration note.', embedding: [0, 1, 0] },
+    { match: 'migration note', embedding: [0, 1, 0] },
+  ]);
+
+  const agentId = 'agent_cold_vector_default';
+  const slug = 'cold-vector-default';
+  const hot = buildAgentMemoryPaths(slug, '2026-04-19');
+  const warm = buildAgentMemoryPaths(slug, '2026-04-01');
+  const coldA = buildAgentMemoryPaths(slug, '2026-03-01');
+  const coldB = buildAgentMemoryPaths(slug, '2026-03-02');
+  await setupMemoryContextAgent(
+    agentId,
+    `agents/${slug}`,
+    new Map([
+      [hot.dailyFile, '---\ntitle: "2026-04-19 Daily Log"\n---\n\n- Fresh hot detail.'],
+      [warm.dailyFile, '---\ntitle: "2026-04-01 Daily Log"\n---\n\n- Warm bridge detail.'],
+      [coldA.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Old launch note.'],
+      [coldA.coldFile, '---\ntitle: "2026-03-01 Cold Memory"\n---\n\n## Summary\nOld launch note.\n\n## Keywords\n- launch'],
+      [coldB.dailyFile, '---\ntitle: "2026-03-02 Daily Log"\n---\n\n- Old migration note.'],
+      [coldB.coldFile, '---\ntitle: "2026-03-02 Cold Memory"\n---\n\n## Summary\nOld migration note.\n\n## Keywords\n- migration'],
+    ]),
+  );
+
+  try {
+    const database = await initDB();
+    await syncAgentMemoryFromStore(database, {
+      agentId,
+      agentSlug: slug,
+      fileStore: new InMemoryFileStore(
+        new Map([
+          [hot.dailyFile, '---\ntitle: "2026-04-19 Daily Log"\n---\n\n- Fresh hot detail.'],
+          [warm.dailyFile, '---\ntitle: "2026-04-01 Daily Log"\n---\n\n- Warm bridge detail.'],
+          [coldA.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Old launch note.'],
+          [coldA.coldFile, '---\ntitle: "2026-03-01 Cold Memory"\n---\n\n## Summary\nOld launch note.\n\n## Keywords\n- launch'],
+          [coldB.dailyFile, '---\ntitle: "2026-03-02 Daily Log"\n---\n\n- Old migration note.'],
+          [coldB.coldFile, '---\ntitle: "2026-03-02 Cold Memory"\n---\n\n## Summary\nOld migration note.\n\n## Keywords\n- migration'],
+        ]),
+      ),
+      now: '2026-04-20T12:00:00.000Z',
+      embeddingConfig: TEST_EMBEDDING_CONFIG,
+    });
+
+    const fallbackContext = await getAgentMemoryContext(agentId, {
+      includeRecentMemorySnapshot: false,
+      now: '2026-04-20T12:00:00.000Z',
+      query: '这个 migration note 还有什么背景？',
+      embeddingConfig: TEST_EMBEDDING_CONFIG,
+    });
+
+    assert.match(fallbackContext, /Hot memory:\n- 2026-04-19 Daily Log: - Fresh hot detail\./);
+    assert.match(
+      fallbackContext,
+      /Cold memory:\n- 2026-03-02 Cold Memory: ## Summary Old migration note\. ## Keywords - migration/,
+    );
+    assert.doesNotMatch(fallbackContext, /2026-03-01 Cold Memory: Old launch note\./);
+
+    const noFallbackContext = await getAgentMemoryContext(agentId, {
+      includeRecentMemorySnapshot: false,
+      now: '2026-04-14T12:00:00.000Z',
+      query: '这个 migration note 还有什么背景？',
+      embeddingConfig: TEST_EMBEDDING_CONFIG,
+    });
+
+    assert.match(noFallbackContext, /Warm memory:\n- 2026-04-01 Daily Log: - Warm bridge detail\./);
+    assert.doesNotMatch(noFallbackContext, /Cold memory:\n- 2026-03-02 Cold Memory: Old migration note\./);
+  } finally {
+    restoreFetch();
+    setAgentMemoryFileStore(null);
+  }
+});
+
+test('getAgentMemoryContext skips cold vector retrieval safely when embedding config is missing', async () => {
+  const agentId = 'agent_cold_vector_missing_config';
+  const slug = 'cold-vector-missing-config';
+  const cold = buildAgentMemoryPaths(slug, '2026-03-01');
+  await setupMemoryContextAgent(
+    agentId,
+    `agents/${slug}`,
+    new Map([
+      [cold.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Cold fallback detail.'],
+      [cold.coldFile, '---\ntitle: "2026-03-01 Cold Memory"\n---\n\n## Summary\nCold fallback detail.\n\n## Keywords\n- fallback'],
+    ]),
+  );
+
+  try {
+    const database = await initDB();
+    await syncAgentMemoryFromStore(database, {
+      agentId,
+      agentSlug: slug,
+      fileStore: new InMemoryFileStore(
+        new Map([
+          [cold.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Cold fallback detail.'],
+          [cold.coldFile, '---\ntitle: "2026-03-01 Cold Memory"\n---\n\n## Summary\nCold fallback detail.\n\n## Keywords\n- fallback'],
+        ]),
+      ),
+      now: '2026-04-20T12:00:00.000Z',
+      embeddingConfig: null,
+    });
+
+    const context = await getAgentMemoryContext(agentId, {
+      includeRecentMemorySnapshot: false,
+      now: '2026-04-20T12:00:00.000Z',
+      query: '2026-03-01 那天发生了什么？',
+      embeddingConfig: null,
+    });
+
+    assert.match(
+      context,
+      /Cold memory:\n- 2026-03-01 Cold Memory: ## Summary Cold fallback detail\. ## Keywords - fallback/,
+    );
+  } finally {
+    setAgentMemoryFileStore(null);
+  }
 });
