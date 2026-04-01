@@ -709,7 +709,7 @@ export const SettingsView = ({
 
   const rescanAgentMemory = async (agentId: string, statusMessage: string) => {
     const fileStore = createAgentMemoryApiFileStore(draft.apiServer);
-    const result = await syncCurrentAgentMemory({ agentId, fileStore, persist: true });
+    const result = await syncCurrentAgentMemory({ agentId, fileStore, persist: true, strict: true });
     if (!result) {
       throw new Error('当前 agent 的记忆索引未刷新，请检查本地 API Server 连接。');
     }
