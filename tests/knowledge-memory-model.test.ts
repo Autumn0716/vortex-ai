@@ -6,6 +6,8 @@ import {
 } from '../src/lib/knowledge-document-model';
 import {
   buildConversationMemoryEntry,
+  extractMemoryContentLines,
+  extractMemoryKeywords,
   extractOpenMemoryTasks,
   buildMemoryPromotionTitle,
   buildPromotionFingerprint,
@@ -15,6 +17,11 @@ import {
   shouldPromoteMemory,
   type MemoryContextDocument,
 } from '../src/lib/agent-memory-model';
+import {
+  buildColdMemorySurrogate,
+  buildWarmMemorySurrogate,
+  resolveLifecycleTier,
+} from '../src/lib/agent-memory-lifecycle';
 
 test('classifyKnowledgeDocument detects skill markdown by path and title', () => {
   const result = classifyKnowledgeDocument({
@@ -149,4 +156,88 @@ test('extractOpenMemoryTasks returns recent unresolved work items from hot and w
   assert.equal(tasks.length, 2);
   assert.match(tasks[0] ?? '', /TODO 修复 workspace bootstrap/);
   assert.match(tasks[1] ?? '', /阻塞: 还没做近期记忆快照/);
+});
+
+test('extractMemoryContentLines skips fenced code blocks entirely', () => {
+  const lines = extractMemoryContentLines([
+    'Intro',
+    '```ts',
+    'const internal = "TODO should stay hidden";',
+    '```',
+    '- [09:00] TODO real item',
+  ].join('\n'));
+
+  assert.deepEqual(lines, ['Intro', '[09:00] TODO real item']);
+  assert.doesNotMatch(lines.join('\n'), /internal|stay hidden/);
+});
+
+test('extractMemoryKeywords filters numeric and timestamp-like noise tokens', () => {
+  const keywords = extractMemoryKeywords(
+    '- [09:00] TODO 2026-04-01 修复 bootstrap 2 次\n- [10:30] 完成 bootstrap',
+    6,
+  );
+
+  assert.ok(keywords.includes('bootstrap'));
+  assert.ok(keywords.includes('todo'));
+  assert.equal(keywords.some((keyword) => /^\d/.test(keyword)), false);
+  assert.equal(keywords.some((keyword) => /^(09|00|2026|04|01|10|30)$/.test(keyword)), false);
+});
+
+test('resolveLifecycleTier maps dates into hot warm cold windows', () => {
+  const now = '2026-04-20T12:00:00.000Z';
+
+  assert.equal(resolveLifecycleTier('2026-04-19', now), 'hot');
+  assert.equal(resolveLifecycleTier('2026-04-10', now), 'warm');
+  assert.equal(resolveLifecycleTier('2026-03-01', now), 'cold');
+});
+
+test('buildWarmMemorySurrogate includes summary key fragments open loops and keywords', () => {
+  const markdown = buildWarmMemorySurrogate({
+    date: '2026-04-01',
+    sourcePath: 'memory/agents/core/daily/2026-04-01.md',
+    sourceMarkdown: '- [09:00] TODO 补齐索引\n- [10:00] 已验证 bootstrap 修复',
+    now: '2026-04-20T12:00:00.000Z',
+  });
+
+  assert.match(markdown, /tier: "warm"/);
+  assert.match(markdown, /## Summary/);
+  assert.match(markdown, /## Open Loops/);
+  assert.match(markdown, /TODO 补齐索引/);
+});
+
+test('buildColdMemorySurrogate aggressively compresses the source log', () => {
+  const markdown = buildColdMemorySurrogate({
+    date: '2026-03-01',
+    sourcePath: 'memory/agents/core/daily/2026-03-01.md',
+    sourceMarkdown: '- [09:00] Legacy Topic · You: 旧项目背景。\n- [10:00] TODO 清理遗留状态。',
+    now: '2026-04-20T12:00:00.000Z',
+  });
+
+  assert.match(markdown, /tier: "cold"/);
+  assert.match(markdown, /## Summary/);
+  assert.match(markdown, /## Keywords/);
+  assert.doesNotMatch(markdown, /## Key Fragments/);
+});
+
+test('buildWarmMemorySurrogate and buildColdMemorySurrogate are byte-identical for repeated inputs', () => {
+  const warmInput = {
+    date: '2026-04-01',
+    sourcePath: 'memory/agents/core/daily/2026-04-01.md',
+    sourceMarkdown: '- [09:00] TODO 补齐索引\n- [10:00] 已验证 bootstrap 修复',
+    now: '2026-04-20T12:00:00.000Z',
+  };
+  const coldInput = {
+    date: '2026-03-01',
+    sourcePath: 'memory/agents/core/daily/2026-03-01.md',
+    sourceMarkdown: '- [09:00] Legacy Topic · You: 旧项目背景。\n- [10:00] TODO 清理遗留状态。',
+    now: '2026-04-20T12:00:00.000Z',
+  };
+
+  const warmLeft = buildWarmMemorySurrogate(warmInput);
+  const warmRight = buildWarmMemorySurrogate(warmInput);
+  const coldLeft = buildColdMemorySurrogate(coldInput);
+  const coldRight = buildColdMemorySurrogate(coldInput);
+
+  assert.equal(warmLeft, warmRight);
+  assert.equal(coldLeft, coldRight);
 });

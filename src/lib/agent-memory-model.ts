@@ -16,12 +16,137 @@ const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const OPEN_TASK_PATTERN =
   /(todo|待办|阻塞|deadline|due|follow-up|follow up|未完成|待处理|下一步|next step)/i;
 
-function normalizeMemoryText(content: string) {
+const MEMORY_KEYWORD_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'as',
+  'at',
+  'be',
+  'for',
+  'from',
+  'i',
+  'in',
+  'is',
+  'it',
+  'log',
+  'memory',
+  'of',
+  'on',
+  'or',
+  'the',
+  'to',
+  'you',
+  '你的',
+  '了',
+  '和',
+  '把',
+  '的',
+  '在',
+  '是',
+  '还',
+  '我',
+  '你',
+  '已',
+  '将',
+  '要',
+]);
+
+export function normalizeMemoryText(content: string) {
   return content.replace(/\s+/g, ' ').trim();
 }
 
 function sortMemoryDocuments(left: MemoryContextDocument, right: MemoryContextDocument) {
   return right.importanceScore - left.importanceScore || right.updatedAt.localeCompare(left.updatedAt);
+}
+
+export function extractMemoryContentLines(content: string) {
+  const lines = content.split(/\r?\n/);
+  const extracted: string[] = [];
+  let inFrontmatter = false;
+  let inFence = false;
+
+  lines.forEach((line, index) => {
+    const trimmed = line.trim();
+
+    if (index === 0 && trimmed === '---') {
+      inFrontmatter = true;
+      return;
+    }
+    if (inFrontmatter) {
+      if (trimmed === '---') {
+        inFrontmatter = false;
+      }
+      return;
+    }
+
+    if (trimmed.startsWith('```')) {
+      inFence = !inFence;
+      return;
+    }
+    if (inFence) {
+      return;
+    }
+
+    const normalized = normalizeMemoryText(line).replace(/^-+\s*/, '').trim();
+    if (normalized && normalized !== '---' && !normalized.startsWith('#')) {
+      extracted.push(normalized);
+    }
+  });
+
+  return extracted;
+}
+
+function normalizeMemoryKeywordToken(token: string) {
+  const normalized = token.trim().toLowerCase();
+  if (normalized.length <= 1) {
+    return '';
+  }
+  if (/^\d+$/.test(normalized)) {
+    return '';
+  }
+  if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(normalized)) {
+    return '';
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return '';
+  }
+  return normalized;
+}
+
+export function extractMemoryKeywords(content: string, limit = 8) {
+  const frequencies = new Map<string, number>();
+
+  extractMemoryContentLines(content).forEach((line) => {
+    line.split(/[^A-Za-z0-9\u4e00-\u9fff]+/).forEach((token) => {
+      const normalized = normalizeMemoryKeywordToken(token);
+      if (!normalized || MEMORY_KEYWORD_STOP_WORDS.has(normalized)) {
+        return;
+      }
+
+      frequencies.set(normalized, (frequencies.get(normalized) ?? 0) + 1);
+    });
+  });
+
+  return [...frequencies.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, limit)
+    .map(([keyword]) => keyword);
+}
+
+export function summarizeMemoryLines(lines: string[], limit = 3) {
+  const selected = lines
+    .map((line) => normalizeMemoryText(line))
+    .filter(Boolean)
+    .slice(0, limit)
+    .map((line) => line.replace(/^(\[\d{2}:\d{2}\]\s*)?/, '').trim())
+    .filter(Boolean);
+
+  if (selected.length === 0) {
+    return 'No significant updates captured.';
+  }
+
+  return selected.join(' · ');
 }
 
 export function resolveMemoryTier(updatedAt: string, now = new Date().toISOString()): MemoryTier {
@@ -103,10 +228,34 @@ function renderMemoryLine(document: MemoryContextDocument, maxLength: number) {
 }
 
 function extractMemoryLines(document: MemoryContextDocument) {
-  return document.content
-    .split('\n')
-    .map((line) => normalizeMemoryText(line).replace(/^-+\s*/, ''))
-    .filter(Boolean);
+  return extractMemoryContentLines(document.content);
+}
+
+export function extractOpenMemoryTasksFromLines(
+  lines: string[],
+  options: { title?: string; limit?: number; seen?: Set<string> } = {},
+): string[] {
+  const title = options.title ?? 'Memory';
+  const limit = options.limit ?? 4;
+  const seen = options.seen ?? new Set<string>();
+  const tasks: string[] = [];
+
+  lines.forEach((line) => {
+    if (tasks.length >= limit || !OPEN_TASK_PATTERN.test(line)) {
+      return;
+    }
+
+    const normalizedLine = line.slice(0, 220);
+    const fingerprint = normalizedLine.toLowerCase();
+    if (seen.has(fingerprint)) {
+      return;
+    }
+
+    seen.add(fingerprint);
+    tasks.push(`${title}: ${normalizedLine}`);
+  });
+
+  return tasks;
 }
 
 export function extractOpenMemoryTasks(
@@ -124,20 +273,13 @@ export function extractOpenMemoryTasks(
 
   const tasks: string[] = [];
   candidates.forEach((document) => {
-    extractMemoryLines(document).forEach((line) => {
-      if (tasks.length >= limit || !OPEN_TASK_PATTERN.test(line)) {
-        return;
-      }
-
-      const normalizedLine = line.slice(0, 220);
-      const fingerprint = normalizedLine.toLowerCase();
-      if (seen.has(fingerprint)) {
-        return;
-      }
-
-      seen.add(fingerprint);
-      tasks.push(`${document.title}: ${normalizedLine}`);
-    });
+    tasks.push(
+      ...extractOpenMemoryTasksFromLines(extractMemoryLines(document), {
+        title: document.title,
+        limit: limit - tasks.length,
+        seen,
+      }),
+    );
   });
 
   return tasks;
