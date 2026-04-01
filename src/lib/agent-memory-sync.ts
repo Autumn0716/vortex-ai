@@ -11,7 +11,12 @@ import {
   buildWarmMemorySurrogate,
   resolveLifecycleTier,
 } from './agent-memory-lifecycle';
-import { scoreMemoryImportance, type MemoryScope, type MemorySourceType } from './agent-memory-model';
+import {
+  scoreMemoryImportance,
+  selectEffectiveMemoryDocuments,
+  type MemoryScope,
+  type MemorySourceType,
+} from './agent-memory-model';
 
 export interface AgentMemoryFileStore {
   listPaths(prefix: string): Promise<string[]>;
@@ -112,16 +117,36 @@ function buildGlobalMemoryTitle(markdown: string) {
     : 'Agent Memory';
 }
 
-function buildDailyMemoryTitle(markdown: string, eventDate: string) {
+function buildDailyMemoryTitle(markdown: string, fallbackTitle: string) {
   const { frontmatter } = parseMemoryMarkdown(markdown);
   return typeof frontmatter.title === 'string' && frontmatter.title.trim()
     ? frontmatter.title.trim()
-    : `${eventDate} Daily Memory`;
+    : fallbackTitle;
 }
 
-function buildDailyEventDate(path: string) {
-  const match = path.match(/(\d{4}-\d{2}-\d{2})\.md$/);
-  return match?.[1] ?? null;
+function resolveDailyMemoryMetadata(path: string, eventDate: string) {
+  const kind = detectMemoryFileKind(path);
+
+  if (kind === 'daily_warm') {
+    return {
+      sourceType: 'warm_summary' as const,
+      fallbackTitle: `${eventDate} Warm Memory`,
+    };
+  }
+  if (kind === 'daily_cold') {
+    return {
+      sourceType: 'cold_summary' as const,
+      fallbackTitle: `${eventDate} Cold Memory`,
+    };
+  }
+  if (kind === 'daily_source') {
+    return {
+      sourceType: 'conversation_log' as const,
+      fallbackTitle: `${eventDate} Daily Memory`,
+    };
+  }
+
+  return null;
 }
 
 function composeMigratedMarkdown(rows: LegacyMemoryRow[], fallbackTitle: string) {
@@ -259,25 +284,26 @@ function buildDerivedDocuments(input: {
     .slice()
     .sort((left, right) => left.path.localeCompare(right.path))
     .forEach((file) => {
-      const eventDate = buildDailyEventDate(file.path);
+      const eventDate = resolveDailyMemoryDate(file.path);
+      const metadata = eventDate ? resolveDailyMemoryMetadata(file.path, eventDate) : null;
       const content = normalizeBody(file.markdown);
-      if (!eventDate || !content) {
+      if (!eventDate || !metadata || !content) {
         return;
       }
 
       documents.push({
         id: buildDerivedMemoryId(input.agentId, file.path),
-        title: buildDailyMemoryTitle(file.markdown, eventDate),
+        title: buildDailyMemoryTitle(file.markdown, metadata.fallbackTitle),
         content,
         memoryScope: 'daily',
-        sourceType: 'conversation_log',
-        importanceScore: scoreMemoryImportance(content, 'conversation_log'),
+        sourceType: metadata.sourceType,
+        importanceScore: scoreMemoryImportance(content, metadata.sourceType),
         eventDate,
         updatedAt: input.now,
       });
     });
 
-  return documents;
+  return selectEffectiveMemoryDocuments(documents);
 }
 
 function upsertDerivedDocuments(database: Database, agentId: string, documents: DerivedMemoryDocument[]) {

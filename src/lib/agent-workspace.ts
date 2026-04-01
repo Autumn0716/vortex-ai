@@ -17,6 +17,7 @@ import {
   formatLayeredMemoryContext,
   resolveMemoryTier,
   scoreMemoryImportance,
+  selectEffectiveMemoryDocuments,
   shouldPromoteMemory,
   type MemoryScope,
   type MemorySourceType,
@@ -1655,7 +1656,7 @@ export async function listAgentMemoryDocuments(
     ),
   );
 
-  return rows.map(toAgentMemoryDocument);
+  return selectEffectiveMemoryDocuments(rows.map(toAgentMemoryDocument));
 }
 
 export async function saveAgentMemoryDocument(draft: {

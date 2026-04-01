@@ -1,5 +1,10 @@
 export type MemoryScope = 'global' | 'daily' | 'session';
-export type MemorySourceType = 'manual' | 'conversation_log' | 'promotion';
+export type MemorySourceType =
+  | 'manual'
+  | 'conversation_log'
+  | 'warm_summary'
+  | 'cold_summary'
+  | 'promotion';
 export type MemoryTier = 'hot' | 'warm' | 'cold';
 
 export interface MemoryContextDocument {
@@ -9,8 +14,17 @@ export interface MemoryContextDocument {
   memoryScope: MemoryScope;
   sourceType: MemorySourceType;
   importanceScore: number;
+  eventDate?: string | null;
   updatedAt: string;
 }
+
+const EFFECTIVE_DAILY_SOURCE_PRIORITY: Record<MemorySourceType, number> = {
+  manual: 0,
+  conversation_log: 1,
+  warm_summary: 2,
+  cold_summary: 3,
+  promotion: 0,
+};
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const OPEN_TASK_PATTERN =
@@ -58,6 +72,47 @@ export function normalizeMemoryText(content: string) {
 
 function sortMemoryDocuments(left: MemoryContextDocument, right: MemoryContextDocument) {
   return right.importanceScore - left.importanceScore || right.updatedAt.localeCompare(left.updatedAt);
+}
+
+function compareEffectiveDailyDocuments<T extends MemoryContextDocument>(left: T, right: T) {
+  return (
+    EFFECTIVE_DAILY_SOURCE_PRIORITY[right.sourceType] - EFFECTIVE_DAILY_SOURCE_PRIORITY[left.sourceType] ||
+    right.updatedAt.localeCompare(left.updatedAt) ||
+    right.importanceScore - left.importanceScore ||
+    left.id.localeCompare(right.id)
+  );
+}
+
+function isDeduplicatedDailyMemoryDocument(document: MemoryContextDocument) {
+  return (
+    document.memoryScope === 'daily' &&
+    Boolean(document.eventDate) &&
+    EFFECTIVE_DAILY_SOURCE_PRIORITY[document.sourceType] > 0
+  );
+}
+
+export function selectEffectiveMemoryDocuments<T extends MemoryContextDocument>(documents: T[]): T[] {
+  const effectiveDailyDocuments = new Map<string, T>();
+
+  documents.forEach((document) => {
+    if (!isDeduplicatedDailyMemoryDocument(document)) {
+      return;
+    }
+
+    const eventDate = document.eventDate!;
+    const existing = effectiveDailyDocuments.get(eventDate);
+    if (!existing || compareEffectiveDailyDocuments(document, existing) < 0) {
+      effectiveDailyDocuments.set(eventDate, document);
+    }
+  });
+
+  return documents.filter((document) => {
+    if (!isDeduplicatedDailyMemoryDocument(document)) {
+      return true;
+    }
+
+    return effectiveDailyDocuments.get(document.eventDate!) === document;
+  });
 }
 
 export function extractMemoryContentLines(content: string) {
@@ -184,7 +239,7 @@ export function scoreMemoryImportance(content: string, sourceType: MemorySourceT
   if (/(deadline|due|todo|待办|风险|阻塞|urgent|紧急|决策)/i.test(normalized)) {
     return 4;
   }
-  if (sourceType === 'conversation_log') {
+  if (sourceType === 'conversation_log' || sourceType === 'warm_summary' || sourceType === 'cold_summary') {
     return 3;
   }
   return 2;

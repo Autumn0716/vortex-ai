@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import initSqlite from '@sqlite.org/sqlite-wasm';
+import localforage from 'localforage';
 
 import {
   setAgentMemoryFileStore,
@@ -10,8 +11,19 @@ import {
 } from '../src/lib/agent-memory-sync';
 import { ensureAgentWorkspaceSchema } from '../src/lib/agent-workspace-schema';
 import { buildAgentMemoryPaths } from '../src/lib/agent-memory-files';
-import { syncCurrentAgentMemory } from '../src/lib/agent-workspace';
+import { getAgentMemoryContext, saveAgent, syncCurrentAgentMemory } from '../src/lib/agent-workspace';
 import { Database } from '../src/lib/db';
+
+const localforageState = new Map<string, unknown>();
+
+localforage.getItem = async <T>(key: string) => (localforageState.has(key) ? (localforageState.get(key) as T) : null);
+localforage.setItem = async <T>(key: string, value: T) => {
+  localforageState.set(key, value);
+  return value;
+};
+localforage.removeItem = async (key: string) => {
+  localforageState.delete(key);
+};
 
 class InMemoryFileStore implements AgentMemoryFileStore {
   writes: string[] = [];
@@ -224,6 +236,92 @@ test('syncAgentMemoryFromStore is idempotent when markdown content is unchanged'
   assert.equal(second.changed, false);
   assert.deepEqual(rowsAfterSecond, rowsAfterFirst);
   assert.deepEqual(fileStore.writes, []);
+
+  database.close();
+});
+
+test('syncAgentMemoryFromStore prefers cold then warm then source rows for same date', async () => {
+  const database = await createDatabase();
+  const paths = buildAgentMemoryPaths('flowagent-core', '2026-04-01');
+  const fileStore = new InMemoryFileStore(
+    new Map([
+      [paths.dailyFile, '---\ntitle: "2026-04-01 Daily Log"\n---\n\n- Source log detail.'],
+      [paths.warmFile, '---\ntitle: "2026-04-01 Warm Memory"\n---\n\nWarm summary detail.'],
+      [paths.coldFile, '---\ntitle: "2026-04-01 Cold Memory"\n---\n\nCold summary detail.'],
+    ]),
+  );
+
+  await syncAgentMemoryFromStore(database, {
+    agentId: 'agent_flowagent_core',
+    agentSlug: 'flowagent-core',
+    fileStore,
+    now: '2026-04-01T09:00:00.000Z',
+  });
+
+  const coldPreferred = selectDerivedRows(database);
+  assert.deepEqual(coldPreferred, [
+    [
+      coldPreferred[0]?.[0],
+      '2026-04-01 Cold Memory',
+      'Cold summary detail.',
+      'daily',
+      'cold_summary',
+      '2026-04-01',
+      '2026-04-01T09:00:00.000Z',
+      '2026-04-01T09:00:00.000Z',
+    ],
+  ]);
+
+  const warmOnlyStore = new InMemoryFileStore(
+    new Map([
+      [paths.dailyFile, '---\ntitle: "2026-04-01 Daily Log"\n---\n\n- Source log detail.'],
+      [paths.warmFile, '---\ntitle: "2026-04-01 Warm Memory"\n---\n\nWarm summary detail.'],
+    ]),
+  );
+
+  await syncAgentMemoryFromStore(database, {
+    agentId: 'agent_flowagent_core',
+    agentSlug: 'flowagent-core',
+    fileStore: warmOnlyStore,
+    now: '2026-04-01T10:00:00.000Z',
+  });
+
+  const warmPreferred = selectDerivedRows(database);
+  assert.deepEqual(warmPreferred, [
+    [
+      warmPreferred[0]?.[0],
+      '2026-04-01 Warm Memory',
+      'Warm summary detail.',
+      'daily',
+      'warm_summary',
+      '2026-04-01',
+      warmPreferred[0]?.[6],
+      '2026-04-01T10:00:00.000Z',
+    ],
+  ]);
+
+  const sourceOnlyStore = new InMemoryFileStore(new Map([[paths.dailyFile, '---\ntitle: "2026-04-01 Daily Log"\n---\n\n- Source log detail.']]));
+
+  await syncAgentMemoryFromStore(database, {
+    agentId: 'agent_flowagent_core',
+    agentSlug: 'flowagent-core',
+    fileStore: sourceOnlyStore,
+    now: '2026-04-01T11:00:00.000Z',
+  });
+
+  const sourcePreferred = selectDerivedRows(database);
+  assert.deepEqual(sourcePreferred, [
+    [
+      sourcePreferred[0]?.[0],
+      '2026-04-01 Daily Log',
+      '- Source log detail.',
+      'daily',
+      'conversation_log',
+      '2026-04-01',
+      sourcePreferred[0]?.[6],
+      '2026-04-01T11:00:00.000Z',
+    ],
+  ]);
 
   database.close();
 });
@@ -503,4 +601,42 @@ test('syncCurrentAgentMemory scopes workspace sync to the requested agent', asyn
 
   setAgentMemoryFileStore(null);
   database.close();
+});
+
+test('getAgentMemoryContext only injects one effective document per date', async () => {
+  const agentId = 'agent_runtime_precedence';
+  await saveAgent({
+    id: agentId,
+    name: 'Runtime Precedence',
+    description: 'Runtime precedence test agent',
+    systemPrompt: 'System prompt',
+    accentColor: 'from-emerald-500/20 to-teal-500/20',
+    workspaceRelpath: 'agents/runtime-precedence',
+  });
+
+  const dayOne = buildAgentMemoryPaths('runtime-precedence', '2026-03-20');
+  const dayTwo = buildAgentMemoryPaths('runtime-precedence', '2026-03-21');
+  setAgentMemoryFileStore(
+    new InMemoryFileStore(
+      new Map([
+        ['memory/agents/runtime-precedence/MEMORY.md', '---\ntitle: "Prefs"\n---\n\nKeep context deduped.'],
+        [dayOne.dailyFile, '---\ntitle: "2026-03-20 Daily Log"\n---\n\n- Raw detail that should not be injected.'],
+        [dayOne.warmFile, '---\ntitle: "2026-03-20 Warm Memory"\n---\n\nWarm summary that should lose to cold.'],
+        [dayOne.coldFile, '---\ntitle: "2026-03-20 Cold Memory"\n---\n\nCold summary that should win.'],
+        [dayTwo.dailyFile, '---\ntitle: "2026-03-21 Daily Log"\n---\n\n- Only source document for this day.'],
+      ]),
+    ),
+  );
+
+  const context = await getAgentMemoryContext(agentId, {
+    includeRecentMemorySnapshot: false,
+  });
+
+  assert.match(context, /2026-03-20 Cold Memory: Cold summary that should win\./);
+  assert.doesNotMatch(context, /2026-03-20 Daily Log: Raw detail that should not be injected\./);
+  assert.doesNotMatch(context, /2026-03-20 Warm Memory: Warm summary that should lose to cold\./);
+  assert.match(context, /2026-03-21 Daily Log: - Only source document for this day\./);
+  assert.equal((context.match(/2026-03-20 /g) ?? []).length, 1);
+
+  setAgentMemoryFileStore(null);
 });

@@ -14,6 +14,7 @@ import {
   formatLayeredMemoryContext,
   resolveMemoryTier,
   scoreMemoryImportance,
+  selectEffectiveMemoryDocuments,
   shouldPromoteMemory,
   type MemoryContextDocument,
 } from '../src/lib/agent-memory-model';
@@ -114,6 +115,55 @@ test('formatLayeredMemoryContext groups documents by tier', () => {
   assert.match(context, /Recent memory snapshot/);
   assert.match(context, /Hot memory/);
   assert.match(context, /Cold memory/);
+});
+
+test('selectEffectiveMemoryDocuments keeps one daily document per date with cold warm source precedence', () => {
+  const documents: MemoryContextDocument[] = [
+    {
+      id: 'daily_source',
+      title: '2026-04-01 Daily Log',
+      content: 'Source detail',
+      memoryScope: 'daily',
+      sourceType: 'conversation_log',
+      importanceScore: 3,
+      updatedAt: '2026-04-01T08:00:00.000Z',
+      eventDate: '2026-04-01',
+    },
+    {
+      id: 'daily_warm',
+      title: '2026-04-01 Warm Memory',
+      content: 'Warm detail',
+      memoryScope: 'daily',
+      sourceType: 'warm_summary',
+      importanceScore: 3,
+      updatedAt: '2026-04-01T09:00:00.000Z',
+      eventDate: '2026-04-01',
+    },
+    {
+      id: 'daily_cold',
+      title: '2026-04-01 Cold Memory',
+      content: 'Cold detail',
+      memoryScope: 'daily',
+      sourceType: 'cold_summary',
+      importanceScore: 3,
+      updatedAt: '2026-04-01T10:00:00.000Z',
+      eventDate: '2026-04-01',
+    },
+    {
+      id: 'global_pref',
+      title: 'Language Preference',
+      content: 'Default to Chinese.',
+      memoryScope: 'global',
+      sourceType: 'promotion',
+      importanceScore: 5,
+      updatedAt: '2026-04-01T07:00:00.000Z',
+    },
+  ];
+
+  assert.deepEqual(
+    selectEffectiveMemoryDocuments(documents).map((document) => document.id),
+    ['daily_cold', 'global_pref'],
+  );
 });
 
 test('buildMemoryPromotionTitle trims memory cue prefixes', () => {
