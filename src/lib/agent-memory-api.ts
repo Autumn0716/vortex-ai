@@ -43,6 +43,16 @@ export interface ApiHealthResponse {
   };
 }
 
+export interface NightlyArchiveRunSummary {
+  processedAgents: number;
+  successfulAgents: number;
+  failedAgents: number;
+  failures: Array<{ agentSlug: string; message: string }>;
+  trigger: 'catchup' | 'scheduled' | 'manual';
+  startedAt: string;
+  completedAt: string;
+}
+
 export interface NightlyArchiveStatus {
   settings: {
     enabled: boolean;
@@ -51,7 +61,7 @@ export interface NightlyArchiveStatus {
   state: {
     lastSuccessfulRunAt: string | null;
     lastAttemptedRunAt: string | null;
-    lastRunSummary: ApiHealthResponse['nightlyArchive'] extends { lastRunSummary: infer T } ? T : never;
+    lastRunSummary: NightlyArchiveRunSummary | null;
   };
   nextRunAt: string | null;
   catchUpDue: boolean;

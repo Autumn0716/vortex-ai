@@ -23,7 +23,7 @@ async function createTempRoot() {
 }
 
 async function startServer(rootDir: string) {
-  const { app, nightlyArchiveReady } = createFlowAgentApiServer({
+  const { app, nightlyArchiveReady, nightlyArchiveScheduler } = createFlowAgentApiServer({
     rootDir,
     authToken: '',
     nightlyArchiveNow: () => '2026-04-20T12:00:00.000Z',
@@ -38,6 +38,7 @@ async function startServer(rootDir: string) {
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
     async close() {
+      nightlyArchiveScheduler.stop();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
@@ -440,6 +441,7 @@ test('listAgentMemoryFiles exposes warm and cold surrogate entries distinctly', 
 
 test('API server startup catch-up generates warm and cold surrogate files before the server is used', async () => {
   const rootDir = await createTempRoot();
+  await mkdir(path.join(rootDir, '.flowagent'), { recursive: true });
   await mkdir(path.join(rootDir, 'memory/agents/core/daily'), { recursive: true });
   await writeFile(
     path.join(rootDir, 'memory/agents/core/daily/2026-04-10.md'),
@@ -449,6 +451,25 @@ test('API server startup catch-up generates warm and cold surrogate files before
   await writeFile(
     path.join(rootDir, 'memory/agents/core/daily/2026-03-01.md'),
     '- TODO cold summary from startup catch-up.',
+    'utf8',
+  );
+  await writeFile(
+    path.join(rootDir, '.flowagent/nightly-memory-archive-settings.json'),
+    JSON.stringify({ enabled: true, time: '03:00' }, null, 2),
+    'utf8',
+  );
+  await writeFile(
+    path.join(rootDir, '.flowagent/nightly-memory-archive-state.json'),
+    JSON.stringify(
+      {
+        lastSuccessfulRunAt: '2026-04-19T01:00:00.000Z',
+        lastSuccessfulRunDate: '2026-04-19',
+        lastAttemptedRunAt: '2026-04-19T01:00:00.000Z',
+        lastRunSummary: null,
+      },
+      null,
+      2,
+    ),
     'utf8',
   );
 

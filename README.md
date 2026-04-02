@@ -97,6 +97,8 @@ npm run api-server
 - 设置页 `Memory` 分类可以手动触发“同步温冷层”，生成替身并刷新当前 agent 的派生索引
 - 当前阶段原始 daily 文件不会删除，仍作为唯一真源保留
 - 当前第一版冷层向量归档会为有效的 `*.cold.md` 写入独立 memory embedding 索引，并只在 Query Router 需要冷层时触发语义召回
+- 本地 `api-server` 现在支持夜间自动归档调度，默认关闭，可在设置 -> `API 服务器` 中启用并配置每日执行时间
+- 若夜间服务未运行，`api-server` 下次启动时会自动补跑错过的归档，并把状态持久化到项目内 `.flowagent/nightly-memory-archive-*.json`
 
 ## 技术架构
 
@@ -129,9 +131,9 @@ npm run api-server
 - ✅ Query Router（第一版）
 - ✅ 温层摘要替身
 - ✅ 冷层向量归档（第一版）
+- ✅ 夜间自动归档（api-server 调度 + 启动补跑）
 
 ### 正在进行
-- 🔄 夜间自动归档
 - 🔄 重要性评分驱动驻留
 
 ### 计划中

@@ -53,7 +53,7 @@ export interface NightlyMemoryArchiveSchedulerOptions {
 }
 
 const DEFAULT_NIGHTLY_ARCHIVE_SETTINGS: NightlyArchiveSettings = {
-  enabled: true,
+  enabled: false,
   time: '03:00',
 };
 
@@ -455,16 +455,6 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
       started = false;
       clearScheduledRun();
     },
-    async runNow() {
-      running = true;
-      try {
-        await runOnce('manual');
-      } finally {
-        running = false;
-      }
-      await scheduleNextRun();
-      return getStatus();
-    },
     async getStatus() {
       return getStatus();
     },
@@ -492,6 +482,16 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
       }
 
       await scheduleNextRun();
+      return getStatus();
+    },
+    async runNow(trigger: NightlyArchiveRunSummary['trigger'] = 'manual') {
+      try {
+        running = true;
+        await runOnce(trigger);
+      } finally {
+        running = false;
+        await scheduleNextRun();
+      }
       return getStatus();
     },
   };

@@ -60,12 +60,15 @@ import {
   deleteAgentMemoryFile,
   ensureAgentMemoryFile,
   getApiServerHealth,
+  getNightlyArchiveStatus,
   listAgentMemoryFiles,
   readAgentMemoryFile,
   resolveApiServerBaseUrl,
+  saveNightlyArchiveSettings,
   syncAgentMemoryLifecycleForAgent,
   writeAgentMemoryFile,
   type AgentMemoryFileEntry,
+  type NightlyArchiveStatus,
 } from '../../lib/agent-memory-api';
 
 const CATEGORIES = [
@@ -161,6 +164,21 @@ interface ProviderModelFetchResult {
 interface MemoryFileStatus {
   tone: 'neutral' | 'success' | 'error';
   message: string;
+}
+
+function formatNightlyArchiveRunSummary(status: NightlyArchiveStatus | null) {
+  if (!status) {
+    return '当前未读取到夜间归档状态。';
+  }
+
+  const lastRun = status.state.lastRunSummary;
+  if (!lastRun) {
+    return status.settings.enabled
+      ? `已启用，计划时间 ${status.settings.time}，下一次执行 ${status.nextRunAt ?? '待计算'}。`
+      : '当前未启用夜间自动归档。';
+  }
+
+  return `最近一次 ${lastRun.trigger === 'catchup' ? '补跑' : '定时'}：处理 ${lastRun.processedAgents} 个 agent，成功 ${lastRun.successfulAgents}，失败 ${lastRun.failedAgents}。`;
 }
 
 function formatLifecycleSyncStatus(input: {
@@ -317,9 +335,15 @@ export const SettingsView = ({
   const [memoryFileLoading, setMemoryFileLoading] = useState(false);
   const [memoryFileStatus, setMemoryFileStatus] = useState<MemoryFileStatus | null>(null);
   const [apiServerSummary, setApiServerSummary] = useState<string>('');
+  const [nightlyArchiveStatus, setNightlyArchiveStatus] = useState<NightlyArchiveStatus | null>(null);
+  const [nightlyArchiveLoading, setNightlyArchiveLoading] = useState(false);
+  const [nightlyArchiveEnabled, setNightlyArchiveEnabled] = useState(false);
+  const [nightlyArchiveTime, setNightlyArchiveTime] = useState('03:00');
+  const [nightlyArchiveMessage, setNightlyArchiveMessage] = useState<MemoryFileStatus | null>(null);
   const backupRestoreInputRef = useRef<HTMLInputElement>(null);
   const externalImportInputRef = useRef<HTMLInputElement>(null);
   const memoryFilesRequestIdRef = useRef(0);
+  const nightlyArchiveRequestIdRef = useRef(0);
 
   const buildModelListCandidates = (baseUrl?: string) => {
     const normalized = (baseUrl || '').trim().replace(/\/+$/, '');
@@ -587,6 +611,65 @@ export const SettingsView = ({
     loadMemoryFiles().catch(console.error);
   }, [activeCategory, activeMemoryAgentId, draft.apiServer.enabled, draft.apiServer.baseUrl, draft.apiServer.authToken]);
 
+  const loadNightlyArchive = async (options: { announce?: string } = {}) => {
+    const requestId = nightlyArchiveRequestIdRef.current + 1;
+    nightlyArchiveRequestIdRef.current = requestId;
+
+    if (!draft.apiServer.enabled) {
+      setNightlyArchiveStatus(null);
+      setNightlyArchiveEnabled(false);
+      setNightlyArchiveTime('03:00');
+      setNightlyArchiveMessage(null);
+      if (activeCategory === 'api') {
+        setApiServerSummary('');
+      }
+      return;
+    }
+
+    setNightlyArchiveLoading(true);
+    try {
+      const [health, status] = await Promise.all([
+        getApiServerHealth(draft.apiServer),
+        getNightlyArchiveStatus(draft.apiServer),
+      ]);
+      if (requestId !== nightlyArchiveRequestIdRef.current) {
+        return;
+      }
+
+      setApiServerSummary(
+        health?.ok ? `已连接 ${resolveApiServerBaseUrl(draft.apiServer)} · ${health.rootDir ?? 'project root'}` : '',
+      );
+      setNightlyArchiveStatus(status);
+      setNightlyArchiveEnabled(status?.settings.enabled ?? false);
+      setNightlyArchiveTime(status?.settings.time ?? '03:00');
+      if (options.announce) {
+        setNightlyArchiveMessage({ tone: 'neutral', message: options.announce });
+      }
+    } catch (error) {
+      if (requestId !== nightlyArchiveRequestIdRef.current) {
+        return;
+      }
+      setNightlyArchiveStatus(null);
+      setApiServerSummary('');
+      setNightlyArchiveMessage({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '读取夜间归档状态失败。',
+      });
+    } finally {
+      if (requestId === nightlyArchiveRequestIdRef.current) {
+        setNightlyArchiveLoading(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (activeCategory !== 'api') {
+      return;
+    }
+
+    loadNightlyArchive().catch(console.error);
+  }, [activeCategory, draft.apiServer.enabled, draft.apiServer.baseUrl, draft.apiServer.authToken]);
+
   const addCustomProvider = async () => {
     const name = window.prompt('请输入模型服务名称', 'Custom Provider');
     if (!name?.trim()) {
@@ -853,6 +936,39 @@ export const SettingsView = ({
       });
     } finally {
       setMemoryFileLoading(false);
+    }
+  };
+
+  const handleNightlyArchiveSave = async () => {
+    if (!draft.apiServer.enabled) {
+      setNightlyArchiveMessage({
+        tone: 'error',
+        message: '请先启用本地 API Server。',
+      });
+      return;
+    }
+
+    setNightlyArchiveLoading(true);
+    try {
+      const nextStatus = await saveNightlyArchiveSettings(draft.apiServer, {
+        enabled: nightlyArchiveEnabled,
+        time: nightlyArchiveTime,
+      });
+      setNightlyArchiveStatus(nextStatus);
+      setNightlyArchiveEnabled(nextStatus?.settings.enabled ?? nightlyArchiveEnabled);
+      setNightlyArchiveTime(nextStatus?.settings.time ?? nightlyArchiveTime);
+      setNightlyArchiveMessage({
+        tone: 'success',
+        message: '已保存夜间自动归档设置。',
+      });
+      await loadNightlyArchive();
+    } catch (error) {
+      setNightlyArchiveMessage({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '保存夜间归档设置失败。',
+      });
+    } finally {
+      setNightlyArchiveLoading(false);
     }
   };
 
@@ -2204,51 +2320,138 @@ export const SettingsView = ({
       case 'api':
         return (
           <div className="space-y-4">
-            <ToggleCard
-              title="启用本地 API Server"
-              description="开启后，前端会通过本地 API 直接读写项目里的 memory 文件。"
-              checked={draft.apiServer.enabled}
-              onChange={(checked) =>
-                updateDraft((current) => ({
-                  ...current,
-                  apiServer: {
-                    ...current.apiServer,
-                    enabled: checked,
-                  },
-                }))
+            <SectionCard
+              title="本地 API Server"
+              description="开启后，前端会通过本地 API 直接读写项目里的记忆文件和夜间归档设置。"
+            >
+              <div className="space-y-4">
+                <ToggleCard
+                  title="启用本地 API Server"
+                  description="开启后，前端会通过本地 API 直接读写项目里的 memory 文件。"
+                  checked={draft.apiServer.enabled}
+                  onChange={(checked) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      apiServer: {
+                        ...current.apiServer,
+                        enabled: checked,
+                      },
+                    }))
+                  }
+                />
+                <input
+                  value={draft.apiServer.baseUrl}
+                  onChange={(event) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      apiServer: {
+                        ...current.apiServer,
+                        baseUrl: event.target.value,
+                      },
+                    }))
+                  }
+                  placeholder="http://127.0.0.1:3850"
+                  className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
+                />
+                <input
+                  value={draft.apiServer.authToken}
+                  onChange={(event) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      apiServer: {
+                        ...current.apiServer,
+                        authToken: event.target.value,
+                      },
+                    }))
+                  }
+                  placeholder="Auth token"
+                  className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
+                />
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/70">
+                  <div>
+                    本地服务命令：
+                    <code className="ml-2 rounded bg-black/30 px-2 py-1 text-xs text-white">npm run api-server</code>
+                  </div>
+                  <div className="mt-2 text-xs text-white/45">
+                    {draft.apiServer.enabled
+                      ? apiServerSummary || '正在连接本地 API Server。'
+                      : '当前未启用，夜间归档和文件真源编辑都不会生效。'}
+                  </div>
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              title="夜间自动归档"
+              description="由本地 API Server 在后台定时执行。若夜间服务未启动，下次启动时会自动补跑。"
+              action={
+                <button
+                  onClick={() => loadNightlyArchive({ announce: '已重新读取夜间归档状态。' })}
+                  disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={nightlyArchiveLoading ? 'animate-spin' : undefined} />
+                  刷新状态
+                </button>
               }
-            />
-            <input
-              value={draft.apiServer.baseUrl}
-              onChange={(event) =>
-                updateDraft((current) => ({
-                  ...current,
-                  apiServer: {
-                    ...current.apiServer,
-                    baseUrl: event.target.value,
-                  },
-                }))
-              }
-              placeholder="http://127.0.0.1:3850"
-              className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
-            />
-            <input
-              value={draft.apiServer.authToken}
-              onChange={(event) =>
-                updateDraft((current) => ({
-                  ...current,
-                  apiServer: {
-                    ...current.apiServer,
-                    authToken: event.target.value,
-                  },
-                }))
-              }
-              placeholder="Auth token"
-              className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
-            />
-            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/70">
-              本地服务命令：<code className="rounded bg-black/30 px-2 py-1 text-xs text-white">npm run api-server</code>
-            </div>
+            >
+              <div className="space-y-4">
+                <ToggleCard
+                  title="启用夜间自动归档"
+                  description="默认每天在设定时间同步温冷层，并在需要时补跑漏掉的归档。"
+                  checked={nightlyArchiveEnabled}
+                  onChange={setNightlyArchiveEnabled}
+                />
+                <div className="grid gap-4 md:grid-cols-[220px_1fr]">
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="mb-2 text-sm font-medium text-white/90">归档时间</div>
+                    <input
+                      type="time"
+                      value={nightlyArchiveTime}
+                      onChange={(event) => setNightlyArchiveTime(event.target.value)}
+                      disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
+                      className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                    />
+                    <p className="mt-2 text-xs text-white/45">使用本机时间，默认每天凌晨 03:00。</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/75">
+                    <div className="font-medium text-white/90">当前状态</div>
+                    <div className="mt-2 text-xs text-white/55">
+                      {formatNightlyArchiveRunSummary(nightlyArchiveStatus)}
+                    </div>
+                    <div className="mt-4 grid gap-2 text-xs text-white/50">
+                      <div>下一次执行：{nightlyArchiveStatus?.nextRunAt ?? '未计划'}</div>
+                      <div>最近成功：{nightlyArchiveStatus?.state.lastSuccessfulRunAt ?? '暂无'}</div>
+                      <div>最近尝试：{nightlyArchiveStatus?.state.lastAttemptedRunAt ?? '暂无'}</div>
+                      <div>补跑待执行：{nightlyArchiveStatus?.catchUpDue ? '是' : '否'}</div>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  className={`text-xs ${
+                    nightlyArchiveMessage?.tone === 'error'
+                      ? 'text-red-200'
+                      : nightlyArchiveMessage?.tone === 'success'
+                        ? 'text-emerald-200'
+                        : 'text-white/45'
+                  }`}
+                >
+                  {nightlyArchiveMessage?.message ?? '夜间归档设置会保存到项目内 `.flowagent/` 状态文件。'}
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => {
+                      handleNightlyArchiveSave().catch(console.error);
+                    }}
+                    disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
+                    className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <ArrowUpFromLine size={14} />
+                    保存夜间归档设置
+                  </button>
+                </div>
+              </div>
+            </SectionCard>
           </div>
         );
 

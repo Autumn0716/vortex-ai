@@ -105,7 +105,7 @@ test('readNightlyArchiveState and readNightlyArchiveSettings return defaults whe
     lastRunSummary: null,
   });
   assert.deepEqual(await readNightlyArchiveSettings(rootDir), {
-    enabled: true,
+    enabled: false,
     time: '03:00',
   });
 });
@@ -153,6 +153,10 @@ test('nightly scheduler startup catch-up generates warm and cold surrogates from
     lastSuccessfulRunDate: '2026-04-01',
     lastAttemptedRunAt: '2026-04-01T00:00:00.000Z',
     lastRunSummary: null,
+  });
+  await writeNightlyArchiveSettings(rootDir, {
+    enabled: true,
+    time: '03:00',
   });
 
   const scheduler = createNightlyMemoryArchiveScheduler({
