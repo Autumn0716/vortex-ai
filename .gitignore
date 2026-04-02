@@ -6,5 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+config.json
 .superpowers/
 .vite/

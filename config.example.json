@@ -1,0 +1,9 @@
+{
+  "activeProviderId": "openai",
+  "activeModel": "gpt-4o",
+  "apiServer": {
+    "enabled": true,
+    "baseUrl": "http://127.0.0.1:3850",
+    "authToken": ""
+  }
+}
