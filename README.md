@@ -122,6 +122,7 @@ npm run api-server
 - 当前第一版冷层向量归档会为有效的 `*.cold.md` 写入独立 memory embedding 索引，并只在 Query Router 需要冷层时触发语义召回
 - 本地 `api-server` 现在支持夜间自动归档调度，默认关闭，可在设置 -> `API 服务器` 中启用并配置每日执行时间
 - 若夜间服务未运行，`api-server` 下次启动时会自动补跑错过的归档，并把状态持久化到项目内 `.flowagent/nightly-memory-archive-*.json`
+- 夜间归档现支持可选的 LLM 重要性评分，复用当前活动模型为进入 warm/cold 的 daily 生成 `importance / reason / retentionSuggestion / promoteSignals` 元数据；失败时自动回退规则评分
 
 ## 技术架构
 
@@ -156,6 +157,7 @@ npm run api-server
 - ✅ 冷层向量归档（第一版）
 - ✅ 夜间自动归档（api-server 调度 + 启动补跑）
 - ✅ 配置迁移到项目级 `config.json`
+- ✅ 夜间 LLM 重要性评分（保留为 surrogate 元数据，不自动改写 `MEMORY.md`）
 
 ### 正在进行
 - 🔄 重要性评分驱动驻留

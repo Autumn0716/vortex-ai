@@ -10,6 +10,14 @@ import {
 
 export type MemoryLifecycleTier = 'hot' | 'warm' | 'cold';
 
+export interface MemoryImportanceAssessment {
+  importanceScore: number;
+  reason: string;
+  suggestedRetention: 'warm' | 'cold';
+  promoteSignals: string[];
+  source: 'llm' | 'rules';
+}
+
 const DAILY_LINE_LIMIT = 5;
 const WARM_SUMMARY_LINE_LIMIT = 4;
 const COLD_SUMMARY_LINE_LIMIT = 1;
@@ -25,6 +33,40 @@ function stripDailyLineNoise(line: string) {
 
 function compactBulletList(items: string[]) {
   return items.length > 0 ? items.map((item) => `- ${item}`).join('\n') : '- None';
+}
+
+function clampImportanceScore(value: number) {
+  return Math.max(1, Math.min(5, Math.round(value)));
+}
+
+function extractPromoteSignals(sourceMarkdown: string) {
+  const normalized = sourceMarkdown.toLowerCase();
+  const signals: string[] = [];
+
+  if (/(偏好|preference|默认|always|总是)/i.test(normalized)) {
+    signals.push('preference');
+  }
+  if (/(重要决策|decision|方案|project state|项目状态)/i.test(normalized)) {
+    signals.push('decision');
+  }
+  if (/(核心身份|身份|role|owner|负责人)/i.test(normalized)) {
+    signals.push('identity');
+  }
+
+  return Array.from(new Set(signals));
+}
+
+export function buildRuleBasedMemoryAssessment(input: {
+  tier: 'warm' | 'cold';
+  sourceMarkdown: string;
+}): MemoryImportanceAssessment {
+  return {
+    importanceScore: clampImportanceScore(scoreMemoryImportance(input.sourceMarkdown, 'conversation_log')),
+    reason: 'Fallback deterministic score from source content heuristics.',
+    suggestedRetention: input.tier,
+    promoteSignals: extractPromoteSignals(input.sourceMarkdown),
+    source: 'rules',
+  };
 }
 
 function collectSignificantDailyLines(sourceMarkdown: string) {
@@ -81,12 +123,16 @@ export function buildWarmMemorySurrogate(input: {
   sourcePath: string;
   sourceMarkdown: string;
   now?: string;
+  assessment?: MemoryImportanceAssessment;
 }) {
   const now = input.now ?? new Date().toISOString();
   const significantLines = collectSignificantDailyLines(input.sourceMarkdown);
   const openLoops = buildOpenLoopLines(input.date, input.sourceMarkdown, 4);
   const keywords = extractMemoryKeywords(significantLines.join('\n'), 8);
-  const importance = scoreMemoryImportance(input.sourceMarkdown, 'conversation_log');
+  const assessment = input.assessment ?? buildRuleBasedMemoryAssessment({
+    tier: 'warm',
+    sourceMarkdown: input.sourceMarkdown,
+  });
 
   return serializeMemoryMarkdown({
     frontmatter: {
@@ -95,7 +141,11 @@ export function buildWarmMemorySurrogate(input: {
       tier: 'warm',
       sourcePath: input.sourcePath,
       updatedAt: now,
-      importance,
+      importance: clampImportanceScore(assessment.importanceScore),
+      importanceReason: assessment.reason,
+      importanceSource: assessment.source,
+      retentionSuggestion: assessment.suggestedRetention,
+      promoteSignals: assessment.promoteSignals.join(', '),
       keywords: keywords.join(', '),
     },
     body: [
@@ -119,11 +169,15 @@ export function buildColdMemorySurrogate(input: {
   sourcePath: string;
   sourceMarkdown: string;
   now?: string;
+  assessment?: MemoryImportanceAssessment;
 }) {
   const now = input.now ?? new Date().toISOString();
   const significantLines = collectSignificantDailyLines(input.sourceMarkdown);
   const keywords = extractMemoryKeywords(significantLines.join('\n'), COLD_KEYWORD_LIMIT);
-  const importance = scoreMemoryImportance(input.sourceMarkdown, 'conversation_log');
+  const assessment = input.assessment ?? buildRuleBasedMemoryAssessment({
+    tier: 'cold',
+    sourceMarkdown: input.sourceMarkdown,
+  });
 
   return serializeMemoryMarkdown({
     frontmatter: {
@@ -132,7 +186,11 @@ export function buildColdMemorySurrogate(input: {
       tier: 'cold',
       sourcePath: input.sourcePath,
       updatedAt: now,
-      importance,
+      importance: clampImportanceScore(assessment.importanceScore),
+      importanceReason: assessment.reason,
+      importanceSource: assessment.source,
+      retentionSuggestion: assessment.suggestedRetention,
+      promoteSignals: assessment.promoteSignals.join(', '),
       keywords: keywords.join(', '),
     },
     body: [

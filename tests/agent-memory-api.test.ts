@@ -81,6 +81,7 @@ test('API server health and file operations work through the registered memory f
     assert.equal(health?.rootDir, rootDir);
     assert.equal(health?.nightlyArchive?.enabled, false);
     assert.equal(health?.nightlyArchive?.time, '03:00');
+    assert.equal(health?.nightlyArchive?.useLlmScoring, false);
 
     registerConfiguredAgentMemoryFileStore(settings);
     const fileStore = getAgentMemoryFileStore();
@@ -121,13 +122,16 @@ test('API server exposes readable and writable nightly archive settings', async 
     const initialStatus = await getNightlyArchiveStatus(settings);
     assert.equal(initialStatus?.settings.enabled, false);
     assert.equal(initialStatus?.settings.time, '03:00');
+    assert.equal(initialStatus?.settings.useLlmScoring, false);
 
     const nextStatus = await saveNightlyArchiveSettings(settings, {
       enabled: true,
       time: '04:30',
+      useLlmScoring: true,
     });
     assert.equal(nextStatus?.settings.enabled, true);
     assert.equal(nextStatus?.settings.time, '04:30');
+    assert.equal(nextStatus?.settings.useLlmScoring, true);
 
     const settingsFile = await readFile(path.join(rootDir, '.flowagent/nightly-memory-archive-settings.json'), 'utf8');
     assert.match(settingsFile, /"time": "04:30"/);
@@ -135,6 +139,7 @@ test('API server exposes readable and writable nightly archive settings', async 
     const health = await getApiServerHealth(settings);
     assert.equal(health?.nightlyArchive?.enabled, true);
     assert.equal(health?.nightlyArchive?.time, '04:30');
+    assert.equal(health?.nightlyArchive?.useLlmScoring, true);
   } finally {
     await server.close();
   }

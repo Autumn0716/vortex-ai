@@ -70,6 +70,11 @@ RAG策略:
 本地 `api-server` 已补上 `/api/config` 读写接口，前端配置读取会优先走 host bridge；若发现旧浏览器配置且当前文件配置仍是默认值，会自动把 legacy 配置迁移到 `config.json`。
 开发态启动链路也开始向“内置宿主服务”收口：`npm run dev` 现在会同时带起前端和本地 `api-server`，为后续 Electron 封装预留同一套 host/config 结构。当前剩余的是把所有设置写入路径完全切到文件真源，并在此基础上接入 LLM 夜间重要性评分。
 
+进度汇报（2026-04-02，第十一次更新）:
+已完成第一版夜间 LLM 重要性评分：夜间归档现在可以复用当前 `config.json` 中的活动模型，对进入 warm/cold 生命周期的 `daily/YYYY-MM-DD.md` 进行 `1-5` 分重要性评估。
+评分结果会写入 `*.warm.md` / `*.cold.md` frontmatter，包括 `importance`、`importanceReason`、`importanceSource`、`retentionSuggestion` 和 `promoteSignals`，并同步到派生 SQLite 的 `importance_score`；当前仍不会自动改写 `MEMORY.md`。
+若模型调用失败、配置缺失或返回格式异常，归档会自动回退到现有规则评分，不阻塞温冷层同步。设置页 `API 服务器 -> 夜间自动归档` 已新增“启用 LLM 重要性评分”开关。当前剩余的是把高分记忆的长期晋升策略正式闭环，以及将全局/热/温层逐步并入统一 memory RAG。
+
 全局记忆每次更新，会建立 rag 索引，
 每日记忆改为实时增量索引,当天内容也能及时检索,夜间再做压缩;且 2 天内保留索引（热层），
 3-15天(温层)只留存摘要，元数据，关键词等替身,

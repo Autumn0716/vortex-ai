@@ -133,6 +133,28 @@ test('syncAgentMemoryLifecycleFromStore creates warm and cold surrogates from so
   assert.match((await fileStore.readText('memory/agents/core/daily/2026-03-01.cold.md')) ?? '', /tier: "cold"/);
 });
 
+test('syncAgentMemoryLifecycleFromStore falls back to rules when scoring callback fails', async () => {
+  const fileStore = new InMemoryFileStore(
+    new Map([['memory/agents/core/daily/2026-04-10.md', '- TODO 完成温层摘要']]),
+  );
+
+  const result = await syncAgentMemoryLifecycleFromStore({
+    agentSlug: 'core',
+    fileStore,
+    now: '2026-04-20T12:00:00.000Z',
+    scoreImportance: async () => {
+      throw new Error('model unavailable');
+    },
+  });
+
+  assert.deepEqual(result.scoring, {
+    llmScoredCount: 0,
+    ruleFallbackCount: 1,
+  });
+  const warm = await fileStore.readText('memory/agents/core/daily/2026-04-10.warm.md');
+  assert.match(warm ?? '', /importanceSource: "rules"/);
+});
+
 test('syncAgentMemoryLifecycleFromStore is idempotent when source markdown is unchanged', async () => {
   const fileStore = new InMemoryFileStore(
     new Map([

@@ -24,3 +24,4 @@
 - Added query-time cold vector retrieval so explicit cold routes and recent-layer fallback paths can semantically recall the most relevant cold summaries instead of injecting every cold memory row.
 - Added nightly memory archive scheduling to the local `api-server`, including project-local `.flowagent` settings/state files, startup catch-up for missed runs, and a matching Settings UI card for enabling and inspecting the job.
 - Moved app configuration persistence toward a project-local `config.json` source, added `config.example.json`, exposed config read/write routes through the local `api-server`, and changed `npm run dev` to start both the frontend and host bridge together.
+- Added optional nightly LLM memory scoring that reuses the active model from `config.json`, writes scored metadata into warm/cold surrogate frontmatter, and falls back to deterministic rules when model calls fail.

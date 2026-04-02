@@ -174,11 +174,11 @@ function formatNightlyArchiveRunSummary(status: NightlyArchiveStatus | null) {
   const lastRun = status.state.lastRunSummary;
   if (!lastRun) {
     return status.settings.enabled
-      ? `已启用，计划时间 ${status.settings.time}，下一次执行 ${status.nextRunAt ?? '待计算'}。`
+      ? `已启用，计划时间 ${status.settings.time}，${status.settings.useLlmScoring ? '使用 LLM 评分' : '使用规则评分'}，下一次执行 ${status.nextRunAt ?? '待计算'}。`
       : '当前未启用夜间自动归档。';
   }
 
-  return `最近一次 ${lastRun.trigger === 'catchup' ? '补跑' : '定时'}：处理 ${lastRun.processedAgents} 个 agent，成功 ${lastRun.successfulAgents}，失败 ${lastRun.failedAgents}。`;
+  return `最近一次 ${lastRun.trigger === 'catchup' ? '补跑' : '定时'}：处理 ${lastRun.processedAgents} 个 agent，成功 ${lastRun.successfulAgents}，失败 ${lastRun.failedAgents}，LLM 评分 ${lastRun.llmScoredCount}，规则回退 ${lastRun.ruleFallbackCount}。`;
 }
 
 function formatLifecycleSyncStatus(input: {
@@ -340,6 +340,7 @@ export const SettingsView = ({
   const [nightlyArchiveLoading, setNightlyArchiveLoading] = useState(false);
   const [nightlyArchiveEnabled, setNightlyArchiveEnabled] = useState(false);
   const [nightlyArchiveTime, setNightlyArchiveTime] = useState('03:00');
+  const [nightlyArchiveUseLlmScoring, setNightlyArchiveUseLlmScoring] = useState(false);
   const [nightlyArchiveMessage, setNightlyArchiveMessage] = useState<MemoryFileStatus | null>(null);
   const backupRestoreInputRef = useRef<HTMLInputElement>(null);
   const externalImportInputRef = useRef<HTMLInputElement>(null);
@@ -628,6 +629,7 @@ export const SettingsView = ({
       setNightlyArchiveStatus(null);
       setNightlyArchiveEnabled(false);
       setNightlyArchiveTime('03:00');
+      setNightlyArchiveUseLlmScoring(false);
       setNightlyArchiveMessage(null);
       if (activeCategory === 'api') {
         setApiServerSummary('');
@@ -651,6 +653,7 @@ export const SettingsView = ({
       setNightlyArchiveStatus(status);
       setNightlyArchiveEnabled(status?.settings.enabled ?? false);
       setNightlyArchiveTime(status?.settings.time ?? '03:00');
+      setNightlyArchiveUseLlmScoring(status?.settings.useLlmScoring ?? false);
       if (options.announce) {
         setNightlyArchiveMessage({ tone: 'neutral', message: options.announce });
       }
@@ -962,10 +965,12 @@ export const SettingsView = ({
       const nextStatus = await saveNightlyArchiveSettings(draft.apiServer, {
         enabled: nightlyArchiveEnabled,
         time: nightlyArchiveTime,
+        useLlmScoring: nightlyArchiveUseLlmScoring,
       });
       setNightlyArchiveStatus(nextStatus);
       setNightlyArchiveEnabled(nextStatus?.settings.enabled ?? nightlyArchiveEnabled);
       setNightlyArchiveTime(nextStatus?.settings.time ?? nightlyArchiveTime);
+      setNightlyArchiveUseLlmScoring(nextStatus?.settings.useLlmScoring ?? nightlyArchiveUseLlmScoring);
       setNightlyArchiveMessage({
         tone: 'success',
         message: '已保存夜间自动归档设置。',
@@ -2411,6 +2416,12 @@ export const SettingsView = ({
                   checked={nightlyArchiveEnabled}
                   onChange={setNightlyArchiveEnabled}
                 />
+                <ToggleCard
+                  title="启用 LLM 重要性评分"
+                  description="复用当前活动模型为进入 warm/cold 的 daily 打分；失败时自动回退规则评分。"
+                  checked={nightlyArchiveUseLlmScoring}
+                  onChange={setNightlyArchiveUseLlmScoring}
+                />
                 <div className="grid gap-4 md:grid-cols-[220px_1fr]">
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                     <div className="mb-2 text-sm font-medium text-white/90">归档时间</div>
@@ -2433,6 +2444,7 @@ export const SettingsView = ({
                       <div>最近成功：{nightlyArchiveStatus?.state.lastSuccessfulRunAt ?? '暂无'}</div>
                       <div>最近尝试：{nightlyArchiveStatus?.state.lastAttemptedRunAt ?? '暂无'}</div>
                       <div>补跑待执行：{nightlyArchiveStatus?.catchUpDue ? '是' : '否'}</div>
+                      <div>LLM 评分：{nightlyArchiveStatus?.settings.useLlmScoring ? '开启' : '关闭'}</div>
                     </div>
                   </div>
                 </div>

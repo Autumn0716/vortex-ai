@@ -29,6 +29,7 @@ export interface ApiHealthResponse {
   nightlyArchive?: {
     enabled: boolean;
     time: string;
+    useLlmScoring: boolean;
     running: boolean;
     nextRunAt: string | null;
     catchUpDue: boolean;
@@ -39,6 +40,8 @@ export interface ApiHealthResponse {
       successfulAgents: number;
       failedAgents: number;
       failures: Array<{ agentSlug: string; message: string }>;
+      llmScoredCount: number;
+      ruleFallbackCount: number;
     } | null;
   };
 }
@@ -48,6 +51,8 @@ export interface NightlyArchiveRunSummary {
   successfulAgents: number;
   failedAgents: number;
   failures: Array<{ agentSlug: string; message: string }>;
+  llmScoredCount: number;
+  ruleFallbackCount: number;
   trigger: 'catchup' | 'scheduled' | 'manual';
   startedAt: string;
   completedAt: string;
@@ -57,6 +62,7 @@ export interface NightlyArchiveStatus {
   settings: {
     enabled: boolean;
     time: string;
+    useLlmScoring: boolean;
   };
   state: {
     lastSuccessfulRunAt: string | null;
@@ -195,7 +201,7 @@ export async function getNightlyArchiveStatus(settings: ApiServerSettings): Prom
 
 export async function saveNightlyArchiveSettings(
   settings: ApiServerSettings,
-  value: { enabled?: boolean; time?: string },
+  value: { enabled?: boolean; time?: string; useLlmScoring?: boolean },
 ): Promise<NightlyArchiveStatus | null> {
   if (!settings.enabled) {
     throw new Error('The local API server is disabled.');

@@ -320,9 +320,19 @@ test('buildWarmMemorySurrogate includes summary key fragments open loops and key
     sourcePath: 'memory/agents/core/daily/2026-04-01.md',
     sourceMarkdown: '- [09:00] TODO 补齐索引\n- [10:00] 已验证 bootstrap 修复',
     now: '2026-04-20T12:00:00.000Z',
+    assessment: {
+      importanceScore: 5,
+      reason: 'Contains a durable project decision.',
+      suggestedRetention: 'warm',
+      promoteSignals: ['decision'],
+      source: 'llm',
+    },
   });
 
   assert.match(markdown, /tier: "warm"/);
+  assert.match(markdown, /importance: 5/);
+  assert.match(markdown, /importanceSource: "llm"/);
+  assert.match(markdown, /retentionSuggestion: "warm"/);
   assert.match(markdown, /## Summary/);
   assert.match(markdown, /## Open Loops/);
   assert.match(markdown, /TODO 补齐索引/);
@@ -340,9 +350,18 @@ test('buildColdMemorySurrogate aggressively compresses the source log', () => {
     sourcePath: 'memory/agents/core/daily/2026-03-01.md',
     sourceMarkdown: '- [09:00] Legacy Topic · You: 旧项目背景。\n- [10:00] TODO 清理遗留状态。',
     now: '2026-04-20T12:00:00.000Z',
+    assessment: {
+      importanceScore: 4,
+      reason: 'Keeps a relevant archived task.',
+      suggestedRetention: 'cold',
+      promoteSignals: ['project state'],
+      source: 'llm',
+    },
   });
 
   assert.match(markdown, /tier: "cold"/);
+  assert.match(markdown, /importance: 4/);
+  assert.match(markdown, /importanceSource: "llm"/);
   assert.match(markdown, /## Summary/);
   assert.match(markdown, /## Keywords/);
   assert.equal(markdown.length < warmMarkdown.length, true);

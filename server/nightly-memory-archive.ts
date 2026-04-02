@@ -6,10 +6,15 @@ import {
   type AgentMemoryFileStore,
   type AgentMemoryLifecycleResult,
 } from '../src/lib/agent-memory-sync';
+import type { AgentConfig } from '../src/lib/agent/config';
+import type { MemoryImportanceAssessment } from '../src/lib/agent-memory-lifecycle';
+import { readProjectConfig } from './config-store';
+import { scoreMemoryImportanceWithModel } from './memory-importance-scorer';
 
 export interface NightlyArchiveSettings {
   enabled: boolean;
   time: string;
+  useLlmScoring: boolean;
 }
 
 export interface NightlyArchiveRunSummary {
@@ -17,6 +22,8 @@ export interface NightlyArchiveRunSummary {
   successfulAgents: number;
   failedAgents: number;
   failures: Array<{ agentSlug: string; message: string }>;
+  llmScoredCount: number;
+  ruleFallbackCount: number;
   trigger: 'catchup' | 'scheduled' | 'manual';
   startedAt: string;
   completedAt: string;
@@ -49,12 +56,25 @@ export interface NightlyMemoryArchiveSchedulerOptions {
     agentSlug: string;
     fileStore: AgentMemoryFileStore;
     now: string;
+    scoreImportance?: (input: {
+      date: string;
+      tier: 'warm' | 'cold';
+      sourcePath: string;
+      sourceMarkdown: string;
+    }) => Promise<MemoryImportanceAssessment>;
   }) => Promise<AgentMemoryLifecycleResult>;
+  scoreImportanceWithModel?: (input: {
+    config: AgentConfig;
+    date: string;
+    tier: 'warm' | 'cold';
+    sourceMarkdown: string;
+  }) => Promise<MemoryImportanceAssessment>;
 }
 
 const DEFAULT_NIGHTLY_ARCHIVE_SETTINGS: NightlyArchiveSettings = {
   enabled: false,
   time: '03:00',
+  useLlmScoring: false,
 };
 
 const DEFAULT_NIGHTLY_ARCHIVE_STATE: NightlyArchiveState = {
@@ -100,6 +120,7 @@ export function normalizeNightlyArchiveSettings(value?: Partial<NightlyArchiveSe
   return {
     enabled: value?.enabled ?? DEFAULT_NIGHTLY_ARCHIVE_SETTINGS.enabled,
     time: validateNightlyArchiveTime(value?.time ?? DEFAULT_NIGHTLY_ARCHIVE_SETTINGS.time),
+    useLlmScoring: value?.useLlmScoring ?? DEFAULT_NIGHTLY_ARCHIVE_SETTINGS.useLlmScoring,
   };
 }
 
@@ -302,13 +323,25 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
   const logger = options.logger ?? console;
   const listAgentSlugs = options.listAgentSlugs ?? listAgentSlugsFromMemoryRoot;
   const createFileStore = options.createFileStore ?? createFilesystemAgentMemoryFileStore;
+  const scoreWithModel = options.scoreImportanceWithModel ?? scoreMemoryImportanceWithModel;
   const runLifecycleSync =
     options.runLifecycleSync ??
-    (async (input: { agentSlug: string; fileStore: AgentMemoryFileStore; now: string }) =>
+    (async (input: {
+      agentSlug: string;
+      fileStore: AgentMemoryFileStore;
+      now: string;
+      scoreImportance?: (input: {
+        date: string;
+        tier: 'warm' | 'cold';
+        sourcePath: string;
+        sourceMarkdown: string;
+      }) => Promise<MemoryImportanceAssessment>;
+    }) =>
       syncAgentMemoryLifecycleFromStore({
         agentSlug: input.agentSlug,
         fileStore: input.fileStore,
         now: input.now,
+        scoreImportance: input.scoreImportance,
       }));
 
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -353,6 +386,10 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
     const agentSlugs = await listAgentSlugs(rootDir);
     const failures: NightlyArchiveRunSummary['failures'] = [];
     let successfulAgents = 0;
+    let llmScoredCount = 0;
+    let ruleFallbackCount = 0;
+    const settings = await readNightlyArchiveSettings(rootDir);
+    const projectConfig = settings.useLlmScoring ? await readProjectConfig(rootDir) : null;
 
     for (const agentSlug of agentSlugs) {
       try {
@@ -360,7 +397,19 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
           agentSlug,
           fileStore,
           now: runStartedAt,
+          scoreImportance:
+            settings.useLlmScoring && projectConfig
+              ? (input) =>
+                  scoreWithModel({
+                    config: projectConfig,
+                    date: input.date,
+                    tier: input.tier,
+                    sourceMarkdown: input.sourceMarkdown,
+                  })
+              : undefined,
         });
+        llmScoredCount += result.scoring?.llmScoredCount ?? 0;
+        ruleFallbackCount += result.scoring?.ruleFallbackCount ?? 0;
         if (result.failures.length === 0) {
           successfulAgents += 1;
         } else {
@@ -384,6 +433,8 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
       successfulAgents,
       failedAgents: failures.length,
       failures,
+      llmScoredCount,
+      ruleFallbackCount,
       trigger,
       startedAt: runStartedAt,
       completedAt: resolveNowDate().toISOString(),

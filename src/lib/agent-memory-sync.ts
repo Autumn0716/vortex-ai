@@ -9,8 +9,10 @@ import {
   serializeMemoryMarkdown,
 } from './agent-memory-files';
 import {
+  buildRuleBasedMemoryAssessment,
   buildColdMemorySurrogate,
   buildWarmMemorySurrogate,
+  type MemoryImportanceAssessment,
   resolveLifecycleTier,
 } from './agent-memory-lifecycle';
 import {
@@ -38,6 +40,10 @@ export interface AgentMemoryLifecycleResult {
   coldUpdated: number;
   skippedCount: number;
   failures: Array<{ path: string; message: string }>;
+  scoring?: {
+    llmScoredCount: number;
+    ruleFallbackCount: number;
+  };
 }
 
 interface DerivedMemoryDocument {
@@ -134,6 +140,15 @@ function buildDailyMemoryTitle(markdown: string, fallbackTitle: string) {
   return typeof frontmatter.title === 'string' && frontmatter.title.trim()
     ? frontmatter.title.trim()
     : fallbackTitle;
+}
+
+function resolveFrontmatterImportance(markdown: string, fallbackContent: string, sourceType: MemorySourceType) {
+  const { frontmatter } = parseMemoryMarkdown(markdown);
+  const value = frontmatter.importance;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(1, Math.min(5, Math.round(value)));
+  }
+  return scoreMemoryImportance(fallbackContent, sourceType);
 }
 
 function resolveDailyMemoryMetadata(path: string, eventDate: string) {
@@ -313,7 +328,7 @@ function buildDerivedDocuments(input: {
         content,
         memoryScope: 'daily',
         sourceType: metadata.sourceType,
-        importanceScore: scoreMemoryImportance(content, metadata.sourceType),
+        importanceScore: resolveFrontmatterImportance(file.markdown, content, metadata.sourceType),
         eventDate,
         updatedAt: buildDerivedDailyUpdatedAt(eventDate),
       });
@@ -728,6 +743,12 @@ export async function syncAgentMemoryLifecycleFromStore(input: {
   agentSlug: string;
   fileStore: AgentMemoryFileStore;
   now?: string;
+  scoreImportance?: (input: {
+    date: string;
+    tier: 'warm' | 'cold';
+    sourcePath: string;
+    sourceMarkdown: string;
+  }) => Promise<MemoryImportanceAssessment>;
 }): Promise<AgentMemoryLifecycleResult> {
   const now = input.now ?? new Date().toISOString();
   const dailyDir = buildAgentMemoryPaths(input.agentSlug, now.slice(0, 10)).dailyDir;
@@ -740,6 +761,8 @@ export async function syncAgentMemoryLifecycleFromStore(input: {
   let warmUpdated = 0;
   let coldUpdated = 0;
   let skippedCount = 0;
+  let llmScoredCount = 0;
+  let ruleFallbackCount = 0;
   const failures: Array<{ path: string; message: string }> = [];
 
   for (const path of sourcePaths) {
@@ -763,11 +786,30 @@ export async function syncAgentMemoryLifecycleFromStore(input: {
       const dailyPaths = buildAgentMemoryPaths(input.agentSlug, date);
 
       if (tier === 'warm') {
+        let assessment = buildRuleBasedMemoryAssessment({
+          tier: 'warm',
+          sourceMarkdown,
+        });
+        if (input.scoreImportance) {
+          try {
+            assessment = await input.scoreImportance({
+              date,
+              tier: 'warm',
+              sourcePath: path,
+              sourceMarkdown,
+            });
+            llmScoredCount += assessment.source === 'llm' ? 1 : 0;
+            ruleFallbackCount += assessment.source === 'rules' ? 1 : 0;
+          } catch {
+            ruleFallbackCount += 1;
+          }
+        }
         const nextWarm = buildWarmMemorySurrogate({
           date,
           sourcePath: path,
           sourceMarkdown,
           now,
+          assessment,
         });
         if (await writeIfChanged(input.fileStore, dailyPaths.warmFile, nextWarm)) {
           warmUpdated += 1;
@@ -779,11 +821,30 @@ export async function syncAgentMemoryLifecycleFromStore(input: {
       }
 
       if (tier === 'cold') {
+        let assessment = buildRuleBasedMemoryAssessment({
+          tier: 'cold',
+          sourceMarkdown,
+        });
+        if (input.scoreImportance) {
+          try {
+            assessment = await input.scoreImportance({
+              date,
+              tier: 'cold',
+              sourcePath: path,
+              sourceMarkdown,
+            });
+            llmScoredCount += assessment.source === 'llm' ? 1 : 0;
+            ruleFallbackCount += assessment.source === 'rules' ? 1 : 0;
+          } catch {
+            ruleFallbackCount += 1;
+          }
+        }
         const nextCold = buildColdMemorySurrogate({
           date,
           sourcePath: path,
           sourceMarkdown,
           now,
+          assessment,
         });
         if (await writeIfChanged(input.fileStore, dailyPaths.coldFile, nextCold)) {
           coldUpdated += 1;
@@ -816,11 +877,18 @@ export async function syncAgentMemoryLifecycleFromStore(input: {
     await deleteWithFailureCapture(input.fileStore, path, failures);
   }
 
-  return {
+  const result: AgentMemoryLifecycleResult = {
     scannedCount: sourcePaths.length,
     warmUpdated,
     coldUpdated,
     skippedCount,
     failures,
   };
+  if (input.scoreImportance) {
+    result.scoring = {
+      llmScoredCount,
+      ruleFallbackCount,
+    };
+  }
+  return result;
 }

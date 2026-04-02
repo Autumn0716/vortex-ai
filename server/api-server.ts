@@ -122,6 +122,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       nightlyArchive: {
         enabled: nightlyArchive.settings.enabled,
         time: nightlyArchive.settings.time,
+        useLlmScoring: nightlyArchive.settings.useLlmScoring,
         running: nightlyArchive.running,
         nextRunAt: nightlyArchive.nextRunAt,
         catchUpDue: nightlyArchive.catchUpDue,
@@ -133,6 +134,8 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
               successfulAgents: nightlyArchive.state.lastRunSummary.successfulAgents,
               failedAgents: nightlyArchive.state.lastRunSummary.failedAgents,
               failures: nightlyArchive.state.lastRunSummary.failures,
+              llmScoredCount: nightlyArchive.state.lastRunSummary.llmScoredCount,
+              ruleFallbackCount: nightlyArchive.state.lastRunSummary.ruleFallbackCount,
             }
           : null,
       },
@@ -174,6 +177,8 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       const nextSettings = await nightlyArchiveScheduler.updateSettings({
         enabled: typeof request.body?.enabled === 'boolean' ? request.body.enabled : undefined,
         time: typeof request.body?.time === 'string' ? request.body.time : undefined,
+        useLlmScoring:
+          typeof request.body?.useLlmScoring === 'boolean' ? request.body.useLlmScoring : undefined,
       });
       response.json(nextSettings);
     } catch (error) {

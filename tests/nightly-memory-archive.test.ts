@@ -107,12 +107,13 @@ test('readNightlyArchiveState and readNightlyArchiveSettings return defaults whe
   assert.deepEqual(await readNightlyArchiveSettings(rootDir), {
     enabled: false,
     time: '03:00',
+    useLlmScoring: false,
   });
 });
 
 test('writeNightlyArchiveSettings and writeNightlyArchiveState persist project-local .flowagent files', async () => {
   const rootDir = await createTempRoot();
-  const settings: NightlyArchiveSettings = { enabled: false, time: '04:15' };
+  const settings: NightlyArchiveSettings = { enabled: false, time: '04:15', useLlmScoring: true };
 
   await writeNightlyArchiveSettings(rootDir, settings);
   await writeNightlyArchiveState(rootDir, {
@@ -157,6 +158,7 @@ test('nightly scheduler startup catch-up generates warm and cold surrogates from
   await writeNightlyArchiveSettings(rootDir, {
     enabled: true,
     time: '03:00',
+    useLlmScoring: false,
   });
 
   const scheduler = createNightlyMemoryArchiveScheduler({
@@ -173,6 +175,8 @@ test('nightly scheduler startup catch-up generates warm and cold surrogates from
   assert.match(betaCold, /tier: "cold"/);
   assert.equal(status.state.lastSuccessfulRunAt !== null, true);
   assert.equal(status.state.lastRunSummary?.failedAgents ?? 1, 0);
+  assert.equal(status.state.lastRunSummary?.llmScoredCount ?? 0, 0);
+  assert.equal(status.state.lastRunSummary?.ruleFallbackCount ?? 0, 0);
   assert.equal(status.catchUpDue, false);
   assert.equal(status.nextRunAt !== null, true);
 });
@@ -196,6 +200,7 @@ test('nightly scheduler continues when one agent fails and still processes the o
   await writeNightlyArchiveSettings(rootDir, {
     enabled: false,
     time: '03:00',
+    useLlmScoring: false,
   });
 
   const badStore = fileStore as InMemoryNightlyFileStore;
