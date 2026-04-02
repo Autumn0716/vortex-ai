@@ -261,6 +261,13 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     });
   };
 
+  const refreshTopicList = async (agentId: string) => {
+    const records = await listTopics(agentId);
+    startTransition(() => {
+      setTopics(records);
+    });
+  };
+
   const hydrateTopic = async (topicId: string) => {
     setLoadingWorkspace(true);
     const nextWorkspace = await getTopicWorkspace(topicId);
@@ -761,7 +768,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       await addTopicMessages([fallbackMessage]);
     } finally {
       setIsGenerating(false);
-      await hydrateTopic(workspaceSnapshot.topic.id);
+      void refreshTopicList(workspaceSnapshot.agent.id).catch(console.error);
     }
   };
 

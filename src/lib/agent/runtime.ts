@@ -27,6 +27,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions) {
       apiKey: provider.apiKey,
       modelName: resolvedModel,
       temperature: 0,
+      streaming: true,
       configuration: provider.baseUrl ? { baseURL: provider.baseUrl } : undefined,
     });
   } else if (provider.type === 'anthropic') {
@@ -38,6 +39,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions) {
       apiKey: provider.apiKey,
       modelName: resolvedModel,
       temperature: 0,
+      streaming: true,
       clientOptions: provider.baseUrl ? { baseURL: provider.baseUrl } : undefined,
     });
   } else {
