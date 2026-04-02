@@ -205,6 +205,13 @@ interface MemoryFileStatus {
   message: string;
 }
 
+interface AddProviderDraft {
+  vendorName: string;
+  protocol: ProviderProtocol;
+  apiKey: string;
+  baseUrl: string;
+}
+
 interface ModelGroup {
   id: string;
   label: string;
@@ -270,8 +277,30 @@ function formatLifecycleSyncStatus(input: {
   return `${summary} ${failurePreview}${suffix}`;
 }
 
-function createProviderId() {
-  return `custom_${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`;
+function getProviderProtocolSuffix(protocol: ProviderProtocol) {
+  switch (protocol) {
+    case 'openai_responses_compatible':
+      return 'Responses';
+    case 'anthropic_native':
+      return 'Anthropic';
+    case 'openai_chat_compatible':
+    default:
+      return 'Chat';
+  }
+}
+
+function createProviderId(name: string, protocol: ProviderProtocol) {
+  const normalizedName = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  const suffix = getProviderProtocolSuffix(protocol).toLowerCase();
+  return `custom_${normalizedName || 'provider'}_${suffix}_${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`;
+}
+
+function buildProviderDisplayName(name: string, protocol: ProviderProtocol) {
+  return `${name.trim()} · ${getProviderProtocolSuffix(protocol)}`;
 }
 
 function createMcpId() {
@@ -541,6 +570,13 @@ export const SettingsView = ({
   const [stats, setStats] = useState<DataStats | null>(null);
   const [providerChecks, setProviderChecks] = useState<Record<string, string>>({});
   const [providerLoadingId, setProviderLoadingId] = useState<string | null>(null);
+  const [showAddProviderDialog, setShowAddProviderDialog] = useState(false);
+  const [addProviderDraft, setAddProviderDraft] = useState<AddProviderDraft>({
+    vendorName: '',
+    protocol: 'openai_chat_compatible',
+    apiKey: '',
+    baseUrl: getProviderBaseUrlPlaceholder('openai_chat_compatible'),
+  });
   const [modelImportDialog, setModelImportDialog] = useState<ModelImportDialogState | null>(null);
   const [importModelSearchQuery, setImportModelSearchQuery] = useState('');
   const [importOnlyNotAdded, setImportOnlyNotAdded] = useState(true);
@@ -786,6 +822,17 @@ export const SettingsView = ({
     }
   }, [modelImportDialog]);
 
+  useEffect(() => {
+    if (!showAddProviderDialog) {
+      setAddProviderDraft({
+        vendorName: '',
+        protocol: 'openai_chat_compatible',
+        apiKey: '',
+        baseUrl: getProviderBaseUrlPlaceholder('openai_chat_compatible'),
+      });
+    }
+  }, [showAddProviderDialog]);
+
   const loadMemoryFiles = async (options: { preferredPath?: string | null; announce?: string } = {}) => {
     const requestId = memoryFilesRequestIdRef.current + 1;
     memoryFilesRequestIdRef.current = requestId;
@@ -937,21 +984,20 @@ export const SettingsView = ({
   }, [activeCategory, draft.apiServer.enabled, draft.apiServer.baseUrl, draft.apiServer.authToken]);
 
   const addCustomProvider = async () => {
-    const name = window.prompt('请输入模型服务名称', 'Custom Provider');
-    if (!name?.trim()) {
+    const vendorName = addProviderDraft.vendorName.trim();
+    if (!vendorName) {
       return;
     }
 
-    const protocol = 'openai_chat_compatible';
-    const baseUrl = window.prompt('请输入兼容接口的 API Base URL', getProviderBaseUrlPlaceholder(protocol));
+    const protocol = addProviderDraft.protocol;
     const provider: ModelProvider = {
-      id: createProviderId(),
-      name: name.trim(),
+      id: createProviderId(vendorName, protocol),
+      name: buildProviderDisplayName(vendorName, protocol),
       enabled: true,
-      apiKey: '',
-      baseUrl: baseUrl?.trim() || '',
+      apiKey: addProviderDraft.apiKey.trim(),
+      baseUrl: addProviderDraft.baseUrl.trim(),
       models: [],
-      type: 'custom_openai',
+      type: protocol === 'anthropic_native' ? 'anthropic' : 'custom_openai',
       protocol,
     };
 
@@ -960,6 +1006,7 @@ export const SettingsView = ({
       providers: [...current.providers, provider],
     }));
     setActiveProviderId(provider.id);
+    setShowAddProviderDialog(false);
   };
 
   const addModelToProvider = async () => {
@@ -3318,7 +3365,7 @@ export const SettingsView = ({
               </div>
               <div className="border-t border-white/5 p-3">
                 <button
-                  onClick={addCustomProvider}
+                  onClick={() => setShowAddProviderDialog(true)}
                   className="flex w-full items-center justify-center gap-2 rounded-full border border-white/10 py-2 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
                 >
                   <Plus size={16} />
@@ -3379,33 +3426,19 @@ export const SettingsView = ({
                         <div className="grid gap-4 md:grid-cols-2">
                           <div>
                             <div className="mb-2 flex items-center justify-between">
-                              <label className="text-sm font-medium text-white/90">兼容协议</label>
+                              <label className="text-sm font-medium text-white/90">创建协议</label>
                               <div className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-white/45">
                                 {getProviderRequestMode(activeProvider.protocol)}
                               </div>
                             </div>
-                            <select
-                              value={activeProvider.protocol}
-                              onChange={(event) => {
-                                const nextProtocol = event.target.value as ProviderProtocol;
-                                updateProvider(activeProvider.id, {
-                                  protocol: nextProtocol,
-                                }).catch(console.error);
-                              }}
-                              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white focus:border-emerald-500/50 focus:outline-none"
-                            >
-                              {PROVIDER_PROTOCOL_OPTIONS.filter(
-                                (option) =>
-                                  activeProvider.type !== 'anthropic' || option.value === 'anthropic_native',
-                              ).map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
+                            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                              <div className="text-sm text-white/90">
+                                {PROVIDER_PROTOCOL_OPTIONS.find((option) => option.value === activeProvider.protocol)?.label ??
+                                  '未知协议'}
+                              </div>
+                            </div>
                             <p className="mt-2 text-[11px] text-white/40">
-                              {PROVIDER_PROTOCOL_OPTIONS.find((option) => option.value === activeProvider.protocol)
-                                ?.description ?? '按厂商接口选择请求协议。'}
+                              协议在新增厂商时确定。需要另一种协议时，请新增一个带固定后缀的新厂商条目。
                             </p>
                           </div>
 
@@ -3990,6 +4023,150 @@ export const SettingsView = ({
                   className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
                 >
                   取消
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showAddProviderDialog ? (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-[720px] rounded-[28px] border border-white/10 bg-[#171717] shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
+              <div>
+                <div className="text-lg font-semibold text-white">添加模型厂商</div>
+                <div className="mt-1 text-sm text-white/45">
+                  在这里一次性确定厂商、协议类型、API Key 和 Base URL。协议会固定保存，不再在详情页里回退。
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAddProviderDialog(false)}
+                className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-5 px-6 py-5">
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <div className="mb-2 text-sm font-medium text-white/90">厂商名称</div>
+                  <input
+                    type="text"
+                    value={addProviderDraft.vendorName}
+                    onChange={(event) =>
+                      setAddProviderDraft((current) => ({
+                        ...current,
+                        vendorName: event.target.value,
+                      }))
+                    }
+                    placeholder="例如：Qwen / OpenRouter / 自建网关"
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-emerald-500/40"
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="mb-2 text-sm font-medium text-white/90">协议类型</div>
+                  <select
+                    value={addProviderDraft.protocol}
+                    onChange={(event) =>
+                      setAddProviderDraft((current) => {
+                        const nextProtocol = event.target.value as ProviderProtocol;
+                        const previousPlaceholder = getProviderBaseUrlPlaceholder(current.protocol);
+                        const nextPlaceholder = getProviderBaseUrlPlaceholder(nextProtocol);
+                        const nextTypeBaseUrl =
+                          !current.baseUrl.trim() || current.baseUrl.trim() === previousPlaceholder
+                            ? nextPlaceholder
+                            : current.baseUrl;
+                        return {
+                          ...current,
+                          protocol: nextProtocol,
+                          baseUrl: nextTypeBaseUrl,
+                        };
+                      })
+                    }
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-emerald-500/40"
+                  >
+                    {PROVIDER_PROTOCOL_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-[11px] leading-5 text-white/40">
+                    {PROVIDER_PROTOCOL_OPTIONS.find((option) => option.value === addProviderDraft.protocol)?.description}
+                  </p>
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <div className="mb-2 text-sm font-medium text-white/90">API Key</div>
+                  <input
+                    type="text"
+                    value={addProviderDraft.apiKey}
+                    onChange={(event) =>
+                      setAddProviderDraft((current) => ({
+                        ...current,
+                        apiKey: event.target.value,
+                      }))
+                    }
+                    placeholder="sk-..."
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-emerald-500/40"
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="mb-2 text-sm font-medium text-white/90">Base URL</div>
+                  <input
+                    type="text"
+                    value={addProviderDraft.baseUrl}
+                    onChange={(event) =>
+                      setAddProviderDraft((current) => ({
+                        ...current,
+                        baseUrl: event.target.value,
+                      }))
+                    }
+                    placeholder={getProviderBaseUrlPlaceholder(addProviderDraft.protocol)}
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-emerald-500/40"
+                  />
+                  <p className="mt-2 text-[11px] text-white/40">
+                    请求预览: {getProviderRequestPreview(addProviderDraft.baseUrl, addProviderDraft.protocol)}
+                  </p>
+                </label>
+              </div>
+
+              <div className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-4">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-white/35">生成后的厂商名</div>
+                <div className="mt-2 text-sm text-white/85">
+                  {addProviderDraft.vendorName.trim()
+                    ? buildProviderDisplayName(addProviderDraft.vendorName, addProviderDraft.protocol)
+                    : '请输入厂商名称'}
+                </div>
+                <div className="mt-2 text-[11px] leading-5 text-white/40">
+                  会自动加上固定后缀，例如 `Qwen · Chat` 或 `Qwen · Responses`。后续如果需要另一种协议，新增一条即可，不直接改老条目。
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 border-t border-white/5 px-6 py-4">
+              <div className="text-sm text-white/45">
+                协议在创建时固定保存，避免后续编辑其它字段时被误覆盖。
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowAddProviderDialog(false)}
+                  className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => addCustomProvider().catch(console.error)}
+                  disabled={!addProviderDraft.vendorName.trim()}
+                  className="rounded-full border border-emerald-500/20 bg-emerald-500/15 px-4 py-2 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  创建厂商
                 </button>
               </div>
             </div>
