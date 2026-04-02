@@ -161,3 +161,13 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - 已补上前端运行时错误边界，页面渲染异常不再直接白屏，而是会显示原始错误与组件栈
 - 已修复会话实例改造后的空值访问问题：`workspace` 暂时为空时，聊天页会安全回退到派生显示名和模型
 - 本地 API 请求失败时，现在会把具体请求 URL 一起带出来，方便继续排查 host/config 链路
+
+进度汇报（2026-04-02，第三次更新）:
+- 已补上 topic 级“会话设置”面板：当前会话可单独覆盖 `display_name / system_prompt_override / provider_id_override / model_override / enable_memory / enable_skills / enable_tools / enable_agent_shared_short_term`
+- 聊天页顶部已加入会话设置入口，`Quick` / 普通 `Agent` 会话都可以直接编辑自己的 runtime 配置
+- 分组模型选择弹窗已复用到 topic 级模型覆盖，不再只会修改全局模型
+
+当前仍待继续：
+- 更完整的不同 topic 并行流式体验与状态恢复
+- `quick` 与普通 `agent` 会话的入口和管理体验继续打磨
+- 同 topic 下子 agent / 子任务并行机制仍未展开

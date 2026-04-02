@@ -453,6 +453,78 @@ function toAgentMemoryDocument(row: {
   };
 }
 
+function normalizeNullableOverride(value: string | undefined, fallback?: string) {
+  if (value === undefined) {
+    return fallback ?? null;
+  }
+
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+}
+
+function fetchTopicSummaryById(database: Database, topicId: string): TopicSummary | null {
+  const row = mapRows<{
+    id: string;
+    agent_id: string;
+    session_mode: TopicSessionMode | null;
+    display_name: string | null;
+    system_prompt_override: string | null;
+    provider_id_override: string | null;
+    model_override: string | null;
+    enable_memory: number | null;
+    enable_skills: number | null;
+    enable_tools: number | null;
+    enable_agent_shared_short_term: number | null;
+    title: string;
+    title_source: 'auto' | 'manual';
+    preview: string | null;
+    created_at: string;
+    updated_at: string;
+    last_message_at: string;
+    message_count: number;
+  }>(
+    database.exec(
+      `
+        SELECT
+          t.id,
+          t.agent_id,
+          t.session_mode,
+          t.display_name,
+          t.system_prompt_override,
+          t.provider_id_override,
+          t.model_override,
+          t.enable_memory,
+          t.enable_skills,
+          t.enable_tools,
+          t.enable_agent_shared_short_term,
+          t.title,
+          t.title_source,
+          (
+            SELECT content
+            FROM topic_messages
+            WHERE topic_id = t.id
+            ORDER BY created_at DESC
+            LIMIT 1
+          ) AS preview,
+          t.created_at,
+          t.updated_at,
+          t.last_message_at,
+          (
+            SELECT COUNT(*)
+            FROM topic_messages
+            WHERE topic_id = t.id
+          ) AS message_count
+        FROM topics t
+        WHERE t.id = ?
+        LIMIT 1
+      `,
+      [topicId],
+    ),
+  )[0];
+
+  return row ? toTopicSummary(row) : null;
+}
+
 function getAgentRow(database: Database, agentId: string): AgentProfile | null {
   const row = mapRows<{
     id: string;
@@ -1472,6 +1544,69 @@ export async function updateTopicTitle(topicId: string, title: string): Promise<
     [normalizedTitle, nowIso(), topicId],
   );
   await persistAndMaybeRebuildFts(database);
+}
+
+export async function updateTopicSessionSettings(
+  topicId: string,
+  updates: {
+    displayName?: string;
+    systemPromptOverride?: string;
+    providerIdOverride?: string;
+    modelOverride?: string;
+    enableMemory?: boolean;
+    enableSkills?: boolean;
+    enableTools?: boolean;
+    enableAgentSharedShortTerm?: boolean;
+  },
+): Promise<TopicSummary> {
+  const database = await ensureAgentSchema();
+  const current = fetchTopicSummaryById(database, topicId);
+  if (!current) {
+    throw new Error('Topic not found.');
+  }
+
+  database.run(
+    `
+      UPDATE topics
+      SET
+        display_name = ?,
+        system_prompt_override = ?,
+        provider_id_override = ?,
+        model_override = ?,
+        enable_memory = ?,
+        enable_skills = ?,
+        enable_tools = ?,
+        enable_agent_shared_short_term = ?,
+        updated_at = ?
+      WHERE id = ?
+    `,
+    [
+      normalizeNullableOverride(updates.displayName, current.displayName),
+      normalizeNullableOverride(updates.systemPromptOverride, current.systemPromptOverride),
+      normalizeNullableOverride(updates.providerIdOverride, current.providerIdOverride),
+      normalizeNullableOverride(updates.modelOverride, current.modelOverride),
+      updates.enableMemory === undefined ? (current.enableMemory ? 1 : 0) : updates.enableMemory ? 1 : 0,
+      updates.enableSkills === undefined ? (current.enableSkills ? 1 : 0) : updates.enableSkills ? 1 : 0,
+      updates.enableTools === undefined ? (current.enableTools ? 1 : 0) : updates.enableTools ? 1 : 0,
+      updates.enableAgentSharedShortTerm === undefined
+        ? current.enableAgentSharedShortTerm
+          ? 1
+          : 0
+        : updates.enableAgentSharedShortTerm
+          ? 1
+          : 0,
+      nowIso(),
+      topicId,
+    ],
+  );
+  await persistAndMaybeRebuildFts(database);
+
+  const updated = fetchTopicSummaryById(database, topicId);
+  if (!updated) {
+    throw new Error('Failed to reload topic settings.');
+  }
+
+  return updated;
 }
 
 export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace | null> {

@@ -10,6 +10,7 @@ import {
   getTopicWorkspace,
   saveAgent,
   saveAgentMemoryDocument,
+  updateTopicSessionSettings,
 } from '../src/lib/agent-workspace';
 
 const localforageState = new Map<string, unknown>();
@@ -145,4 +146,75 @@ test('agent memory context keeps session short-term isolated unless agent-shared
     now: '2026-04-02T12:00:00.000Z',
   });
   assert.match(sameSessionContext, /A 会话短期事项: 用户明天要出差。/);
+});
+
+test('updateTopicSessionSettings persists topic-level runtime overrides without mutating the template agent', async () => {
+  localforageState.clear();
+  const agentId = createAgentId('agent_session_settings');
+  await saveAgent({
+    id: agentId,
+    name: 'Session Settings Agent',
+    description: 'Agent used to verify topic runtime updates',
+    systemPrompt: 'Template system prompt.',
+    accentColor: 'from-sky-500/20 to-cyan-500/20',
+    workspaceRelpath: `agents/${agentId}`,
+    providerId: 'openai',
+    model: 'gpt-4o',
+  });
+
+  const topic = await createTopic({ agentId, title: '设置测试' });
+
+  await updateTopicSessionSettings(topic.id, {
+    displayName: 'Deal Desk',
+    systemPromptOverride: 'You are a pricing copilot.',
+    providerIdOverride: 'anthropic',
+    modelOverride: 'claude-3-7-sonnet-latest',
+    enableMemory: false,
+    enableSkills: false,
+    enableTools: true,
+    enableAgentSharedShortTerm: true,
+  });
+
+  const updatedWorkspace = await getTopicWorkspace(topic.id);
+
+  assert.ok(updatedWorkspace);
+  assert.equal(updatedWorkspace?.topic.displayName, 'Deal Desk');
+  assert.equal(updatedWorkspace?.topic.systemPromptOverride, 'You are a pricing copilot.');
+  assert.equal(updatedWorkspace?.topic.providerIdOverride, 'anthropic');
+  assert.equal(updatedWorkspace?.topic.modelOverride, 'claude-3-7-sonnet-latest');
+  assert.equal(updatedWorkspace?.topic.enableMemory, false);
+  assert.equal(updatedWorkspace?.topic.enableSkills, false);
+  assert.equal(updatedWorkspace?.topic.enableTools, true);
+  assert.equal(updatedWorkspace?.topic.enableAgentSharedShortTerm, true);
+
+  assert.equal(updatedWorkspace?.runtime.displayName, 'Deal Desk');
+  assert.equal(updatedWorkspace?.runtime.systemPrompt, 'You are a pricing copilot.');
+  assert.equal(updatedWorkspace?.runtime.providerId, 'anthropic');
+  assert.equal(updatedWorkspace?.runtime.model, 'claude-3-7-sonnet-latest');
+  assert.equal(updatedWorkspace?.runtime.enableMemory, false);
+  assert.equal(updatedWorkspace?.runtime.enableSkills, false);
+  assert.equal(updatedWorkspace?.runtime.enableTools, true);
+  assert.equal(updatedWorkspace?.runtime.enableAgentSharedShortTerm, true);
+
+  await updateTopicSessionSettings(topic.id, {
+    displayName: '',
+    systemPromptOverride: '',
+    providerIdOverride: '',
+    modelOverride: '',
+    enableMemory: true,
+    enableSkills: true,
+    enableTools: true,
+    enableAgentSharedShortTerm: false,
+  });
+
+  const resetWorkspace = await getTopicWorkspace(topic.id);
+  assert.ok(resetWorkspace);
+  assert.equal(resetWorkspace?.topic.displayName, undefined);
+  assert.equal(resetWorkspace?.topic.systemPromptOverride, undefined);
+  assert.equal(resetWorkspace?.topic.providerIdOverride, undefined);
+  assert.equal(resetWorkspace?.topic.modelOverride, undefined);
+  assert.equal(resetWorkspace?.runtime.displayName, 'Session Settings Agent');
+  assert.equal(resetWorkspace?.runtime.systemPrompt, 'Template system prompt.');
+  assert.equal(resetWorkspace?.runtime.providerId, 'openai');
+  assert.equal(resetWorkspace?.runtime.model, 'gpt-4o');
 });

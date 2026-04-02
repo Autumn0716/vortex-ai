@@ -50,6 +50,7 @@ import {
   type TopicSummary,
   type TopicWorkspace,
   type WorkspaceSearchResult,
+  updateTopicSessionSettings,
   updateTopicTitle,
 } from '../lib/agent-workspace';
 import {
@@ -207,6 +208,19 @@ interface TopicRunState {
   draftAssistantMessage?: TopicMessage;
 }
 
+interface SessionSettingsDraft {
+  displayName: string;
+  systemPromptOverride: string;
+  providerIdOverride: string;
+  modelOverride: string;
+  enableMemory: boolean;
+  enableSkills: boolean;
+  enableTools: boolean;
+  enableAgentSharedShortTerm: boolean;
+}
+
+type ModelPickerTarget = 'global' | 'topic';
+
 const WORKSPACE_BOOT_SOFT_TIMEOUT_MS = 8000;
 const WORKSPACE_BOOT_HARD_TIMEOUT_MS = 45000;
 
@@ -214,7 +228,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState<ChatTab>('chat');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showSessionSettings, setShowSessionSettings] = useState(false);
+  const [sessionSettingsDraft, setSessionSettingsDraft] = useState<SessionSettingsDraft | null>(null);
+  const [sessionSettingsSaving, setSessionSettingsSaving] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [modelPickerTarget, setModelPickerTarget] = useState<ModelPickerTarget>('global');
   const [settingsInitialCategory, setSettingsInitialCategory] =
     useState<SettingsCategory>('models');
   const [input, setInput] = useState('');
@@ -248,8 +266,28 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const composerNotice = activeRunState?.composerNotice ?? shellNotice;
   const activeDisplayName =
     workspace?.runtime.displayName ?? workspace?.agent.name ?? selectedAgent?.name ?? 'FlowAgent';
+  const activeProviderId =
+    workspace?.runtime.providerId ?? workspace?.agent.providerId ?? config.activeProviderId;
+  const activeProviderName =
+    config.providers.find((provider) => provider.id === activeProviderId)?.name ?? 'Model';
   const activeModel = workspace?.runtime.model ?? workspace?.agent.model ?? config.activeModel;
   const activeMemoryEnabled = workspace?.runtime.enableMemory ?? config.memory.enableAgentLongTerm;
+  const pickerEffectiveProviderId =
+    modelPickerTarget === 'topic'
+      ? sessionSettingsDraft?.providerIdOverride.trim() ||
+        workspace?.runtime.providerId ||
+        workspace?.agent.providerId ||
+        config.activeProviderId
+      : config.activeProviderId;
+  const pickerEffectiveModel =
+    modelPickerTarget === 'topic'
+      ? sessionSettingsDraft?.modelOverride.trim() ||
+        workspace?.runtime.model ||
+        workspace?.agent.model ||
+        config.activeModel
+      : config.activeModel;
+  const pickerCurrentProviderName =
+    config.providers.find((provider) => provider.id === pickerEffectiveProviderId)?.name ?? 'Model';
 
   const setTopicRunState = (topicId: string, updater: (previous: TopicRunState | undefined) => TopicRunState) => {
     setTopicRunStates((previous) => ({
@@ -267,6 +305,24 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       delete next[topicId];
       return next;
     });
+  };
+
+  const openGlobalModelPicker = () => {
+    setModelPickerTarget('global');
+    setModelPickerProviderId(config.activeProviderId);
+    setShowModelPicker(true);
+  };
+
+  const openTopicModelPicker = () => {
+    if (!workspace || !sessionSettingsDraft) {
+      return;
+    }
+
+    setModelPickerTarget('topic');
+    setModelPickerProviderId(
+      sessionSettingsDraft.providerIdOverride.trim() || workspace.runtime.providerId || config.activeProviderId,
+    );
+    setShowModelPicker(true);
   };
 
   const refreshLibrary = async () => {
@@ -585,6 +641,41 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     setShellNotice(`Created quick session "${created.title}".`);
   };
 
+  const handleOpenSessionSettings = () => {
+    if (!workspace) {
+      return;
+    }
+
+    setSessionSettingsDraft({
+      displayName: workspace.topic.displayName ?? '',
+      systemPromptOverride: workspace.topic.systemPromptOverride ?? '',
+      providerIdOverride: workspace.topic.providerIdOverride ?? '',
+      modelOverride: workspace.topic.modelOverride ?? '',
+      enableMemory: workspace.topic.enableMemory,
+      enableSkills: workspace.topic.enableSkills,
+      enableTools: workspace.topic.enableTools,
+      enableAgentSharedShortTerm: workspace.topic.enableAgentSharedShortTerm,
+    });
+    setShowSessionSettings(true);
+  };
+
+  const handleSaveSessionSettings = async () => {
+    if (!workspace || !sessionSettingsDraft) {
+      return;
+    }
+
+    setSessionSettingsSaving(true);
+    try {
+      await updateTopicSessionSettings(workspace.topic.id, sessionSettingsDraft);
+      await hydrateTopic(workspace.topic.id);
+      setShellNotice(`Updated session settings for "${workspace.topic.title}".`);
+      setShowSessionSettings(false);
+      setSessionSettingsDraft(null);
+    } finally {
+      setSessionSettingsSaving(false);
+    }
+  };
+
   const handleModelChange = async (value: string) => {
     const [providerId, model] = value.split('::');
     const nextConfig: AgentConfig = {
@@ -601,6 +692,20 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   };
 
   const handleModelSelection = async (providerId: string, model: string) => {
+    if (modelPickerTarget === 'topic' && sessionSettingsDraft) {
+      setSessionSettingsDraft((current) =>
+        current
+          ? {
+              ...current,
+              providerIdOverride: providerId,
+              modelOverride: model,
+            }
+          : current,
+      );
+      setShowModelPicker(false);
+      return;
+    }
+
     await handleModelChange(`${providerId}::${model}`);
     setShowModelPicker(false);
   };
@@ -923,9 +1028,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }
 
     setModelPickerProviderId((current) =>
-      enabledProviders.some((provider) => provider.id === current) ? current : config.activeProviderId || enabledProviders[0]!.id,
+      enabledProviders.some((provider) => provider.id === current) ? current : pickerEffectiveProviderId || enabledProviders[0]!.id,
     );
-  }, [enabledProviders, config.activeProviderId]);
+  }, [enabledProviders, pickerEffectiveProviderId]);
 
   useEffect(() => {
     if (!showModelPicker) {
@@ -1049,7 +1154,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 onClick={handleCreateTopic}
                 className="group flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 transition-colors hover:bg-white/10"
               >
-                <span className="text-sm font-medium text-white/90">New Topic</span>
+                <span className="text-sm font-medium text-white/90">New Agent Topic</span>
                 <Plus size={16} className="text-white/50 transition-colors group-hover:text-white" />
               </button>
               <button
@@ -1175,6 +1280,15 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                           <PencilLine size={14} />
                         </button>
                       ) : null}
+                      {workspace ? (
+                        <button
+                          onClick={handleOpenSessionSettings}
+                          className="rounded-md px-2 py-1 text-[11px] text-white/45 transition-colors hover:bg-white/10 hover:text-white/85"
+                          title="Session settings"
+                        >
+                          Session
+                        </button>
+                      ) : null}
                     </div>
                     <div className="text-[11px] text-white/40">
                       {workspace?.runtime.displayName ?? workspace?.agent.name ?? selectedAgent?.name ?? 'Loading agent...'} ·{' '}
@@ -1187,15 +1301,18 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
-                    setModelPickerProviderId(config.activeProviderId);
-                    setShowModelPicker(true);
+                    if (workspace) {
+                      handleOpenSessionSettings();
+                      return;
+                    }
+                    openGlobalModelPicker();
                   }}
                   className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white"
                 >
                   <span className="max-w-[260px] truncate">
-                    {(enabledProviders.find((provider) => provider.id === config.activeProviderId)?.name ?? 'Model')}
+                    {activeProviderName}
                     {' · '}
-                    {config.activeModel}
+                    {activeModel}
                   </span>
                   <ChevronDown size={14} className="text-white/45" />
                 </button>
@@ -1402,7 +1519,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         )}
       </div>
 
-      {showSettings ? (
+	      {showSettings ? (
         <Suspense fallback={null}>
           <SettingsView
             config={config}
@@ -1416,6 +1533,231 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             }}
           />
         </Suspense>
+	      ) : null}
+
+      {showSessionSettings && workspace && sessionSettingsDraft ? (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+          <div className="flex h-[78vh] min-h-[620px] w-full max-w-[1040px] overflow-hidden rounded-[30px] border border-white/10 bg-[#171717] shadow-2xl">
+            <div className="flex w-[320px] flex-col border-r border-white/5 bg-[#141414] px-5 py-6">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Session Runtime</div>
+              <div className="mt-3 text-2xl font-semibold text-white">{workspace.topic.title}</div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/55">
+                  {workspace.topic.sessionMode === 'quick' ? 'Quick Session' : 'Agent Session'}
+                </span>
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/45">
+                  {workspace.agent.name}
+                </span>
+              </div>
+              <div className="mt-5 rounded-[24px] border border-white/8 bg-black/20 p-4">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Effective Runtime</div>
+                <div className="mt-3 space-y-3 text-sm text-white/75">
+                  <div>
+                    <div className="text-[11px] text-white/35">Identity</div>
+                    <div className="mt-1">{workspace.runtime.displayName}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-white/35">Model</div>
+                    <div className="mt-1">
+                      {activeProviderName} · {activeModel}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-white/35">Prompt Source</div>
+                    <div className="mt-1">
+                      {workspace.topic.systemPromptOverride ? 'Session override' : 'Agent template fallback'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 rounded-[24px] border border-amber-500/15 bg-amber-500/8 p-4 text-sm leading-6 text-amber-100/75">
+                原始消息仍按 topic 隔离。这里只调整当前会话实例的身份、模型和能力开关，不会改写 agent 模板本身。
+              </div>
+            </div>
+
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
+                <div>
+                  <div className="text-lg font-semibold text-white">会话设置</div>
+                  <div className="mt-1 text-sm text-white/50">当前 topic 的身份、提示词、模型和功能开关。</div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowSessionSettings(false);
+                    setSessionSettingsDraft(null);
+                  }}
+                  className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 custom-scrollbar">
+                <div className="space-y-5">
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <label className="block">
+                      <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">Display Name</div>
+                      <input
+                        type="text"
+                        value={sessionSettingsDraft.displayName}
+                        onChange={(event) =>
+                          setSessionSettingsDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  displayName: event.target.value,
+                                }
+                              : current,
+                          )
+                        }
+                        placeholder={workspace.runtime.displayName}
+                        className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-emerald-500/40"
+                      />
+                    </label>
+
+                    <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                      <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">Model Override</div>
+                      <div className="text-sm text-white/80">
+                        {(sessionSettingsDraft.providerIdOverride || activeProviderName) &&
+                        (sessionSettingsDraft.modelOverride || activeModel)
+                          ? `${config.providers.find((provider) => provider.id === sessionSettingsDraft.providerIdOverride)?.name ?? activeProviderName} · ${sessionSettingsDraft.modelOverride || activeModel}`
+                          : 'Use inherited model'}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          onClick={openTopicModelPicker}
+                          className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/85 transition-colors hover:bg-white/10"
+                        >
+                          选择会话模型
+                        </button>
+                        <button
+                          onClick={() =>
+                            setSessionSettingsDraft((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    providerIdOverride: '',
+                                    modelOverride: '',
+                                  }
+                                : current,
+                            )
+                          }
+                          className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/55 transition-colors hover:bg-white/10 hover:text-white/85"
+                        >
+                          跟随默认
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <label className="block">
+                    <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">System Prompt Override</div>
+                    <textarea
+                      value={sessionSettingsDraft.systemPromptOverride}
+                      onChange={(event) =>
+                        setSessionSettingsDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                systemPromptOverride: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                      placeholder={workspace.runtime.systemPrompt}
+                      rows={8}
+                      className="w-full rounded-[22px] border border-white/10 bg-black/20 px-4 py-3 text-sm leading-7 text-white outline-none transition-colors focus:border-emerald-500/40 custom-scrollbar"
+                    />
+                  </label>
+
+                  <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
+                    <div className="mb-3 text-[11px] uppercase tracking-[0.16em] text-white/35">Feature Flags</div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {[
+                        {
+                          key: 'enableMemory',
+                          label: '记忆注入',
+                          description: '控制当前会话是否装配 memory context。',
+                        },
+                        {
+                          key: 'enableSkills',
+                          label: 'Skills 注入',
+                          description: '控制当前会话是否补入命中的 SKILL.md。',
+                        },
+                        {
+                          key: 'enableTools',
+                          label: '工具调用',
+                          description: '关闭后会走纯模型路径，不绑定 agent tools。',
+                        },
+                        {
+                          key: 'enableAgentSharedShortTerm',
+                          label: '共享短期记忆',
+                          description: '允许同一 agent 的近期 daily 记忆跨 topic 共享。',
+                        },
+                      ].map((item) => {
+                        const checked = sessionSettingsDraft[item.key as keyof SessionSettingsDraft] as boolean;
+                        return (
+                          <button
+                            key={item.key}
+                            onClick={() =>
+                              setSessionSettingsDraft((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      [item.key]: !checked,
+                                    }
+                                  : current,
+                              )
+                            }
+                            className={`rounded-[20px] border p-4 text-left transition-all ${
+                              checked
+                                ? 'border-emerald-500/25 bg-emerald-500/10 shadow-[0_10px_28px_rgba(16,185,129,0.12)]'
+                                : 'border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.05]'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-sm font-medium text-white/90">{item.label}</div>
+                              <div
+                                className={`h-2.5 w-2.5 rounded-full ${
+                                  checked ? 'bg-emerald-300 shadow-[0_0_16px_rgba(52,211,153,0.6)]' : 'bg-white/20'
+                                }`}
+                              />
+                            </div>
+                            <div className="mt-2 text-xs leading-6 text-white/45">{item.description}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-white/5 px-6 py-4">
+                <div className="text-xs text-white/35">
+                  关闭 override 时会回退到 agent 模板或全局默认，不会丢失历史消息。
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      setShowSessionSettings(false);
+                      setSessionSettingsDraft(null);
+                    }}
+                    className="rounded-xl border border-white/10 bg-black/20 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={() => handleSaveSessionSettings().catch(console.error)}
+                    disabled={sessionSettingsSaving}
+                    className="rounded-xl border border-emerald-500/20 bg-emerald-500/15 px-4 py-2 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {sessionSettingsSaving ? '保存中...' : '保存会话设置'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {showModelPicker ? (
@@ -1469,7 +1811,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             <div className="flex min-w-0 flex-1 flex-col">
               <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
                 <div>
-                  <div className="text-lg font-semibold text-white">选择聊天模型</div>
+                  <div className="text-lg font-semibold text-white">
+                    {modelPickerTarget === 'topic' ? '选择会话模型' : '选择聊天模型'}
+                  </div>
                   <div className="mt-1 text-sm text-white/50">
                     {modelPickerProvider ? `${modelPickerProvider.name} · ${modelPickerGroups.totalCount} 个结果` : '暂无可用模型服务'}
                   </div>
@@ -1504,13 +1848,15 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
                 {modelPickerProvider ? (
                   <div className="mb-4 rounded-[22px] border border-emerald-500/15 bg-[linear-gradient(180deg,rgba(16,185,129,0.14),rgba(255,255,255,0.03))] p-4 shadow-[0_16px_32px_rgba(16,185,129,0.08)]">
-                    <div className="text-[11px] uppercase tracking-[0.18em] text-emerald-200/65">Current Model</div>
+                    <div className="text-[11px] uppercase tracking-[0.18em] text-emerald-200/65">
+                      {modelPickerTarget === 'topic' ? 'Current Session Model' : 'Current Global Model'}
+                    </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/75">
-                        {modelPickerProvider.name}
+                        {pickerCurrentProviderName}
                       </span>
                       <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-100">
-                        {config.activeModel}
+                        {pickerEffectiveModel}
                       </span>
                     </div>
                   </div>
@@ -1601,8 +1947,8 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                                         <div className="mt-2 space-y-2">
                                           {series.models.map((model) => {
                                             const active =
-                                              modelPickerProvider.id === config.activeProviderId &&
-                                              model === config.activeModel;
+                                              modelPickerProvider.id === pickerEffectiveProviderId &&
+                                              model === pickerEffectiveModel;
 
                                             return (
                                               <button
@@ -1623,7 +1969,15 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                                                   <div className="mt-1 flex items-center gap-2 text-[11px] text-white/38">
                                                     <span>{modelPickerProvider.name}</span>
                                                     <span className="h-1 w-1 rounded-full bg-white/20" />
-                                                    <span>{active ? '当前使用中' : '点击切换'}</span>
+                                                    <span>
+                                                      {active
+                                                        ? modelPickerTarget === 'topic'
+                                                          ? '当前会话使用中'
+                                                          : '当前全局使用中'
+                                                        : modelPickerTarget === 'topic'
+                                                          ? '应用到当前会话'
+                                                          : '点击切换'}
+                                                    </span>
                                                   </div>
                                                 </div>
                                                 <div className="ml-4 flex flex-shrink-0 items-center">

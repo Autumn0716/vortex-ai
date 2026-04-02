@@ -31,3 +31,5 @@
 - Started the session-instance refactor by extending `topics` with session runtime fields, moving generation state to per-topic tracking, and adding an initial `Quick Topic` mode that disables memory, skills, and tools by default.
 - Added a frontend runtime error boundary plus null-safe topic runtime rendering so session-scoped chat views no longer white-screen when `workspace` is temporarily unavailable during bootstrap or topic switching.
 - Improved local API request diagnostics so host-backed config and memory failures now include the concrete local API URL in the surfaced error message.
+- Added a topic-level session settings modal so each `Topic` can now override display name, system prompt, model, and feature flags without mutating the underlying agent template or global config.
+- Reused the grouped chat model picker for topic-local model overrides, so session-scoped runtime selection now follows the same provider/family/series browsing flow as the existing model picker.
