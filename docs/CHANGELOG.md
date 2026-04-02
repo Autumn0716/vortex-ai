@@ -39,3 +39,4 @@
 - Added branch handoff so child branch topics can send a compact findings summary back into the parent topic, with an in-app `Send to Parent` dialog and a branch-side audit note.
 - Added in-shell branch navigation strips so parent topics can see child branches and branch topics can jump back to the parent or across sibling branches without leaving the chat view.
 - Added deterministic RAG query rewrite / expansion before knowledge-base recall, including conversational filler stripping, bounded synonym expansion, and cross-lingual alias bridging for local knowledge search.
+- Added a deterministic second-pass RAG reranker after hybrid recall so title coverage, content coverage, and exact-phrase matches can refine candidate ordering before truncation.

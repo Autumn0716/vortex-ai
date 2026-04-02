@@ -1,3 +1,5 @@
+import { buildSemanticCacheKey } from './local-rag-helpers';
+
 export interface HybridDocumentCandidate {
   id: string;
   title: string;
@@ -9,6 +11,27 @@ export interface HybridDocumentCandidate {
 export interface RankedHybridDocument extends HybridDocumentCandidate {
   hybridScore: number;
 }
+
+const RERANK_STOPWORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'and',
+  'or',
+  'to',
+  'for',
+  'of',
+  'in',
+  'on',
+  'with',
+  'how',
+  'what',
+  'why',
+  'when',
+  'where',
+  'help',
+  'please',
+]);
 
 export function cosineSimilarity(left: number[], right: number[]): number {
   if (left.length === 0 || right.length === 0 || left.length !== right.length) {
@@ -57,6 +80,53 @@ export function hybridScoreDocuments(
       return {
         ...document,
         hybridScore: lexical * lexicalWeight + vector * vectorWeight,
+      };
+    })
+    .sort((left, right) => right.hybridScore - left.hybridScore);
+}
+
+function tokenizeForRerank(value: string) {
+  return buildSemanticCacheKey(value)
+    .split(/\s+/)
+    .filter((token) => token.length > 1 && !RERANK_STOPWORDS.has(token));
+}
+
+export function rerankHybridDocuments(documents: RankedHybridDocument[], query: string) {
+  const normalizedQuery = buildSemanticCacheKey(query);
+  const queryTokens = tokenizeForRerank(query);
+
+  if (!normalizedQuery || queryTokens.length === 0) {
+    return documents;
+  }
+
+  return [...documents]
+    .map((document) => {
+      const normalizedTitle = buildSemanticCacheKey(document.title);
+      const normalizedContent = buildSemanticCacheKey(document.content);
+      let titleHits = 0;
+      let contentHits = 0;
+
+      queryTokens.forEach((token) => {
+        if (normalizedTitle.includes(token)) {
+          titleHits += 1;
+        }
+        if (normalizedContent.includes(token)) {
+          contentHits += 1;
+        }
+      });
+
+      const titleCoverage = titleHits / queryTokens.length;
+      const contentCoverage = contentHits / queryTokens.length;
+      const exactPhraseBonus =
+        normalizedTitle.includes(normalizedQuery) || normalizedContent.includes(normalizedQuery)
+          ? 1
+          : 0;
+      const rerankScore =
+        document.hybridScore * 0.7 + contentCoverage * 0.17 + titleCoverage * 0.1 + exactPhraseBonus * 0.03;
+
+      return {
+        ...document,
+        hybridScore: rerankScore,
       };
     })
     .sort((left, right) => right.hybridScore - left.hybridScore);

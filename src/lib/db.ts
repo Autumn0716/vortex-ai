@@ -23,7 +23,7 @@ import {
   DEFAULT_EMBEDDING_MODEL,
   type EmbeddingProviderConfig,
 } from './embedding-client';
-import { cosineSimilarity, hybridScoreDocuments } from './vector-search-model';
+import { cosineSimilarity, hybridScoreDocuments, rerankHybridDocuments } from './vector-search-model';
 
 export type SqlValue = SQLiteSqlValue;
 
@@ -2823,7 +2823,7 @@ export async function searchDocumentsInDatabase(
       }
     }
 
-    const results = hybridScoreDocuments([...seen.values()])
+    const results = rerankHybridDocuments(hybridScoreDocuments([...seen.values()]), normalizedQuery)
       .slice(0, options?.maxResults ?? 5)
       .map((row) => ({
         id: row.id,
