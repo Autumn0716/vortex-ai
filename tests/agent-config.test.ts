@@ -4,6 +4,7 @@ import {
   type AgentConfig,
   loadConfigWithMigration,
   normalizeAgentConfig,
+  resolveModelSelection,
   resolveDocumentProcessingSettings,
 } from '../src/lib/agent/config';
 
@@ -114,4 +115,66 @@ test('loadConfigWithMigration falls back to defaults when host is unavailable an
 
   assert.equal(loaded.activeProviderId, 'openai');
   assert.equal(loaded.apiServer.baseUrl, 'http://127.0.0.1:3850');
+});
+
+test('resolveModelSelection infers the provider from the selected model when provider is missing', () => {
+  const config = normalizeAgentConfig({
+    activeProviderId: 'openai',
+    activeModel: 'gpt-4o',
+    providers: [
+      {
+        id: 'openai',
+        name: 'OpenAI',
+        enabled: true,
+        apiKey: '',
+        models: ['gpt-4o'],
+        type: 'openai',
+      },
+      {
+        id: 'qwen_dashscope',
+        name: 'Qwen',
+        enabled: true,
+        apiKey: 'test',
+        baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        models: ['qwen3.6plus'],
+        type: 'custom_openai',
+      },
+    ],
+  } as Partial<AgentConfig>);
+
+  const resolved = resolveModelSelection(config, undefined, 'qwen3.6plus');
+
+  assert.equal(resolved.provider.id, 'qwen_dashscope');
+  assert.equal(resolved.model, 'qwen3.6plus');
+});
+
+test('resolveModelSelection prefers the model-matching provider when the explicit provider does not contain that model', () => {
+  const config = normalizeAgentConfig({
+    activeProviderId: 'openai',
+    activeModel: 'gpt-4o',
+    providers: [
+      {
+        id: 'openai',
+        name: 'OpenAI',
+        enabled: true,
+        apiKey: '',
+        models: ['gpt-4o'],
+        type: 'openai',
+      },
+      {
+        id: 'qwen_dashscope',
+        name: 'Qwen',
+        enabled: true,
+        apiKey: 'test',
+        baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        models: ['qwen3.6plus'],
+        type: 'custom_openai',
+      },
+    ],
+  } as Partial<AgentConfig>);
+
+  const resolved = resolveModelSelection(config, 'openai', 'qwen3.6plus');
+
+  assert.equal(resolved.provider.id, 'qwen_dashscope');
+  assert.equal(resolved.model, 'qwen3.6plus');
 });

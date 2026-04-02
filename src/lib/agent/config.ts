@@ -718,11 +718,29 @@ export function getEnabledProviders(config: AgentConfig) {
   return config.providers.filter((provider) => provider.enabled);
 }
 
+function findEnabledProviderByModel(config: AgentConfig, model?: string | null) {
+  if (!model) {
+    return null;
+  }
+
+  return getEnabledProviders(config).find((provider) => provider.models.includes(model)) ?? null;
+}
+
 export function resolveModelSelection(config: AgentConfig, providerId?: string, model?: string) {
   const enabledProviders = getEnabledProviders(config);
+
+  const explicitProvider =
+    config.providers.find((provider) => provider.id === providerId && provider.enabled) ?? null;
+  const inferredProviderFromModel = findEnabledProviderByModel(config, model);
+  const activeProvider =
+    config.providers.find((provider) => provider.id === config.activeProviderId && provider.enabled) ?? null;
+  const inferredProviderFromActiveModel = findEnabledProviderByModel(config, config.activeModel);
+
   const selectedProvider =
-    config.providers.find((provider) => provider.id === providerId && provider.enabled) ??
-    config.providers.find((provider) => provider.id === config.activeProviderId && provider.enabled) ??
+    (explicitProvider && (!model || explicitProvider.models.includes(model)) ? explicitProvider : null) ??
+    inferredProviderFromModel ??
+    activeProvider ??
+    inferredProviderFromActiveModel ??
     enabledProviders[0] ??
     config.providers[0];
 

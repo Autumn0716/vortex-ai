@@ -6,6 +6,7 @@
 
 - Fixed browser-side SQLite initialization in Vite builds by wiring `@sqlite.org/sqlite-wasm/sqlite3.wasm` through an explicit asset URL instead of relying on the package's default wasm path inference.
 - Fixed the Node/tsx regression caused by the browser-only SQLite wasm asset import by limiting explicit `?url` resolution to browser initialization only.
+- Fixed runtime model resolution so topic or agent sessions which only carry a model name like `qwen...` can infer the matching enabled provider instead of silently falling back to the global default provider.
 - Fixed local workspace bootstrap failures caused by legacy `agent_memory_documents` rows missing the new memory lifecycle columns.
 - Reordered agent workspace schema migration so missing columns are added before indexes that depend on them are created.
 - Added bootstrap error detail surfacing in the chat shell so local initialization failures now show the concrete error chain instead of only a generic retry message.
