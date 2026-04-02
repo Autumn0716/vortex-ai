@@ -1190,15 +1190,18 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       setCollapsedPickerGroups({});
                       setCollapsedPickerSeries({});
                     }}
-                    className={`flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition-colors ${
+                    className={`flex w-full cursor-pointer items-center justify-between rounded-2xl border px-3 py-3 text-left transition-all duration-150 ${
                       modelPickerProviderId === provider.id
-                        ? 'bg-white/10 text-white'
-                        : 'text-white/65 hover:bg-white/5 hover:text-white/90'
+                        ? 'border-emerald-500/25 bg-[linear-gradient(180deg,rgba(16,185,129,0.16),rgba(255,255,255,0.05))] text-white shadow-[0_12px_28px_rgba(16,185,129,0.14)]'
+                        : 'border-white/5 text-white/65 hover:border-white/12 hover:bg-white/[0.08] hover:text-white hover:shadow-[0_10px_24px_rgba(0,0,0,0.22)]'
                     }`}
                   >
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">{provider.name}</div>
-                      <div className="text-[11px] text-white/35">{provider.models.length} 个模型</div>
+                      <div className="text-[11px] text-white/35">
+                        {provider.models.length} 个模型
+                        {modelPickerProviderId === provider.id ? ' · 当前浏览' : ''}
+                      </div>
                     </div>
                     <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400/15 to-emerald-600/15">
                       <Cloud size={14} className="text-emerald-300" />
@@ -1338,26 +1341,30 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                                                 onClick={() =>
                                                   handleModelSelection(modelPickerProvider.id, model).catch(console.error)
                                                 }
-                                                className={`flex w-full items-center justify-between rounded-xl border p-3 text-left transition-colors ${
+                                                className={`group flex w-full cursor-pointer items-center justify-between rounded-xl border p-3 text-left transition-all duration-150 ${
                                                   active
-                                                    ? 'border-emerald-500/30 bg-emerald-500/12'
-                                                    : 'border-white/5 bg-white/5 hover:bg-white/10'
+                                                    ? 'border-emerald-400/35 bg-[linear-gradient(180deg,rgba(16,185,129,0.18),rgba(255,255,255,0.04))] shadow-[0_14px_34px_rgba(16,185,129,0.16)]'
+                                                    : 'border-white/5 bg-white/5 hover:border-white/12 hover:bg-white/[0.11] hover:shadow-[0_12px_28px_rgba(0,0,0,0.22)]'
                                                 }`}
                                               >
                                                 <div className="min-w-0">
-                                                  <div className="truncate text-sm text-white/90">{model}</div>
-                                                  <div className="mt-1 text-[11px] text-white/35">
-                                                    {modelPickerProvider.name}
+                                                  <div className="truncate text-sm font-medium text-white/92">
+                                                    {model}
+                                                  </div>
+                                                  <div className="mt-1 flex items-center gap-2 text-[11px] text-white/38">
+                                                    <span>{modelPickerProvider.name}</span>
+                                                    <span className="h-1 w-1 rounded-full bg-white/20" />
+                                                    <span>{active ? '当前使用中' : '点击切换'}</span>
                                                   </div>
                                                 </div>
-                                                <div
-                                                  className={`rounded-full border px-2.5 py-1 text-[11px] ${
-                                                    active
-                                                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-                                                      : 'border-white/10 text-white/40'
-                                                  }`}
-                                                >
-                                                  {active ? '当前' : '切换'}
+                                                <div className="ml-4 flex flex-shrink-0 items-center">
+                                                  <div
+                                                    className={`h-2.5 w-2.5 rounded-full transition-all ${
+                                                      active
+                                                        ? 'bg-emerald-300 shadow-[0_0_18px_rgba(52,211,153,0.65)]'
+                                                        : 'bg-white/18 group-hover:bg-white/38'
+                                                    }`}
+                                                  />
                                                 </div>
                                               </button>
                                             );

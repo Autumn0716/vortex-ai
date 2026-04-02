@@ -513,7 +513,6 @@ export const SettingsView = ({
   const [providerLoadingId, setProviderLoadingId] = useState<string | null>(null);
   const [modelImportDialog, setModelImportDialog] = useState<ModelImportDialogState | null>(null);
   const [importModelSearchQuery, setImportModelSearchQuery] = useState('');
-  const [selectedImportModels, setSelectedImportModels] = useState<string[]>([]);
   const [collapsedImportGroups, setCollapsedImportGroups] = useState<Record<string, boolean>>({});
   const [collapsedImportSeries, setCollapsedImportSeries] = useState<Record<string, boolean>>({});
   const [showThemeBoard, setShowThemeBoard] = useState(false);
@@ -740,6 +739,13 @@ export const SettingsView = ({
         : { totalCount: 0, groups: [] },
     [modelImportDialog, importModelSearchQuery],
   );
+  const importDialogProvider = modelImportDialog
+    ? draft.providers.find((provider) => provider.id === modelImportDialog.providerId) ?? null
+    : null;
+  const importedModelIds = useMemo(
+    () => new Set((importDialogProvider?.models ?? []).map((model) => model.toLowerCase())),
+    [importDialogProvider],
+  );
   const activeMemoryAgent =
     agents.find((agent) => agent.id === activeMemoryAgentId) ?? agents.find((agent) => agent.id === activeAgentId) ?? null;
   const activeMemoryFile = memoryFiles.find((file) => file.path === activeMemoryFilePath) ?? null;
@@ -753,7 +759,6 @@ export const SettingsView = ({
   useEffect(() => {
     if (!modelImportDialog) {
       setImportModelSearchQuery('');
-      setSelectedImportModels([]);
       setCollapsedImportGroups({});
       setCollapsedImportSeries({});
     }
@@ -1016,6 +1021,40 @@ export const SettingsView = ({
     });
   };
 
+  const addModelsToProvider = async (providerId: string, modelsToAdd: string[]) => {
+    const additions = Array.from(new Set(modelsToAdd.map((model) => model.trim()).filter(Boolean)));
+    if (additions.length === 0) {
+      return;
+    }
+
+    await updateDraft((current) => {
+      const nextProviders = current.providers.map((provider) => {
+        if (provider.id !== providerId) {
+          return provider;
+        }
+
+        const mergedModels = Array.from(new Set([...provider.models, ...additions]));
+        return {
+          ...provider,
+          models: mergedModels,
+        };
+      });
+
+      const nextProvider = nextProviders.find((provider) => provider.id === providerId) ?? null;
+
+      return {
+        ...current,
+        providers: nextProviders,
+        activeModel:
+          current.activeProviderId === providerId && nextProvider
+            ? nextProvider.models.includes(current.activeModel)
+              ? current.activeModel
+              : nextProvider.models[0] ?? ''
+            : current.activeModel,
+      };
+    });
+  };
+
   const openModelImportDialog = (provider: ModelProvider, result: ProviderModelFetchResult) => {
     setModelImportDialog({
       providerId: provider.id,
@@ -1024,15 +1063,8 @@ export const SettingsView = ({
       models: result.models,
     });
     setImportModelSearchQuery('');
-    setSelectedImportModels(result.models);
     setCollapsedImportGroups({});
     setCollapsedImportSeries({});
-  };
-
-  const toggleImportModelSelection = (model: string) => {
-    setSelectedImportModels((current) =>
-      current.includes(model) ? current.filter((entry) => entry !== model) : [...current, model],
-    );
   };
 
   const removeModelsFromImportDialog = (modelsToRemove: string[]) => {
@@ -1045,53 +1077,6 @@ export const SettingsView = ({
           }
         : current,
     );
-    setSelectedImportModels((current) => current.filter((model) => !targets.has(model.toLowerCase())));
-  };
-
-  const setImportSeriesSelection = (models: string[], checked: boolean) => {
-    setSelectedImportModels((current) => {
-      const currentSet = new Set(current);
-      models.forEach((model) => {
-        if (checked) {
-          currentSet.add(model);
-        } else {
-          currentSet.delete(model);
-        }
-      });
-      return Array.from(currentSet);
-    });
-  };
-
-  const importSelectedModels = async () => {
-    if (!modelImportDialog) {
-      return;
-    }
-
-    const nextModels = modelImportDialog.models.filter((model) => selectedImportModels.includes(model));
-    await updateDraft((current) => {
-      const nextProviders = current.providers.map((provider) =>
-        provider.id === modelImportDialog.providerId ? { ...provider, models: nextModels } : provider,
-      );
-
-      const nextConfig: AgentConfig = {
-        ...current,
-        providers: nextProviders,
-      };
-
-      if (current.activeProviderId === modelImportDialog.providerId) {
-        return {
-          ...nextConfig,
-          activeModel: nextModels.includes(current.activeModel) ? current.activeModel : nextModels[0] ?? '',
-        };
-      }
-
-      return nextConfig;
-    });
-    setProviderChecks((current) => ({
-      ...current,
-      [modelImportDialog.providerId]: `已导入 ${nextModels.length} 个模型，来源 ${modelImportDialog.resolvedUrl}`,
-    }));
-    setModelImportDialog(null);
   };
 
   const validateProviderConfig = async (provider: ModelProvider) => {
@@ -3689,13 +3674,13 @@ export const SettingsView = ({
               <div className="mb-4 flex flex-col gap-3 rounded-[24px] border border-white/5 bg-black/10 p-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <div className="text-sm font-medium text-white/90">
-                    共获取 {modelImportDialog.models.length} 个模型，已选择 {selectedImportModels.length} 个
+                    共获取 {modelImportDialog.models.length} 个模型，当前已入库 {importDialogProvider?.models.length ?? 0} 个
                   </div>
                   <div className="text-[11px] text-white/40">
-                    先筛选、折叠和勾选，再导入到当前 provider。
+                    默认不选中。点击加号会立即写入当前 provider，减号只会删除当前显示列表。
                   </div>
                 </div>
-                <div className="flex w-full flex-col gap-2 md:w-auto md:min-w-[360px]">
+                <div className="w-full md:min-w-[360px]">
                   <div className="relative">
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
                     <input
@@ -3705,29 +3690,6 @@ export const SettingsView = ({
                       placeholder="搜索待导入模型..."
                       className="w-full rounded-full border border-white/10 bg-black/20 py-2 pl-9 pr-4 text-sm text-white focus:border-emerald-500/50 focus:outline-none"
                     />
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() =>
-                        setSelectedImportModels(
-                          Array.from(new Set([...selectedImportModels, ...importModelGroups.groups.flatMap((group) => group.series.flatMap((series) => series.models))])),
-                        )
-                      }
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/75 hover:bg-white/10"
-                    >
-                      全选当前结果
-                    </button>
-                    <button
-                      onClick={() => {
-                        const visibleModels = new Set(
-                          importModelGroups.groups.flatMap((group) => group.series.flatMap((series) => series.models)),
-                        );
-                        setSelectedImportModels((current) => current.filter((model) => !visibleModels.has(model)));
-                      }}
-                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/75 hover:bg-white/10"
-                    >
-                      清空当前结果
-                    </button>
                   </div>
                 </div>
               </div>
@@ -3742,7 +3704,7 @@ export const SettingsView = ({
                     {importModelGroups.groups.map((group) => {
                       const collapsed = collapsedImportGroups[group.id] ?? false;
                       const groupModels = group.series.flatMap((series) => series.models);
-                      const selectedCount = groupModels.filter((model) => selectedImportModels.includes(model)).length;
+                      const importedCount = groupModels.filter((model) => importedModelIds.has(model.toLowerCase())).length;
 
                       return (
                         <div
@@ -3770,7 +3732,7 @@ export const SettingsView = ({
                                 <div>
                                   <div className="text-sm font-medium text-white/90">{group.label}</div>
                                   <div className="text-[11px] text-white/40">
-                                    {group.series.length} 个系列 · {selectedCount}/{group.totalCount} 已选
+                                    {group.series.length} 个系列 · {importedCount}/{group.totalCount} 已入库
                                   </div>
                                 </div>
                               </div>
@@ -3779,10 +3741,16 @@ export const SettingsView = ({
                               </div>
                             </button>
                             <button
-                              onClick={() => setImportSeriesSelection(groupModels, selectedCount !== groupModels.length)}
-                              className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/75 transition-colors hover:bg-white/10"
+                              onClick={() =>
+                                addModelsToProvider(
+                                  modelImportDialog.providerId,
+                                  groupModels.filter((model) => !importedModelIds.has(model.toLowerCase())),
+                                )
+                              }
+                              disabled={importedCount === group.totalCount}
+                              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-emerald-300 transition-all duration-150 hover:scale-105 hover:border-emerald-500/30 hover:bg-emerald-500/12 disabled:cursor-not-allowed disabled:opacity-30"
                             >
-                              {selectedCount === groupModels.length ? '取消整组' : '全选整组'}
+                              <Plus size={14} />
                             </button>
                             <button
                               onClick={() => removeModelsFromImportDialog(groupModels)}
@@ -3797,8 +3765,8 @@ export const SettingsView = ({
                             <div className="mt-2 space-y-3 px-1 pb-1">
                               {group.series.map((series) => {
                                 const seriesCollapsed = collapsedImportSeries[series.id] ?? false;
-                                const seriesSelectedCount = series.models.filter((model) =>
-                                  selectedImportModels.includes(model),
+                                const seriesImportedCount = series.models.filter((model) =>
+                                  importedModelIds.has(model.toLowerCase()),
                                 ).length;
 
                                 return (
@@ -3829,7 +3797,7 @@ export const SettingsView = ({
                                               {series.label}
                                             </div>
                                             <div className="text-[11px] text-white/35">
-                                              {seriesSelectedCount}/{series.models.length} 已选
+                                              {seriesImportedCount}/{series.models.length} 已入库
                                             </div>
                                           </div>
                                         </div>
@@ -3839,14 +3807,15 @@ export const SettingsView = ({
                                       </button>
                                       <button
                                         onClick={() =>
-                                          setImportSeriesSelection(
-                                            series.models,
-                                            seriesSelectedCount !== series.models.length,
+                                          addModelsToProvider(
+                                            modelImportDialog.providerId,
+                                            series.models.filter((model) => !importedModelIds.has(model.toLowerCase())),
                                           )
                                         }
-                                        className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/75 transition-colors hover:bg-white/10"
+                                        disabled={seriesImportedCount === series.models.length}
+                                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-emerald-300 transition-all duration-150 hover:scale-105 hover:border-emerald-500/30 hover:bg-emerald-500/12 disabled:cursor-not-allowed disabled:opacity-30"
                                       >
-                                        {seriesSelectedCount === series.models.length ? '取消' : '全选'}
+                                        <Plus size={13} />
                                       </button>
                                       <button
                                         onClick={() => removeModelsFromImportDialog(series.models)}
@@ -3860,36 +3829,43 @@ export const SettingsView = ({
                                     {!seriesCollapsed ? (
                                       <div className="mt-2 space-y-2">
                                         {series.models.map((model) => {
-                                          const selected = selectedImportModels.includes(model);
+                                          const imported = importedModelIds.has(model.toLowerCase());
 
                                           return (
                                             <div
                                               key={model}
                                               className={`group flex items-center gap-3 rounded-xl border p-3 transition-colors ${
-                                                selected
+                                                imported
                                                   ? 'border-emerald-500/25 bg-emerald-500/10'
                                                   : 'border-white/5 bg-white/5 hover:bg-white/10'
                                               }`}
                                             >
-                                              <button
-                                                onClick={() => toggleImportModelSelection(model)}
-                                                className="flex min-w-0 flex-1 items-center justify-between text-left"
-                                              >
+                                              <div className="flex min-w-0 flex-1 items-center justify-between">
                                                 <div className="flex min-w-0 items-center gap-3">
                                                   <div
                                                     className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border ${
-                                                      selected
+                                                      imported
                                                         ? 'border-emerald-400/70 bg-emerald-400/20 text-emerald-300'
-                                                        : 'border-white/15 bg-black/20 text-transparent'
+                                                        : 'border-white/15 bg-black/20 text-white/20'
                                                     }`}
                                                   >
-                                                    ✓
+                                                    {imported ? '✓' : '+'}
                                                   </div>
                                                   <span className="truncate text-sm text-white/90">{model}</span>
                                                 </div>
                                                 <div className="text-[11px] text-white/35">
-                                                  {selected ? '已选中' : '点击选择'}
+                                                  {imported ? '已入库' : '可添加'}
                                                 </div>
+                                              </div>
+                                              <button
+                                                onClick={() =>
+                                                  addModelsToProvider(modelImportDialog.providerId, [model])
+                                                }
+                                                disabled={imported}
+                                                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-emerald-300 transition-all duration-150 hover:scale-105 hover:border-emerald-500/30 hover:bg-emerald-500/12 disabled:cursor-not-allowed disabled:opacity-30"
+                                                title="添加当前模型"
+                                              >
+                                                <Plus size={12} />
                                               </button>
                                               <button
                                                 onClick={() => removeModelsFromImportDialog([model])}
@@ -3917,20 +3893,13 @@ export const SettingsView = ({
             </div>
 
             <div className="flex items-center justify-between gap-4 border-t border-white/5 px-6 py-4">
-              <div className="text-sm text-white/50">仅在点击“导入所选模型”后才会写入当前 provider。</div>
+              <div className="text-sm text-white/50">点加号立即入库，点减号仅从当前获取列表中移除显示。</div>
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setModelImportDialog(null)}
                   className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
                 >
                   取消
-                </button>
-                <button
-                  onClick={importSelectedModels}
-                  disabled={selectedImportModels.length === 0}
-                  className="rounded-full border border-emerald-500/30 bg-emerald-500/15 px-4 py-2 text-sm text-emerald-100 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  导入所选模型 ({selectedImportModels.length})
                 </button>
               </div>
             </div>
