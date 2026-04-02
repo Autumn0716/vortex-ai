@@ -25,6 +25,7 @@ import {
   Palette,
   Plus,
   RefreshCw,
+  Minus,
   Search,
   Server,
   Settings as SettingsIcon,
@@ -161,6 +162,13 @@ interface SettingsViewProps {
 interface ProviderModelFetchResult {
   models: string[];
   resolvedUrl: string;
+}
+
+interface ModelImportDialogState {
+  providerId: string;
+  providerName: string;
+  resolvedUrl: string;
+  models: string[];
 }
 
 interface MemoryFileStatus {
@@ -504,6 +512,11 @@ export const SettingsView = ({
   const [stats, setStats] = useState<DataStats | null>(null);
   const [providerChecks, setProviderChecks] = useState<Record<string, string>>({});
   const [providerLoadingId, setProviderLoadingId] = useState<string | null>(null);
+  const [modelImportDialog, setModelImportDialog] = useState<ModelImportDialogState | null>(null);
+  const [importModelSearchQuery, setImportModelSearchQuery] = useState('');
+  const [selectedImportModels, setSelectedImportModels] = useState<string[]>([]);
+  const [collapsedImportGroups, setCollapsedImportGroups] = useState<Record<string, boolean>>({});
+  const [collapsedImportSeries, setCollapsedImportSeries] = useState<Record<string, boolean>>({});
   const [showThemeBoard, setShowThemeBoard] = useState(false);
   const [activeMemoryAgentId, setActiveMemoryAgentId] = useState<string>(activeAgentId ?? agents[0]?.id ?? '');
   const [memoryFiles, setMemoryFiles] = useState<AgentMemoryFileEntry[]>([]);
@@ -710,6 +723,24 @@ export const SettingsView = ({
     () => (activeProvider ? buildModelGroups(activeProvider, modelSearchQuery) : { totalCount: 0, groups: [] }),
     [activeProvider, modelSearchQuery],
   );
+  const importModelGroups = useMemo(
+    () =>
+      modelImportDialog
+        ? buildModelGroups(
+            {
+              id: modelImportDialog.providerId,
+              name: modelImportDialog.providerName,
+              enabled: true,
+              apiKey: '',
+              baseUrl: '',
+              models: modelImportDialog.models,
+              type: 'custom_openai',
+            },
+            importModelSearchQuery,
+          )
+        : { totalCount: 0, groups: [] },
+    [modelImportDialog, importModelSearchQuery],
+  );
   const activeMemoryAgent =
     agents.find((agent) => agent.id === activeMemoryAgentId) ?? agents.find((agent) => agent.id === activeAgentId) ?? null;
   const activeMemoryFile = memoryFiles.find((file) => file.path === activeMemoryFilePath) ?? null;
@@ -719,6 +750,15 @@ export const SettingsView = ({
     setCollapsedModelGroups({});
     setCollapsedModelSeries({});
   }, [activeProviderId]);
+
+  useEffect(() => {
+    if (!modelImportDialog) {
+      setImportModelSearchQuery('');
+      setSelectedImportModels([]);
+      setCollapsedImportGroups({});
+      setCollapsedImportSeries({});
+    }
+  }, [modelImportDialog]);
 
   const loadMemoryFiles = async (options: { preferredPath?: string | null; announce?: string } = {}) => {
     const requestId = memoryFilesRequestIdRef.current + 1;
@@ -906,6 +946,140 @@ export const SettingsView = ({
 
     const nextModels = Array.from(new Set([...activeProvider.models, value.trim()]));
     await updateProvider(activeProvider.id, { models: nextModels });
+  };
+
+  const removeProvider = async (providerId: string) => {
+    const provider = draft.providers.find((entry) => entry.id === providerId);
+    if (!provider) {
+      return;
+    }
+
+    if (draft.providers.length <= 1) {
+      setProviderChecks((current) => ({
+        ...current,
+        [providerId]: '至少需要保留一个模型服务。',
+      }));
+      return;
+    }
+
+    const confirmed = window.confirm(`确认删除模型服务“${provider.name}”吗？`);
+    if (!confirmed) {
+      return;
+    }
+
+    await updateDraft((current) => {
+      const nextProviders = current.providers.filter((entry) => entry.id !== providerId);
+      const nextActiveProvider =
+        nextProviders.find((entry) => entry.id === current.activeProviderId) ?? nextProviders[0] ?? null;
+
+      return {
+        ...current,
+        providers: nextProviders,
+        activeProviderId: nextActiveProvider?.id ?? '',
+        activeModel: nextActiveProvider?.models.includes(current.activeModel)
+          ? current.activeModel
+          : nextActiveProvider?.models[0] ?? '',
+      };
+    });
+
+    setProviderChecks((current) => ({
+      ...current,
+      [providerId]: `已删除 ${provider.name}。`,
+    }));
+  };
+
+  const removeModelsFromProvider = async (providerId: string, modelsToRemove: string[]) => {
+    const targetModels = new Set(modelsToRemove.map((model) => model.toLowerCase()));
+    await updateDraft((current) => {
+      const nextProviders = current.providers.map((provider) => {
+        if (provider.id !== providerId) {
+          return provider;
+        }
+
+        return {
+          ...provider,
+          models: provider.models.filter((model) => !targetModels.has(model.toLowerCase())),
+        };
+      });
+
+      const nextProvider = nextProviders.find((provider) => provider.id === providerId) ?? null;
+
+      return {
+        ...current,
+        providers: nextProviders,
+        activeModel:
+          current.activeProviderId === providerId && nextProvider
+            ? nextProvider.models.includes(current.activeModel)
+              ? current.activeModel
+              : nextProvider.models[0] ?? ''
+            : current.activeModel,
+      };
+    });
+  };
+
+  const openModelImportDialog = (provider: ModelProvider, result: ProviderModelFetchResult) => {
+    setModelImportDialog({
+      providerId: provider.id,
+      providerName: provider.name,
+      resolvedUrl: result.resolvedUrl,
+      models: result.models,
+    });
+    setImportModelSearchQuery('');
+    setSelectedImportModels(result.models);
+    setCollapsedImportGroups({});
+    setCollapsedImportSeries({});
+  };
+
+  const toggleImportModelSelection = (model: string) => {
+    setSelectedImportModels((current) =>
+      current.includes(model) ? current.filter((entry) => entry !== model) : [...current, model],
+    );
+  };
+
+  const setImportSeriesSelection = (models: string[], checked: boolean) => {
+    setSelectedImportModels((current) => {
+      const currentSet = new Set(current);
+      models.forEach((model) => {
+        if (checked) {
+          currentSet.add(model);
+        } else {
+          currentSet.delete(model);
+        }
+      });
+      return Array.from(currentSet);
+    });
+  };
+
+  const importSelectedModels = async () => {
+    if (!modelImportDialog) {
+      return;
+    }
+
+    const nextModels = modelImportDialog.models.filter((model) => selectedImportModels.includes(model));
+    await updateDraft((current) => {
+      const nextProviders = current.providers.map((provider) =>
+        provider.id === modelImportDialog.providerId ? { ...provider, models: nextModels } : provider,
+      );
+
+      const nextConfig: AgentConfig = {
+        ...current,
+        providers: nextProviders,
+      };
+
+      if (current.activeProviderId === modelImportDialog.providerId) {
+        return {
+          ...nextConfig,
+          activeModel: nextModels.includes(current.activeModel) ? current.activeModel : nextModels[0] ?? '',
+        };
+      }
+
+      return nextConfig;
+    });
+    setProviderChecks((current) => ({
+      ...current,
+      [modelImportDialog.providerId]: `已导入 ${nextModels.length} 个模型，来源 ${modelImportDialog.resolvedUrl}`,
+    }));
+    setModelImportDialog(null);
   };
 
   const validateProviderConfig = async (provider: ModelProvider) => {
@@ -3077,14 +3251,15 @@ export const SettingsView = ({
               </div>
               <div className="flex-1 space-y-1 overflow-y-auto p-2 custom-scrollbar">
                 {filteredProviders.map((provider) => (
-                  <button
+                  <div
                     key={provider.id}
-                    onClick={() => setActiveProviderId(provider.id)}
-                    className={`flex w-full items-center justify-between rounded-2xl px-3 py-3 text-sm transition-colors ${
-                      activeProviderId === provider.id
-                        ? 'bg-white/5 text-white'
-                        : 'text-white/70 hover:bg-white/5'
+                    className={`group flex items-center gap-2 rounded-2xl px-2 py-2 text-sm transition-colors ${
+                      activeProviderId === provider.id ? 'bg-white/5 text-white' : 'text-white/70 hover:bg-white/5'
                     }`}
+                  >
+                    <button
+                      onClick={() => setActiveProviderId(provider.id)}
+                      className="flex min-w-0 flex-1 items-center justify-between px-1 py-1 text-left"
                     >
                       <div className="flex items-center gap-3 truncate">
                         <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400/20 to-emerald-600/20">
@@ -3109,7 +3284,15 @@ export const SettingsView = ({
                         {provider.enabled ? 'ON' : 'OFF'}
                       </div>
                     </div>
-                  </button>
+                    </button>
+                    <button
+                      onClick={() => removeProvider(provider.id)}
+                      className="rounded-full border border-transparent p-2 text-white/20 opacity-0 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300 group-hover:opacity-100"
+                      title="删除模型服务"
+                    >
+                      <Minus size={14} />
+                    </button>
+                  </div>
                 ))}
               </div>
               <div className="border-t border-white/5 p-3">
@@ -3140,17 +3323,26 @@ export const SettingsView = ({
                         {activeProvider.type}
                       </span>
                     </h2>
-                    <label className="relative inline-flex cursor-pointer items-center">
-                      <input
-                        type="checkbox"
-                        className="peer sr-only"
-                        checked={activeProvider.enabled}
-                        onChange={(event) =>
-                          updateProvider(activeProvider.id, { enabled: event.target.checked })
-                        }
-                      />
-                      <div className="peer h-6 w-11 rounded-full bg-white/10 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-emerald-500 peer-checked:after:translate-x-full" />
-                    </label>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => removeProvider(activeProvider.id)}
+                        className="rounded-full border border-white/10 bg-white/5 p-2 text-white/60 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
+                        title="删除当前模型服务"
+                      >
+                        <Minus size={15} />
+                      </button>
+                      <label className="relative inline-flex cursor-pointer items-center">
+                        <input
+                          type="checkbox"
+                          className="peer sr-only"
+                          checked={activeProvider.enabled}
+                          onChange={(event) =>
+                            updateProvider(activeProvider.id, { enabled: event.target.checked })
+                          }
+                        />
+                        <div className="peer h-6 w-11 rounded-full bg-white/10 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-emerald-500 peer-checked:after:translate-x-full" />
+                      </label>
+                    </div>
                   </div>
 
                   <div className="max-w-3xl space-y-8">
@@ -3228,36 +3420,11 @@ export const SettingsView = ({
                                 }));
 
                                 const result = await fetchProviderModels(activeProvider);
-                                await updateDraft((current) => {
-                                  const nextProviders = current.providers.map((provider) =>
-                                    provider.id === activeProvider.id
-                                      ? { ...provider, models: result.models }
-                                      : provider,
-                                  );
-
-                                  const nextConfig: AgentConfig = {
-                                    ...current,
-                                    providers: nextProviders,
-                                  };
-
-                                  if (current.activeProviderId === activeProvider.id) {
-                                    const resolvedActiveModel = result.models.includes(current.activeModel)
-                                      ? current.activeModel
-                                      : result.models[0] ?? '';
-
-                                    return {
-                                      ...nextConfig,
-                                      activeModel: resolvedActiveModel,
-                                    };
-                                  }
-
-                                  return nextConfig;
-                                });
-
                                 setProviderChecks((current) => ({
                                   ...current,
-                                  [activeProvider.id]: `已自动同步 ${result.models.length} 个模型，来源 ${result.resolvedUrl}`,
+                                  [activeProvider.id]: `已获取 ${result.models.length} 个模型，请先筛选后导入。`,
                                 }));
+                                openModelImportDialog(activeProvider, result);
                               } catch (error: any) {
                                 setProviderChecks((current) => ({
                                   ...current,
@@ -3347,6 +3514,18 @@ export const SettingsView = ({
                                       {group.totalCount}
                                     </div>
                                   </button>
+                                  <button
+                                    onClick={() =>
+                                      removeModelsFromProvider(
+                                        activeProvider.id,
+                                        group.series.flatMap((series) => series.models),
+                                      )
+                                    }
+                                    className="rounded-full border border-transparent p-2 text-white/20 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
+                                    title={`移除 ${group.label} 分类`}
+                                  >
+                                    <Minus size={14} />
+                                  </button>
 
                                   {!collapsed ? (
                                     <div className="mt-2 space-y-3 px-1 pb-1">
@@ -3386,6 +3565,15 @@ export const SettingsView = ({
                                                 {series.models.length}
                                               </div>
                                             </button>
+                                            <button
+                                              onClick={() =>
+                                                removeModelsFromProvider(activeProvider.id, series.models)
+                                              }
+                                              className="rounded-full border border-transparent p-2 text-white/20 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
+                                              title={`移除 ${series.label} 系列`}
+                                            >
+                                              <Minus size={13} />
+                                            </button>
 
                                             {!seriesCollapsed ? (
                                               <div className="mt-2 space-y-2">
@@ -3408,10 +3596,10 @@ export const SettingsView = ({
                                                           ),
                                                         })
                                                       }
-                                                      className="rounded-full px-2 py-1 text-xs text-white/35 opacity-0 transition-all hover:bg-red-500/10 hover:text-red-300 group-hover:opacity-100"
-                                                      title="从当前列表排除"
+                                                      className="rounded-full border border-transparent p-1.5 text-white/25 opacity-0 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300 group-hover:opacity-100"
+                                                      title="移除模型"
                                                     >
-                                                      排除
+                                                      <Minus size={12} />
                                                     </button>
                                                   </div>
                                                 ))}
@@ -3466,6 +3654,252 @@ export const SettingsView = ({
           </div>
         )}
       </div>
+
+      {modelImportDialog ? (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+          <div className="flex h-[78vh] min-h-[560px] w-full max-w-[980px] flex-col overflow-hidden rounded-[30px] border border-white/10 bg-[#171717] shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
+              <div>
+                <div className="text-lg font-semibold text-white">选择要导入的模型</div>
+                <div className="mt-1 text-sm text-white/55">
+                  {modelImportDialog.providerName} · 来源 {modelImportDialog.resolvedUrl}
+                </div>
+              </div>
+              <button
+                onClick={() => setModelImportDialog(null)}
+                className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="flex flex-1 min-h-0 flex-col px-6 py-5">
+              <div className="mb-4 flex flex-col gap-3 rounded-[24px] border border-white/5 bg-black/10 p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-sm font-medium text-white/90">
+                    共获取 {modelImportDialog.models.length} 个模型，已选择 {selectedImportModels.length} 个
+                  </div>
+                  <div className="text-[11px] text-white/40">
+                    先筛选、折叠和勾选，再导入到当前 provider。
+                  </div>
+                </div>
+                <div className="flex w-full flex-col gap-2 md:w-auto md:min-w-[360px]">
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+                    <input
+                      type="text"
+                      value={importModelSearchQuery}
+                      onChange={(event) => setImportModelSearchQuery(event.target.value)}
+                      placeholder="搜索待导入模型..."
+                      className="w-full rounded-full border border-white/10 bg-black/20 py-2 pl-9 pr-4 text-sm text-white focus:border-emerald-500/50 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() =>
+                        setSelectedImportModels(
+                          Array.from(new Set([...selectedImportModels, ...importModelGroups.groups.flatMap((group) => group.series.flatMap((series) => series.models))])),
+                        )
+                      }
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/75 hover:bg-white/10"
+                    >
+                      全选当前结果
+                    </button>
+                    <button
+                      onClick={() => {
+                        const visibleModels = new Set(
+                          importModelGroups.groups.flatMap((group) => group.series.flatMap((series) => series.models)),
+                        );
+                        setSelectedImportModels((current) => current.filter((model) => !visibleModels.has(model)));
+                      }}
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/75 hover:bg-white/10"
+                    >
+                      清空当前结果
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                {importModelGroups.groups.length === 0 ? (
+                  <div className="rounded-[24px] border border-dashed border-white/10 bg-white/[0.03] px-4 py-12 text-center text-sm text-white/40">
+                    没有匹配的模型。
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {importModelGroups.groups.map((group) => {
+                      const collapsed = collapsedImportGroups[group.id] ?? false;
+                      const groupModels = group.series.flatMap((series) => series.models);
+                      const selectedCount = groupModels.filter((model) => selectedImportModels.includes(model)).length;
+
+                      return (
+                        <div
+                          key={group.id}
+                          className="rounded-2xl border border-white/5 bg-white/[0.03] p-2"
+                        >
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() =>
+                                setCollapsedImportGroups((current) => ({
+                                  ...current,
+                                  [group.id]: !collapsed,
+                                }))
+                              }
+                              className="flex min-w-0 flex-1 items-center justify-between rounded-[18px] px-3 py-2 text-left transition-colors hover:bg-white/5"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400/15 to-red-500/15">
+                                  {collapsed ? (
+                                    <ChevronRight size={15} className="text-orange-300" />
+                                  ) : (
+                                    <ChevronDown size={15} className="text-orange-300" />
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="text-sm font-medium text-white/90">{group.label}</div>
+                                  <div className="text-[11px] text-white/40">
+                                    {group.series.length} 个系列 · {selectedCount}/{group.totalCount} 已选
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-white/45">
+                                {group.totalCount}
+                              </div>
+                            </button>
+                            <button
+                              onClick={() => setImportSeriesSelection(groupModels, selectedCount !== groupModels.length)}
+                              className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/75 transition-colors hover:bg-white/10"
+                            >
+                              {selectedCount === groupModels.length ? '取消整组' : '全选整组'}
+                            </button>
+                          </div>
+
+                          {!collapsed ? (
+                            <div className="mt-2 space-y-3 px-1 pb-1">
+                              {group.series.map((series) => {
+                                const seriesCollapsed = collapsedImportSeries[series.id] ?? false;
+                                const seriesSelectedCount = series.models.filter((model) =>
+                                  selectedImportModels.includes(model),
+                                ).length;
+
+                                return (
+                                  <div
+                                    key={series.id}
+                                    className="rounded-[18px] border border-white/5 bg-black/10 p-3"
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <button
+                                        onClick={() =>
+                                          setCollapsedImportSeries((current) => ({
+                                            ...current,
+                                            [series.id]: !seriesCollapsed,
+                                          }))
+                                        }
+                                        className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-[14px] px-1 py-1 text-left transition-colors hover:bg-white/5"
+                                      >
+                                        <div className="flex min-w-0 items-center gap-3">
+                                          <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-2xl bg-white/5">
+                                            {seriesCollapsed ? (
+                                              <ChevronRight size={14} className="text-white/55" />
+                                            ) : (
+                                              <ChevronDown size={14} className="text-white/55" />
+                                            )}
+                                          </div>
+                                          <div className="min-w-0">
+                                            <div className="truncate text-sm font-medium text-white/85">
+                                              {series.label}
+                                            </div>
+                                            <div className="text-[11px] text-white/35">
+                                              {seriesSelectedCount}/{series.models.length} 已选
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <div className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/45">
+                                          {series.models.length}
+                                        </div>
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          setImportSeriesSelection(
+                                            series.models,
+                                            seriesSelectedCount !== series.models.length,
+                                          )
+                                        }
+                                        className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-white/75 transition-colors hover:bg-white/10"
+                                      >
+                                        {seriesSelectedCount === series.models.length ? '取消' : '全选'}
+                                      </button>
+                                    </div>
+
+                                    {!seriesCollapsed ? (
+                                      <div className="mt-2 space-y-2">
+                                        {series.models.map((model) => {
+                                          const selected = selectedImportModels.includes(model);
+
+                                          return (
+                                            <button
+                                              key={model}
+                                              onClick={() => toggleImportModelSelection(model)}
+                                              className={`flex w-full items-center justify-between rounded-xl border p-3 text-left transition-colors ${
+                                                selected
+                                                  ? 'border-emerald-500/25 bg-emerald-500/10'
+                                                  : 'border-white/5 bg-white/5 hover:bg-white/10'
+                                              }`}
+                                            >
+                                              <div className="flex min-w-0 items-center gap-3">
+                                                <div
+                                                  className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border ${
+                                                    selected
+                                                      ? 'border-emerald-400/70 bg-emerald-400/20 text-emerald-300'
+                                                      : 'border-white/15 bg-black/20 text-transparent'
+                                                  }`}
+                                                >
+                                                  ✓
+                                                </div>
+                                                <span className="truncate text-sm text-white/90">{model}</span>
+                                              </div>
+                                              <div className="text-[11px] text-white/35">
+                                                {selected ? '已选中' : '点击选择'}
+                                              </div>
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 border-t border-white/5 px-6 py-4">
+              <div className="text-sm text-white/50">仅在点击“导入所选模型”后才会写入当前 provider。</div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setModelImportDialog(null)}
+                  className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={importSelectedModels}
+                  disabled={selectedImportModels.length === 0}
+                  className="rounded-full border border-emerald-500/30 bg-emerald-500/15 px-4 py-2 text-sm text-emerald-100 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  导入所选模型 ({selectedImportModels.length})
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
