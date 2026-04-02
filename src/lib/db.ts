@@ -2,6 +2,7 @@ import initSqlite, {
   type Database as SQLiteDatabase,
   type SqlValue as SQLiteSqlValue,
 } from '@sqlite.org/sqlite-wasm';
+import sqliteWasmUrl from '@sqlite.org/sqlite-wasm/sqlite3.wasm?url';
 import localforage from 'localforage';
 import { getAgentConfig } from './agent/config';
 import {
@@ -38,6 +39,7 @@ export interface QueryExecResult {
 }
 
 type SQLiteModule = Awaited<ReturnType<typeof initSqlite>>;
+type SQLiteInitModule = (options?: { locateFile?: (path: string) => string }) => Promise<SQLiteModule>;
 
 export class Database {
   constructor(
@@ -1535,7 +1537,9 @@ export async function initDB(): Promise<Database> {
 
   initPromise = (async () => {
     try {
-      sqlite3Module = await initSqlite();
+      sqlite3Module = await (initSqlite as SQLiteInitModule)({
+        locateFile: (path) => (path === 'sqlite3.wasm' ? sqliteWasmUrl : path),
+      });
 
       const savedData = await localforage.getItem<Uint8Array>(DB_STORAGE_KEY);
       if (savedData) {
@@ -1555,7 +1559,10 @@ export async function initDB(): Promise<Database> {
       await saveDB();
       return db;
     } catch (error) {
-      console.error('Failed to initialize SQLite:', error);
+      console.error('Failed to initialize SQLite:', {
+        error,
+        sqliteWasmUrl,
+      });
       resetDatabaseConnectionState();
       throw error;
     }
