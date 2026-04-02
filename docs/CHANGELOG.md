@@ -54,3 +54,5 @@
 - Added protocol-aware model provider configuration so each vendor entry can now be marked as `OpenAI 兼容`, `OpenAI Responses 兼容`, or `Anthropic 原生`, with matching base URL placeholders and request previews in Settings.
 - Added response-compatible runtime routing so providers configured for `Responses` now call `/responses` directly, while chat-compatible providers keep using the existing LangGraph chat-completions path and local tool loop.
 - Added model-list endpoint fallback for response-compatible providers so `/models` probing can fall back from the Responses base path to the sibling Chat-compatible model catalog when necessary.
+- Added first-pass Qwen official runtime controls in the composer: chat-compatible Qwen providers can now enable `enable_thinking` and `response_format`, while responses-compatible providers can toggle official built-in `web_search`, `web_extractor`, `code_interpreter`, and SSE-backed `MCP` tools.
+- Added reasoning-preview plumbing so chat-compatible Qwen streams that emit `reasoning_content` can surface a compact “思考中” notice instead of silently discarding the reasoning delta.

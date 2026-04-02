@@ -186,6 +186,17 @@ interface TopicRunState {
   isGenerating: boolean;
   composerNotice: string;
   draftAssistantMessage?: TopicMessage;
+  reasoningPreview?: string;
+}
+
+interface ComposerResponsesState {
+  enableThinking: boolean;
+  enableWebSearch: boolean;
+  enableWebExtractor: boolean;
+  enableCodeInterpreter: boolean;
+  enableMcp: boolean;
+  structuredOutputMode: 'text' | 'json_object' | 'json_schema';
+  structuredOutputSchema: string;
 }
 
 interface SessionSettingsDraft {
@@ -267,6 +278,16 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [showWebSearchMenu, setShowWebSearchMenu] = useState(false);
   const [composerWebSearchEnabled, setComposerWebSearchEnabled] = useState(false);
   const [composerSearchProviderId, setComposerSearchProviderId] = useState('');
+  const [composerResponses, setComposerResponses] = useState<ComposerResponsesState>({
+    enableThinking: false,
+    enableWebSearch: false,
+    enableWebExtractor: false,
+    enableCodeInterpreter: false,
+    enableMcp: false,
+    structuredOutputMode: 'text',
+    structuredOutputSchema:
+      '{\n  "name": "answer_payload",\n  "schema": {\n    "type": "object",\n    "properties": {\n      "answer": { "type": "string" }\n    },\n    "required": ["answer"]\n  }\n}',
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const projectKnowledgeVersionRef = useRef('');
   const topicAbortControllersRef = useRef<Record<string, AbortController>>({});
@@ -275,7 +296,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     workspace?.agent ?? agents.find((entry) => entry.id === activeAgentId) ?? null;
   const activeRunState = activeTopicId ? topicRunStates[activeTopicId] : undefined;
   const isGenerating = activeRunState?.isGenerating ?? false;
-  const composerNotice = activeRunState?.composerNotice ?? shellNotice;
+  const composerNotice = activeRunState?.reasoningPreview
+    ? `思考中: ${activeRunState.reasoningPreview}`
+    : activeRunState?.composerNotice ?? shellNotice;
   const backgroundGeneratingCount = useMemo(
     () =>
       Object.entries(topicRunStates).filter(
@@ -287,9 +310,16 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     workspace?.runtime.displayName ?? workspace?.agent.name ?? selectedAgent?.name ?? 'FlowAgent';
   const activeProviderId =
     workspace?.runtime.providerId ?? workspace?.agent.providerId ?? config.activeProviderId;
+  const activeProvider =
+    config.providers.find((provider) => provider.id === activeProviderId) ?? null;
   const activeProviderName =
-    config.providers.find((provider) => provider.id === activeProviderId)?.name ?? 'Model';
+    activeProvider?.name ?? 'Model';
   const activeModel = workspace?.runtime.model ?? workspace?.agent.model ?? config.activeModel;
+  const isResponsesProvider = activeProvider?.protocol === 'openai_responses_compatible';
+  const isQwenCompatible =
+    Boolean(activeProvider?.baseUrl?.toLowerCase().includes('dashscope')) ||
+    activeProvider?.name.toLowerCase().includes('qwen') ||
+    activeModel.toLowerCase().includes('qwen');
   const activeMemoryEnabled = workspace?.runtime.enableMemory ?? config.memory.enableAgentLongTerm;
   const latestAssistantMessageId = useMemo(
     () =>
@@ -388,9 +418,10 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         isGenerating: next.isGenerating ?? false,
         composerNotice: next.composerNotice ?? '',
         draftAssistantMessage: next.draftAssistantMessage,
+        reasoningPreview: next.reasoningPreview ?? '',
       };
 
-      if (!merged.isGenerating && !merged.composerNotice && !merged.draftAssistantMessage) {
+      if (!merged.isGenerating && !merged.composerNotice && !merged.draftAssistantMessage && !merged.reasoningPreview) {
         if (!(topicId in previous)) {
           return previous;
         }
@@ -1054,6 +1085,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     setTopicRunState(workspaceSnapshot.topic.id, () => ({
       isGenerating: true,
       composerNotice: '',
+      reasoningPreview: '',
     }));
     await addTopicMessages([userMessage]);
     await maybeAutoTitleTopic(workspaceSnapshot.topic.id, userContent);
@@ -1133,10 +1165,32 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         enableTools: workspaceSnapshot.runtime.enableTools,
         enableWebSearch: composerWebSearchEnabled,
         searchProviderId: composerSearchProvider?.id,
+        enableThinking: composerResponses.enableThinking,
+        responsesTools: {
+          webSearch: composerResponses.enableWebSearch,
+          webExtractor: composerResponses.enableWebExtractor,
+          codeInterpreter: composerResponses.enableCodeInterpreter,
+          mcp: composerResponses.enableMcp,
+        },
+        structuredOutput:
+          composerResponses.structuredOutputMode === 'text'
+            ? { mode: 'text' }
+            : {
+                mode: composerResponses.structuredOutputMode,
+                schema:
+                  composerResponses.structuredOutputMode === 'json_schema'
+                    ? composerResponses.structuredOutputSchema
+                    : undefined,
+              },
         systemPrompt: [
           configSnapshot.systemPrompt,
           memoryContext ? `Agent memory:\n${memoryContext}` : '',
           skillContext ? skillContext : '',
+          composerResponses.structuredOutputMode === 'json_object'
+            ? 'Please output valid JSON only.'
+            : composerResponses.structuredOutputMode === 'json_schema'
+              ? 'Please output valid JSON that matches the requested schema exactly.'
+              : '',
           `Session identity:\n${workspaceSnapshot.runtime.systemPrompt}`,
         ]
           .filter(Boolean)
@@ -1150,6 +1204,12 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
       for await (const event of stream) {
         if (event.type === 'reasoning_delta') {
+          setTopicRunState(workspaceSnapshot.topic.id, (previous) => ({
+            isGenerating: true,
+            composerNotice: previous?.composerNotice ?? '',
+            draftAssistantMessage: previous?.draftAssistantMessage,
+            reasoningPreview: `${previous?.reasoningPreview ?? ''}${event.delta}`.slice(-280),
+          }));
           continue;
         }
 
@@ -1185,6 +1245,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           isGenerating: true,
           composerNotice: previous?.composerNotice ?? '',
           draftAssistantMessage: optimisticAssistantMessage,
+          reasoningPreview: previous?.reasoningPreview ?? '',
         }));
         setWorkspace((previous) =>
           previous?.topic.id === workspaceSnapshot.topic.id
@@ -1283,6 +1344,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     setTopicRunState(workspaceSnapshot.topic.id, () => ({
       isGenerating: true,
       composerNotice: 'Regenerating response…',
+      reasoningPreview: '',
     }));
 
     await executeAssistantTurn({
@@ -1921,93 +1983,251 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       <div className="relative">
                         {showWebSearchMenu ? (
                           <div className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-[320px] rounded-2xl border border-white/10 bg-[#0F1118]/95 p-3 shadow-[0_20px_45px_rgba(0,0,0,0.4)] backdrop-blur-xl">
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <div className="text-xs font-semibold text-white">联网搜索</div>
-                                <div className="mt-1 text-[11px] leading-5 text-white/45">
-                                  选择当前对话要挂载的实时搜索工具。
+                            {isResponsesProvider ? (
+                              <>
+                                <div className="flex items-center justify-between gap-3">
+                                  <div>
+                                    <div className="text-xs font-semibold text-white">Qwen Responses 工具</div>
+                                    <div className="mt-1 text-[11px] leading-5 text-white/45">
+                                      按官方 Responses API 挂载内置工具与思考模式。
+                                    </div>
+                                  </div>
+                                  <span className="rounded-full border border-emerald-400/25 bg-emerald-400/12 px-2.5 py-1 text-[11px] text-emerald-100">
+                                    responses
+                                  </span>
                                 </div>
-                              </div>
-                              <button
-                                onClick={() => setComposerWebSearchEnabled((previous) => !previous)}
-                                className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
-                                  composerWebSearchEnabled
-                                    ? 'border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
-                                    : 'border-white/10 bg-white/5 text-white/55 hover:bg-white/10 hover:text-white'
-                                }`}
-                              >
-                                {composerWebSearchEnabled ? '已启用' : '已关闭'}
-                              </button>
-                            </div>
-                            <div className="mt-3 grid gap-2">
-                              {enabledSearchProviders.length > 0 ? (
-                                enabledSearchProviders.map((provider) => {
-                                  const isSelected = composerSearchProvider?.id === provider.id;
-                                  const isReady =
-                                    provider.category === 'local' || provider.apiKey.trim().length > 0;
-                                  return (
-                                    <button
-                                      key={provider.id}
-                                      onClick={() => {
-                                        setComposerSearchProviderId(provider.id);
-                                        if (!composerWebSearchEnabled) {
-                                          setComposerWebSearchEnabled(true);
+                                <div className="mt-3 grid gap-2">
+                                  {[
+                                    ['enableThinking', '思考模式', '为当前回复开启 `enable_thinking`。'],
+                                    ['enableWebSearch', '联网搜索', '挂载官方 `web_search` 工具。'],
+                                    ['enableWebExtractor', '网页抓取', '挂载官方 `web_extractor` 工具。'],
+                                    ['enableCodeInterpreter', '代码解释器', '挂载官方 `code_interpreter` 工具。'],
+                                    ['enableMcp', 'MCP', '挂载当前已启用的 SSE MCP server。'],
+                                  ].map(([key, label, description]) => {
+                                    const checked = composerResponses[key as keyof ComposerResponsesState] as boolean;
+                                    return (
+                                      <button
+                                        key={key}
+                                        onClick={() =>
+                                          setComposerResponses((current) => ({
+                                            ...current,
+                                            [key]: !checked,
+                                          }))
                                         }
-                                      }}
-                                      className={`rounded-2xl border px-3 py-3 text-left transition-all ${
-                                        isSelected
-                                          ? 'border-sky-400/25 bg-sky-400/12 text-white shadow-[0_14px_28px_rgba(0,0,0,0.2)]'
-                                          : 'border-white/10 bg-white/[0.03] text-white/72 hover:bg-white/8 hover:text-white'
-                                      }`}
-                                    >
-                                      <div className="flex items-center justify-between gap-3">
-                                        <div className="min-w-0">
-                                          <div className="flex items-center gap-2">
-                                            <span className="truncate text-sm font-medium">{provider.name}</span>
-                                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] text-white/45">
-                                              {provider.type}
-                                            </span>
+                                        className={`rounded-2xl border px-3 py-3 text-left transition-all ${
+                                          checked
+                                            ? 'border-sky-400/25 bg-sky-400/12 text-white shadow-[0_14px_28px_rgba(0,0,0,0.2)]'
+                                            : 'border-white/10 bg-white/[0.03] text-white/72 hover:bg-white/8 hover:text-white'
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between gap-3">
+                                          <div className="min-w-0">
+                                            <div className="truncate text-sm font-medium">{label}</div>
+                                            <div className="mt-1 text-[11px] leading-5 text-white/45">{description}</div>
                                           </div>
-                                          <div className="mt-1 line-clamp-2 text-[11px] leading-5 text-white/45">
-                                            {provider.description}
-                                          </div>
+                                          <span
+                                            className={`rounded-full px-2 py-0.5 text-[10px] ${
+                                              checked
+                                                ? 'border border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
+                                                : 'border border-white/10 bg-black/20 text-white/45'
+                                            }`}
+                                          >
+                                            {checked ? 'ON' : 'OFF'}
+                                          </span>
                                         </div>
-                                        <span
-                                          className={`rounded-full px-2 py-0.5 text-[10px] ${
-                                            isReady
-                                              ? 'border border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
-                                              : 'border border-amber-400/25 bg-amber-400/12 text-amber-100'
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <div>
+                                      <div className="text-xs font-semibold text-white">结构化输出</div>
+                                      <div className="mt-1 text-[11px] leading-5 text-white/45">
+                                        当前先按官方文档保留在 chat-completions 通道，Responses 通道不在这里直接启用。
+                                      </div>
+                                    </div>
+                                    <span className="rounded-full border border-amber-400/25 bg-amber-400/12 px-2 py-0.5 text-[10px] text-amber-100">
+                                      chat only
+                                    </span>
+                                  </div>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex items-center justify-between gap-3">
+                                  <div>
+                                    <div className="text-xs font-semibold text-white">联网搜索与高级模式</div>
+                                    <div className="mt-1 text-[11px] leading-5 text-white/45">
+                                      本地搜索工具继续走 chat-completions；Qwen 兼容模型可额外开启思考和结构化输出。
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() => setComposerWebSearchEnabled((previous) => !previous)}
+                                    className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                                      composerWebSearchEnabled
+                                        ? 'border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
+                                        : 'border-white/10 bg-white/5 text-white/55 hover:bg-white/10 hover:text-white'
+                                    }`}
+                                  >
+                                    {composerWebSearchEnabled ? '搜索已启用' : '搜索已关闭'}
+                                  </button>
+                                </div>
+                                <div className="mt-3 grid gap-2">
+                                  {enabledSearchProviders.length > 0 ? (
+                                    enabledSearchProviders.map((provider) => {
+                                      const isSelected = composerSearchProvider?.id === provider.id;
+                                      const isReady =
+                                        provider.category === 'local' || provider.apiKey.trim().length > 0;
+                                      return (
+                                        <button
+                                          key={provider.id}
+                                          onClick={() => {
+                                            setComposerSearchProviderId(provider.id);
+                                            if (!composerWebSearchEnabled) {
+                                              setComposerWebSearchEnabled(true);
+                                            }
+                                          }}
+                                          className={`rounded-2xl border px-3 py-3 text-left transition-all ${
+                                            isSelected
+                                              ? 'border-sky-400/25 bg-sky-400/12 text-white shadow-[0_14px_28px_rgba(0,0,0,0.2)]'
+                                              : 'border-white/10 bg-white/[0.03] text-white/72 hover:bg-white/8 hover:text-white'
                                           }`}
                                         >
-                                          {isReady ? 'Ready' : '未配置'}
-                                        </span>
-                                      </div>
-                                    </button>
-                                  );
-                                })
-                              ) : (
-                                <div className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-xs leading-6 text-white/45">
-                                  当前没有已启用的搜索 provider。先去 Settings - Search 打开一个 provider。
+                                          <div className="flex items-center justify-between gap-3">
+                                            <div className="min-w-0">
+                                              <div className="flex items-center gap-2">
+                                                <span className="truncate text-sm font-medium">{provider.name}</span>
+                                                <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] text-white/45">
+                                                  {provider.type}
+                                                </span>
+                                              </div>
+                                              <div className="mt-1 line-clamp-2 text-[11px] leading-5 text-white/45">
+                                                {provider.description}
+                                              </div>
+                                            </div>
+                                            <span
+                                              className={`rounded-full px-2 py-0.5 text-[10px] ${
+                                                isReady
+                                                  ? 'border border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
+                                                  : 'border border-amber-400/25 bg-amber-400/12 text-amber-100'
+                                              }`}
+                                            >
+                                              {isReady ? 'Ready' : '未配置'}
+                                            </span>
+                                          </div>
+                                        </button>
+                                      );
+                                    })
+                                  ) : (
+                                    <div className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-xs leading-6 text-white/45">
+                                      当前没有已启用的搜索 provider。先去 Settings - Search 打开一个 provider。
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
+                                {isQwenCompatible ? (
+                                  <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                                    <div className="text-xs font-semibold text-white">Qwen Chat 高级能力</div>
+                                    <div className="mt-2 grid gap-2">
+                                      <button
+                                        onClick={() =>
+                                          setComposerResponses((current) => ({
+                                            ...current,
+                                            enableThinking: !current.enableThinking,
+                                            structuredOutputMode:
+                                              !current.enableThinking && current.structuredOutputMode !== 'text'
+                                                ? 'text'
+                                                : current.structuredOutputMode,
+                                          }))
+                                        }
+                                        className={`rounded-2xl border px-3 py-3 text-left transition-all ${
+                                          composerResponses.enableThinking
+                                            ? 'border-sky-400/25 bg-sky-400/12 text-white'
+                                            : 'border-white/10 bg-white/[0.03] text-white/72 hover:bg-white/8 hover:text-white'
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between gap-3">
+                                          <div>
+                                            <div className="text-sm font-medium">思考模式</div>
+                                            <div className="mt-1 text-[11px] leading-5 text-white/45">
+                                              走 `extra_body.enable_thinking = true`。
+                                            </div>
+                                          </div>
+                                          <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] text-white/60">
+                                            {composerResponses.enableThinking ? 'ON' : 'OFF'}
+                                          </span>
+                                        </div>
+                                      </button>
+                                      <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3">
+                                        <div className="flex items-center justify-between gap-3">
+                                          <div>
+                                            <div className="text-sm font-medium text-white/90">结构化输出</div>
+                                            <div className="mt-1 text-[11px] leading-5 text-white/45">
+                                              官方文档优先建议在 chat-completions 中通过 `response_format` 使用。
+                                            </div>
+                                          </div>
+                                          <select
+                                            value={composerResponses.structuredOutputMode}
+                                            onChange={(event) =>
+                                              setComposerResponses((current) => ({
+                                                ...current,
+                                                structuredOutputMode: event.target.value as ComposerResponsesState['structuredOutputMode'],
+                                                enableThinking:
+                                                  event.target.value === 'text' ? current.enableThinking : false,
+                                              }))
+                                            }
+                                            className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white outline-none"
+                                          >
+                                            <option value="text">纯文本</option>
+                                            <option value="json_object">JSON Object</option>
+                                            <option value="json_schema">JSON Schema</option>
+                                          </select>
+                                        </div>
+                                        {composerResponses.structuredOutputMode === 'json_schema' ? (
+                                          <textarea
+                                            value={composerResponses.structuredOutputSchema}
+                                            onChange={(event) =>
+                                              setComposerResponses((current) => ({
+                                                ...current,
+                                                structuredOutputSchema: event.target.value,
+                                              }))
+                                            }
+                                            className="mt-3 min-h-[132px] w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-3 font-mono text-[11px] leading-6 text-white outline-none"
+                                          />
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </>
+                            )}
                             <div className="mt-3 text-[11px] leading-5 text-white/38">
-                              {composerSearchProvider
-                                ? composerWebSearchReady
-                                  ? `当前将使用 ${composerSearchProvider.name} 作为实时搜索工具。`
-                                  : `${composerSearchProvider.name} 尚未配置 API Key，启用后会在调用时直接报出缺失原因。`
-                                : '未选择搜索 provider。'}
+                              {isResponsesProvider
+                                ? `当前 ${activeProviderName} 将走官方 Responses API。Thinking 与内置工具会按上面的开关拼进请求。`
+                                : composerSearchProvider
+                                  ? composerWebSearchReady
+                                    ? `当前将使用 ${composerSearchProvider.name} 作为实时搜索工具。`
+                                    : `${composerSearchProvider.name} 尚未配置 API Key，启用后会在调用时直接报出缺失原因。`
+                                  : '未选择搜索 provider。'}
                             </div>
                           </div>
                         ) : null}
                         <button
                           onClick={() => setShowWebSearchMenu((previous) => !previous)}
                           className={`rounded-xl border p-2 transition-all ${
-                            composerWebSearchEnabled
+                            (isResponsesProvider
+                              ? composerResponses.enableThinking ||
+                                composerResponses.enableWebSearch ||
+                                composerResponses.enableWebExtractor ||
+                                composerResponses.enableCodeInterpreter ||
+                                composerResponses.enableMcp
+                              : composerWebSearchEnabled ||
+                                composerResponses.enableThinking ||
+                                composerResponses.structuredOutputMode !== 'text')
                               ? 'border-sky-400/25 bg-sky-400/12 text-sky-100 shadow-[0_12px_28px_rgba(14,165,233,0.16)]'
                               : 'border-transparent text-white/40 hover:border-white/10 hover:bg-white/10 hover:text-white'
                           }`}
-                          title="联网搜索"
+                          title={isResponsesProvider ? 'Responses 工具' : '联网搜索'}
                         >
                           <Search size={18} />
                         </button>

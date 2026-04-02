@@ -15,6 +15,17 @@ export interface AgentRuntimeOptions {
   enableTools?: boolean;
   enableWebSearch?: boolean;
   searchProviderId?: string;
+  enableThinking?: boolean;
+  responsesTools?: {
+    webSearch?: boolean;
+    webExtractor?: boolean;
+    codeInterpreter?: boolean;
+    mcp?: boolean;
+  };
+  structuredOutput?: {
+    mode: 'text' | 'json_object' | 'json_schema';
+    schema?: string;
+  };
 }
 
 export interface AgentRuntimeInput {
@@ -105,7 +116,16 @@ function buildResponseInput(messages: any[], systemPrompt: string) {
   return responseMessages;
 }
 
-function buildResponseTools(config: AgentConfig, options: { enableTools: boolean; enableWebSearch: boolean }) {
+export function buildResponseTools(
+  config: AgentConfig,
+  options: {
+    enableTools: boolean;
+    enableWebSearch: boolean;
+    enableWebExtractor?: boolean;
+    enableCodeInterpreter?: boolean;
+    enableMcp?: boolean;
+  },
+) {
   if (!options.enableTools) {
     return [];
   }
@@ -115,29 +135,80 @@ function buildResponseTools(config: AgentConfig, options: { enableTools: boolean
   if (options.enableWebSearch) {
     tools.push({ type: 'web_search' });
   }
+  if (options.enableWebExtractor) {
+    tools.push({ type: 'web_extractor' });
+  }
+  if (options.enableCodeInterpreter) {
+    tools.push({ type: 'code_interpreter' });
+  }
 
-  config.mcpServers
-    .filter((server) => server.enabled && server.transport === 'sse' && server.url.trim())
-    .forEach((server) => {
-      let headers: Record<string, string> | undefined;
-      if (server.headers.trim()) {
-        try {
-          headers = JSON.parse(server.headers);
-        } catch {
-          headers = undefined;
+  if (options.enableMcp) {
+    config.mcpServers
+      .filter((server) => server.enabled && server.transport === 'sse' && server.url.trim())
+      .forEach((server) => {
+        let headers: Record<string, string> | undefined;
+        if (server.headers.trim()) {
+          try {
+            headers = JSON.parse(server.headers);
+          } catch {
+            headers = undefined;
+          }
         }
-      }
-      tools.push({
-        type: 'mcp',
-        server_protocol: 'sse',
-        server_label: server.name,
-        server_description: server.description || `MCP server: ${server.name}`,
-        server_url: server.url.trim(),
-        ...(headers ? { headers } : {}),
+        tools.push({
+          type: 'mcp',
+          server_protocol: 'sse',
+          server_label: server.name,
+          server_description: server.description || `MCP server: ${server.name}`,
+          server_url: server.url.trim(),
+          ...(headers ? { headers } : {}),
+        });
       });
-    });
+  }
 
   return tools;
+}
+
+export function buildChatModelKwargs(options: {
+  enableThinking: boolean;
+  structuredOutput?: AgentRuntimeOptions['structuredOutput'];
+}) {
+  const modelKwargs: Record<string, unknown> = {
+    stream_options: {
+      include_usage: true,
+    },
+  };
+
+  if (options.enableThinking) {
+    modelKwargs.extra_body = {
+      enable_thinking: true,
+    };
+  }
+
+  const structuredOutput = options.structuredOutput;
+  if (!structuredOutput || structuredOutput.mode === 'text') {
+    return modelKwargs;
+  }
+
+  if (structuredOutput.mode === 'json_object') {
+    modelKwargs.response_format = {
+      type: 'json_object',
+    };
+    return modelKwargs;
+  }
+
+  if (structuredOutput.mode === 'json_schema' && structuredOutput.schema?.trim()) {
+    try {
+      const parsedSchema = JSON.parse(structuredOutput.schema);
+      modelKwargs.response_format = {
+        type: 'json_schema',
+        json_schema: parsedSchema,
+      };
+    } catch {
+      throw new Error('Structured output schema is not valid JSON.');
+    }
+  }
+
+  return modelKwargs;
 }
 
 async function* streamLangGraphRuntime(options: {
@@ -177,6 +248,17 @@ async function* streamLangGraphRuntime(options: {
 
     if (typeof message.id === 'string' && message.id.trim()) {
       assistantDraftId = message.id;
+    }
+
+    const reasoningDelta =
+      typeof message.additional_kwargs?.reasoning_content === 'string'
+        ? message.additional_kwargs.reasoning_content
+        : '';
+    if (reasoningDelta) {
+      yield {
+        type: 'reasoning_delta',
+        delta: reasoningDelta,
+      };
     }
 
     const nextText = stringifyMessageContent(message.content);
@@ -286,7 +368,8 @@ async function* streamResponsesRuntime(options: {
   input: AgentRuntimeInput;
   signal?: AbortSignal;
   enableTools: boolean;
-  enableWebSearch: boolean;
+  enableThinking: boolean;
+  responsesTools?: AgentRuntimeOptions['responsesTools'];
 }): AsyncGenerator<AgentRuntimeStreamEvent, void, void> {
   const baseUrl = normalizeBaseUrl(options.provider.baseUrl);
   if (!baseUrl) {
@@ -306,9 +389,16 @@ async function* streamResponsesRuntime(options: {
       model: options.model,
       input: buildResponseInput(options.input.messages, options.systemPrompt),
       stream: true,
+      stream_options: {
+        include_usage: true,
+      },
+      enable_thinking: options.enableThinking,
       tools: buildResponseTools(options.config, {
         enableTools: options.enableTools,
-        enableWebSearch: options.enableWebSearch,
+        enableWebSearch: Boolean(options.responsesTools?.webSearch),
+        enableWebExtractor: Boolean(options.responsesTools?.webExtractor),
+        enableCodeInterpreter: Boolean(options.responsesTools?.codeInterpreter),
+        enableMcp: Boolean(options.responsesTools?.mcp),
       }),
     }),
     signal: options.signal,
@@ -405,6 +495,9 @@ export function createAgentRuntime(options: AgentRuntimeOptions): CompiledAgentR
     enableTools = true,
     enableWebSearch = false,
     searchProviderId,
+    enableThinking = false,
+    responsesTools,
+    structuredOutput,
   } = options;
   const { provider, model: resolvedModel } = resolveModelSelection(config, providerId, model);
   const requestMode = getProviderRequestMode(provider.protocol);
@@ -420,7 +513,8 @@ export function createAgentRuntime(options: AgentRuntimeOptions): CompiledAgentR
           input,
           signal: streamOptions?.signal,
           enableTools,
-          enableWebSearch,
+          enableThinking: Boolean(enableThinking && structuredOutput?.mode === 'text'),
+          responsesTools,
         }),
     };
   }
@@ -442,6 +536,10 @@ export function createAgentRuntime(options: AgentRuntimeOptions): CompiledAgentR
       temperature: 0,
       streaming: true,
       configuration: provider.baseUrl ? { baseURL: provider.baseUrl } : undefined,
+      modelKwargs: buildChatModelKwargs({
+        enableThinking: Boolean(enableThinking && structuredOutput?.mode === 'text'),
+        structuredOutput,
+      }),
     });
   } else if (provider.type === 'anthropic') {
     if (!provider.apiKey) {
