@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Bot, User, Zap } from 'lucide-react';
@@ -55,6 +55,7 @@ export interface AgentLaneColumnProps {
   showToolResults: boolean;
   autoScroll: boolean;
   compact: boolean;
+  scrollKey?: string;
 }
 
 export function AgentLaneColumn({
@@ -65,9 +66,11 @@ export function AgentLaneColumn({
   showToolResults,
   autoScroll,
   compact,
+  scrollKey,
 }: AgentLaneColumnProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const widthRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
   const [contentWidth, setContentWidth] = useState(280);
 
   useEffect(() => {
@@ -84,15 +87,35 @@ export function AgentLaneColumn({
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
+  const lastMessageSignature = `${messages[messages.length - 1]?.id ?? 'empty'}::${
+    messages[messages.length - 1]?.content.length ?? 0
+  }::${messages.length}`;
+
+  useLayoutEffect(() => {
     if (!autoScroll || !bodyRef.current) {
       return;
     }
-    bodyRef.current.scrollTo({
-      top: bodyRef.current.scrollHeight,
-      behavior: 'smooth',
+
+    const scrollToBottom = () => {
+      if (bottomRef.current) {
+        bottomRef.current.scrollIntoView({
+          block: 'end',
+          behavior: isGenerating ? 'smooth' : 'auto',
+        });
+        return;
+      }
+
+      bodyRef.current?.scrollTo({
+        top: bodyRef.current.scrollHeight,
+        behavior: isGenerating ? 'smooth' : 'auto',
+      });
+    };
+
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(scrollToBottom);
     });
-  }, [messages, isGenerating, autoScroll]);
+    return () => window.cancelAnimationFrame(frame);
+  }, [autoScroll, isGenerating, lastMessageSignature, scrollKey]);
 
   const accentColor = resolveAccentColor(lane.accentColor);
   const cardContentWidth = Math.max(contentWidth - (compact ? 42 : 54), 180);
@@ -251,6 +274,7 @@ export function AgentLaneColumn({
                 </div>
               </div>
             ) : null}
+            <div ref={bottomRef} className="h-px w-full" />
           </div>
         </div>
       </div>

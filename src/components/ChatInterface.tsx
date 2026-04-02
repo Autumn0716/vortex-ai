@@ -63,6 +63,7 @@ import { TimeoutError, withSoftTimeout } from '../lib/async-timeout';
 import { formatErrorDetails, wrapErrorWithContext } from '../lib/error-details';
 import { registerConfiguredAgentMemoryFileStore } from '../lib/agent-memory-api';
 import { buildModelGroups } from '../lib/model-groups';
+import { isAIMessageChunk } from '@langchain/core/messages';
 
 const TerminalPanel = lazy(() =>
   import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
@@ -129,6 +130,34 @@ function mergeWorkspaceMessages(
       updatedAt: lastMessage.createdAt,
       lastMessageAt: lastMessage.createdAt,
       messageCount: workspace.topic.messageCount + messages.length,
+    },
+  };
+}
+
+function upsertWorkspaceMessage(
+  workspace: TopicWorkspace | null,
+  message: TopicMessage,
+): TopicWorkspace | null {
+  if (!workspace) {
+    return workspace;
+  }
+
+  const existingIndex = workspace.messages.findIndex((entry) => entry.id === message.id);
+  const nextMessages =
+    existingIndex >= 0
+      ? workspace.messages.map((entry, index) => (index === existingIndex ? message : entry))
+      : [...workspace.messages, message];
+  const lastMessage = nextMessages[nextMessages.length - 1]!;
+
+  return {
+    ...workspace,
+    messages: nextMessages,
+    topic: {
+      ...workspace.topic,
+      preview: lastMessage.content.replace(/\s+/g, ' ').trim() || workspace.topic.preview,
+      updatedAt: lastMessage.createdAt,
+      lastMessageAt: lastMessage.createdAt,
+      messageCount: nextMessages.length,
     },
   };
 }
@@ -645,18 +674,68 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           .join('\n\n'),
       });
 
-      const result = await runtime.invoke({ messages: lcMessages });
-      const finalMessages = result.messages;
+      const stream = await runtime.stream(
+        { messages: lcMessages },
+        { streamMode: ['messages', 'values'] },
+      );
+
+      let lastValuesState: { messages?: any[] } | null = null;
+      let assistantDraftId = createLocalId('message');
+      let streamedAssistantContent = '';
+
+      for await (const chunk of stream) {
+        if (!Array.isArray(chunk) || chunk.length < 2) {
+          continue;
+        }
+
+        const [mode, payload] = chunk as unknown as [string, any];
+        if (mode === 'values') {
+          lastValuesState = payload;
+          continue;
+        }
+
+        if (mode !== 'messages' || !Array.isArray(payload)) {
+          continue;
+        }
+
+        const [message] = payload;
+        if (!message || message?._getType?.() !== 'ai') {
+          continue;
+        }
+
+        if (typeof message.id === 'string' && message.id.trim()) {
+          assistantDraftId = message.id;
+        }
+
+        if (isAIMessageChunk(message)) {
+          streamedAssistantContent += stringifyMessageContent(message.content);
+        } else {
+          streamedAssistantContent = stringifyMessageContent(message.content);
+        }
+
+        const optimisticAssistantMessage = toTopicMessage({
+          id: assistantDraftId,
+          topicId: workspaceSnapshot.topic.id,
+          agentId: workspaceSnapshot.agent.id,
+          role: 'assistant',
+          authorName: workspaceSnapshot.agent.name,
+          content: streamedAssistantContent,
+          createdAt: new Date().toISOString(),
+        });
+        setWorkspace((previous) => upsertWorkspaceMessage(previous, optimisticAssistantMessage));
+      }
+
+      const finalMessages = lastValuesState?.messages ?? [];
       const lastAssistantMessage = [...finalMessages]
         .reverse()
-        .find((message) => message?._getType?.() === 'ai') as { content: unknown } | undefined;
+        .find((message) => message?._getType?.() === 'ai') as { id?: string; content: unknown } | undefined;
 
       if (!lastAssistantMessage) {
         throw new Error('The model did not return a final assistant message.');
       }
 
       const assistantMessage: TopicMessageInput = {
-        id: createLocalId('message'),
+        id: lastAssistantMessage.id ?? assistantDraftId,
         topicId: workspaceSnapshot.topic.id,
         agentId: workspaceSnapshot.agent.id,
         role: 'assistant',
@@ -666,8 +745,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         tools: extractToolUsage(finalMessages, lcMessages.length),
       };
 
-      const optimisticAssistantMessage = toTopicMessage(assistantMessage);
-      setWorkspace((previous) => mergeWorkspaceMessages(previous, [optimisticAssistantMessage]));
+      setWorkspace((previous) => upsertWorkspaceMessage(previous, toTopicMessage(assistantMessage)));
       await addTopicMessages([assistantMessage]);
     } catch (error: any) {
       const fallbackMessage: TopicMessageInput = {
@@ -1030,6 +1108,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       showToolResults={config.ui.showToolResults}
                       autoScroll={config.ui.autoScroll}
                       compact={config.ui.compactLanes}
+                      scrollKey={workspace.topic.id}
                     />
                   </div>
                 </div>

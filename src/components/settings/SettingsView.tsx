@@ -513,6 +513,7 @@ export const SettingsView = ({
   const [providerLoadingId, setProviderLoadingId] = useState<string | null>(null);
   const [modelImportDialog, setModelImportDialog] = useState<ModelImportDialogState | null>(null);
   const [importModelSearchQuery, setImportModelSearchQuery] = useState('');
+  const [importOnlyNotAdded, setImportOnlyNotAdded] = useState(true);
   const [collapsedImportGroups, setCollapsedImportGroups] = useState<Record<string, boolean>>({});
   const [collapsedImportSeries, setCollapsedImportSeries] = useState<Record<string, boolean>>({});
   const [showThemeBoard, setShowThemeBoard] = useState(false);
@@ -721,6 +722,13 @@ export const SettingsView = ({
     () => (activeProvider ? buildModelGroups(activeProvider, modelSearchQuery) : { totalCount: 0, groups: [] }),
     [activeProvider, modelSearchQuery],
   );
+  const importDialogProvider = modelImportDialog
+    ? draft.providers.find((provider) => provider.id === modelImportDialog.providerId) ?? null
+    : null;
+  const importedModelIds = useMemo(
+    () => new Set((importDialogProvider?.models ?? []).map((model) => model.toLowerCase())),
+    [importDialogProvider],
+  );
   const importModelGroups = useMemo(
     () =>
       modelImportDialog
@@ -731,20 +739,15 @@ export const SettingsView = ({
               enabled: true,
               apiKey: '',
               baseUrl: '',
-              models: modelImportDialog.models,
+              models: modelImportDialog.models.filter(
+                (model) => !importOnlyNotAdded || !importedModelIds.has(model.toLowerCase()),
+              ),
               type: 'custom_openai',
             },
             importModelSearchQuery,
           )
         : { totalCount: 0, groups: [] },
-    [modelImportDialog, importModelSearchQuery],
-  );
-  const importDialogProvider = modelImportDialog
-    ? draft.providers.find((provider) => provider.id === modelImportDialog.providerId) ?? null
-    : null;
-  const importedModelIds = useMemo(
-    () => new Set((importDialogProvider?.models ?? []).map((model) => model.toLowerCase())),
-    [importDialogProvider],
+    [modelImportDialog, importModelSearchQuery, importOnlyNotAdded, importedModelIds],
   );
   const activeMemoryAgent =
     agents.find((agent) => agent.id === activeMemoryAgentId) ?? agents.find((agent) => agent.id === activeAgentId) ?? null;
@@ -759,6 +762,7 @@ export const SettingsView = ({
   useEffect(() => {
     if (!modelImportDialog) {
       setImportModelSearchQuery('');
+      setImportOnlyNotAdded(true);
       setCollapsedImportGroups({});
       setCollapsedImportSeries({});
     }
@@ -3691,6 +3695,15 @@ export const SettingsView = ({
                       className="w-full rounded-full border border-white/10 bg-black/20 py-2 pl-9 pr-4 text-sm text-white focus:border-emerald-500/50 focus:outline-none"
                     />
                   </div>
+                  <label className="mt-3 inline-flex cursor-pointer items-center gap-2 text-xs text-white/60">
+                    <input
+                      type="checkbox"
+                      checked={importOnlyNotAdded}
+                      onChange={(event) => setImportOnlyNotAdded(event.target.checked)}
+                      className="h-4 w-4 rounded border-white/15 bg-black/20 text-emerald-500 focus:ring-emerald-500/40"
+                    />
+                    仅显示未入库模型
+                  </label>
                 </div>
               </div>
 
