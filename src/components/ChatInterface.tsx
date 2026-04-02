@@ -227,7 +227,16 @@ interface SessionSettingsDraft {
   enableAgentSharedShortTerm: boolean;
 }
 
-type ModelPickerTarget = 'global' | 'topic';
+interface QuickTopicDraft {
+  title: string;
+  displayName: string;
+  systemPromptOverride: string;
+  providerIdOverride: string;
+  modelOverride: string;
+}
+
+type ModelPickerTarget = 'global' | 'topic' | 'quick';
+type TopicModeFilter = 'all' | 'agent' | 'quick';
 
 const WORKSPACE_BOOT_SOFT_TIMEOUT_MS = 8000;
 const WORKSPACE_BOOT_HARD_TIMEOUT_MS = 45000;
@@ -237,8 +246,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showSessionSettings, setShowSessionSettings] = useState(false);
+  const [showQuickTopicDialog, setShowQuickTopicDialog] = useState(false);
   const [sessionSettingsDraft, setSessionSettingsDraft] = useState<SessionSettingsDraft | null>(null);
+  const [quickTopicDraft, setQuickTopicDraft] = useState<QuickTopicDraft | null>(null);
   const [sessionSettingsSaving, setSessionSettingsSaving] = useState(false);
+  const [quickTopicSaving, setQuickTopicSaving] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelPickerTarget, setModelPickerTarget] = useState<ModelPickerTarget>('global');
   const [settingsInitialCategory, setSettingsInitialCategory] =
@@ -258,6 +270,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<WorkspaceSearchResult[]>([]);
   const [fts5Enabled, setFts5Enabled] = useState(false);
+  const [topicModeFilter, setTopicModeFilter] = useState<TopicModeFilter>('all');
   const [modelPickerProviderId, setModelPickerProviderId] = useState<string>('');
   const [modelPickerProviderQuery, setModelPickerProviderQuery] = useState('');
   const [modelPickerSearchQuery, setModelPickerSearchQuery] = useState('');
@@ -294,16 +307,36 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         workspace?.runtime.providerId ||
         workspace?.agent.providerId ||
         config.activeProviderId
-      : config.activeProviderId;
+      : modelPickerTarget === 'quick'
+        ? quickTopicDraft?.providerIdOverride.trim() || config.activeProviderId
+        : config.activeProviderId;
   const pickerEffectiveModel =
     modelPickerTarget === 'topic'
       ? sessionSettingsDraft?.modelOverride.trim() ||
         workspace?.runtime.model ||
         workspace?.agent.model ||
         config.activeModel
-      : config.activeModel;
+      : modelPickerTarget === 'quick'
+        ? quickTopicDraft?.modelOverride.trim() || config.activeModel
+        : config.activeModel;
   const pickerCurrentProviderName =
     config.providers.find((provider) => provider.id === pickerEffectiveProviderId)?.name ?? 'Model';
+  const topicCounts = useMemo(
+    () => ({
+      all: topics.length,
+      agent: topics.filter((topic) => topic.sessionMode !== 'quick').length,
+      quick: topics.filter((topic) => topic.sessionMode === 'quick').length,
+    }),
+    [topics],
+  );
+  const visibleTopics = useMemo(() => {
+    if (topicModeFilter === 'all') {
+      return topics;
+    }
+    return topics.filter((topic) =>
+      topicModeFilter === 'quick' ? topic.sessionMode === 'quick' : topic.sessionMode !== 'quick',
+    );
+  }, [topicModeFilter, topics]);
 
   const setTopicRunState = (topicId: string, updater: (previous: TopicRunState | undefined) => TopicRunState) => {
     setTopicRunStates((previous) => ({
@@ -370,6 +403,16 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     setModelPickerProviderId(
       sessionSettingsDraft.providerIdOverride.trim() || workspace.runtime.providerId || config.activeProviderId,
     );
+    setShowModelPicker(true);
+  };
+
+  const openQuickModelPicker = () => {
+    if (!quickTopicDraft) {
+      return;
+    }
+
+    setModelPickerTarget('quick');
+    setModelPickerProviderId(quickTopicDraft.providerIdOverride.trim() || config.activeProviderId);
     setShowModelPicker(true);
   };
 
@@ -665,28 +708,41 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     await activateTopic(created.id);
   };
 
-  const handleCreateQuickTopic = async () => {
-    const targetAgentId = activeAgentId ?? agents[0]?.id;
-    if (!targetAgentId) {
-      return;
-    }
-
-    const title = globalThis.prompt('快速会话标题', 'Quick Chat')?.trim() || 'Quick Chat';
-    const displayName = globalThis.prompt('快速会话身份名', 'Quick Assistant')?.trim() || 'Quick Assistant';
-    const systemPromptOverride =
-      globalThis.prompt('快速会话系统提示词', 'You are a concise, helpful assistant.')?.trim() ||
-      'You are a concise, helpful assistant.';
-
-    const created = await createQuickTopic({
-      agentId: targetAgentId,
-      title,
-      displayName,
-      systemPromptOverride,
+  const handleOpenQuickTopicDialog = () => {
+    setQuickTopicDraft({
+      title: 'Quick Chat',
+      displayName: 'Quick Assistant',
+      systemPromptOverride: 'You are a concise, helpful assistant.',
       providerIdOverride: config.activeProviderId,
       modelOverride: config.activeModel,
     });
-    await activateTopic(created.id);
-    setShellNotice(`Created quick session "${created.title}".`);
+    setShowQuickTopicDialog(true);
+  };
+
+  const handleCreateQuickTopic = async () => {
+    const targetAgentId = activeAgentId ?? agents[0]?.id;
+    if (!targetAgentId || !quickTopicDraft) {
+      return;
+    }
+
+    setQuickTopicSaving(true);
+    try {
+      const created = await createQuickTopic({
+        agentId: targetAgentId,
+        title: quickTopicDraft.title.trim() || 'Quick Chat',
+        displayName: quickTopicDraft.displayName.trim() || 'Quick Assistant',
+        systemPromptOverride:
+          quickTopicDraft.systemPromptOverride.trim() || 'You are a concise, helpful assistant.',
+        providerIdOverride: quickTopicDraft.providerIdOverride.trim() || config.activeProviderId,
+        modelOverride: quickTopicDraft.modelOverride.trim() || config.activeModel,
+      });
+      await activateTopic(created.id);
+      setShowQuickTopicDialog(false);
+      setQuickTopicDraft(null);
+      setShellNotice(`Created quick session "${created.title}".`);
+    } finally {
+      setQuickTopicSaving(false);
+    }
   };
 
   const handleOpenSessionSettings = () => {
@@ -742,6 +798,20 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const handleModelSelection = async (providerId: string, model: string) => {
     if (modelPickerTarget === 'topic' && sessionSettingsDraft) {
       setSessionSettingsDraft((current) =>
+        current
+          ? {
+              ...current,
+              providerIdOverride: providerId,
+              modelOverride: model,
+            }
+          : current,
+      );
+      setShowModelPicker(false);
+      return;
+    }
+
+    if (modelPickerTarget === 'quick' && quickTopicDraft) {
+      setQuickTopicDraft((current) =>
         current
           ? {
               ...current,
@@ -1237,13 +1307,36 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 <Plus size={16} className="text-white/50 transition-colors group-hover:text-white" />
               </button>
               <button
-                onClick={handleCreateQuickTopic}
+                onClick={handleOpenQuickTopicDialog}
                 className="group flex w-full items-center justify-between rounded-xl border border-white/10 bg-black/20 px-4 py-3 transition-colors hover:bg-white/10"
               >
                 <span className="text-sm font-medium text-white/80">Quick Topic</span>
                 <Sparkles size={16} className="text-white/45 transition-colors group-hover:text-white" />
               </button>
             </div>
+
+            {!searchQuery.trim() ? (
+              <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-black/20 p-1">
+                {[
+                  { key: 'all', label: 'All', count: topicCounts.all },
+                  { key: 'agent', label: 'Agent', count: topicCounts.agent },
+                  { key: 'quick', label: 'Quick', count: topicCounts.quick },
+                ].map((entry) => (
+                  <button
+                    key={entry.key}
+                    onClick={() => setTopicModeFilter(entry.key as TopicModeFilter)}
+                    className={`rounded-[14px] px-3 py-2 text-left transition-all ${
+                      topicModeFilter === entry.key
+                        ? 'bg-white/10 text-white shadow-[0_10px_24px_rgba(0,0,0,0.18)]'
+                        : 'text-white/45 hover:bg-white/5 hover:text-white/85'
+                    }`}
+                  >
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em]">{entry.label}</div>
+                    <div className="mt-1 text-xs text-white/45">{entry.count}</div>
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
               <Search size={15} className="text-white/35" />
@@ -1290,8 +1383,8 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   No matching topics or messages found.
                 </div>
               )
-            ) : topics.length > 0 ? (
-              topics.map((topic) => (
+            ) : visibleTopics.length > 0 ? (
+              visibleTopics.map((topic) => (
                 <button
                   key={topic.id}
                   onClick={() => activateTopic(topic.id).catch(console.error)}
@@ -1326,7 +1419,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               ))
             ) : (
               <div className="rounded-xl border border-dashed border-white/10 px-3 py-8 text-center text-sm text-white/35">
-                No topics yet. Create one to start chatting with this agent.
+                {topicModeFilter === 'all'
+                  ? 'No topics yet. Create one to start chatting with this agent.'
+                  : `No ${topicModeFilter} topics yet.`}
               </div>
             )}
           </div>
@@ -1649,6 +1744,182 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         </Suspense>
 	      ) : null}
 
+      {showQuickTopicDialog && quickTopicDraft ? (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+          <div className="flex h-[74vh] min-h-[560px] w-full max-w-[980px] overflow-hidden rounded-[30px] border border-white/10 bg-[#171717] shadow-2xl">
+            <div className="flex w-[300px] flex-col border-r border-white/5 bg-[#141414] px-5 py-6">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Quick Session</div>
+              <div className="mt-3 text-2xl font-semibold text-white">Create Quick Topic</div>
+              <div className="mt-2 text-sm leading-6 text-white/50">
+                适合短对话、临时角色和多模型并行试验。默认关闭记忆、skills 和工具。
+              </div>
+              <div className="mt-5 rounded-[24px] border border-white/8 bg-black/20 p-4">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Runtime Preview</div>
+                <div className="mt-3 space-y-3 text-sm text-white/75">
+                  <div>
+                    <div className="text-[11px] text-white/35">Identity</div>
+                    <div className="mt-1">{quickTopicDraft.displayName.trim() || 'Quick Assistant'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-white/35">Model</div>
+                    <div className="mt-1">
+                      {config.providers.find((provider) => provider.id === quickTopicDraft.providerIdOverride)?.name ??
+                        activeProviderName}{' '}
+                      · {quickTopicDraft.modelOverride || activeModel}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-white/35">Features</div>
+                    <div className="mt-1">Memory Off · Skills Off · Tools Off</div>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 rounded-[24px] border border-sky-500/15 bg-sky-500/8 p-4 text-sm leading-6 text-sky-100/75">
+                Quick 会话仍然是独立 topic，可以和普通 Agent 会话同时运行，但不会自动继承记忆增强。
+              </div>
+            </div>
+
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
+                <div>
+                  <div className="text-lg font-semibold text-white">创建快速会话</div>
+                  <div className="mt-1 text-sm text-white/50">在创建前先确定标题、身份、提示词和模型。</div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowQuickTopicDialog(false);
+                    setQuickTopicDraft(null);
+                  }}
+                  className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 custom-scrollbar">
+                <div className="space-y-5">
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <label className="block">
+                      <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">Title</div>
+                      <input
+                        type="text"
+                        value={quickTopicDraft.title}
+                        onChange={(event) =>
+                          setQuickTopicDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  title: event.target.value,
+                                }
+                              : current,
+                          )
+                        }
+                        placeholder="Quick Chat"
+                        className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-emerald-500/40"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">Display Name</div>
+                      <input
+                        type="text"
+                        value={quickTopicDraft.displayName}
+                        onChange={(event) =>
+                          setQuickTopicDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  displayName: event.target.value,
+                                }
+                              : current,
+                          )
+                        }
+                        placeholder="Quick Assistant"
+                        className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-emerald-500/40"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="rounded-[22px] border border-white/10 bg-black/20 p-4">
+                    <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">Model</div>
+                    <div className="text-sm text-white/80">
+                      {config.providers.find((provider) => provider.id === quickTopicDraft.providerIdOverride)?.name ??
+                        activeProviderName}{' '}
+                      · {quickTopicDraft.modelOverride || activeModel}
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        onClick={openQuickModelPicker}
+                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/85 transition-colors hover:bg-white/10"
+                      >
+                        选择 quick 模型
+                      </button>
+                      <button
+                        onClick={() =>
+                          setQuickTopicDraft((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  providerIdOverride: config.activeProviderId,
+                                  modelOverride: config.activeModel,
+                                }
+                              : current,
+                          )
+                        }
+                        className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/55 transition-colors hover:bg-white/10 hover:text-white/85"
+                      >
+                        跟随默认
+                      </button>
+                    </div>
+                  </div>
+
+                  <label className="block">
+                    <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">System Prompt</div>
+                    <textarea
+                      value={quickTopicDraft.systemPromptOverride}
+                      onChange={(event) =>
+                        setQuickTopicDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                systemPromptOverride: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                      rows={10}
+                      className="w-full rounded-[22px] border border-white/10 bg-black/20 px-4 py-3 text-sm leading-7 text-white outline-none transition-colors focus:border-emerald-500/40 custom-scrollbar"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-white/5 px-6 py-4">
+                <div className="text-xs text-white/35">创建后仍可在“Session”面板里继续修改该 quick 会话。</div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      setShowQuickTopicDialog(false);
+                      setQuickTopicDraft(null);
+                    }}
+                    className="rounded-xl border border-white/10 bg-black/20 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={() => handleCreateQuickTopic().catch(console.error)}
+                    disabled={quickTopicSaving}
+                    className="rounded-xl border border-sky-500/20 bg-sky-500/15 px-4 py-2 text-sm font-medium text-sky-100 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {quickTopicSaving ? '创建中...' : '创建 Quick Topic'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {showSessionSettings && workspace && sessionSettingsDraft ? (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
           <div className="flex h-[78vh] min-h-[620px] w-full max-w-[1040px] overflow-hidden rounded-[30px] border border-white/10 bg-[#171717] shadow-2xl">
@@ -1926,7 +2197,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
                 <div>
                   <div className="text-lg font-semibold text-white">
-                    {modelPickerTarget === 'topic' ? '选择会话模型' : '选择聊天模型'}
+                    {modelPickerTarget === 'topic'
+                      ? '选择会话模型'
+                      : modelPickerTarget === 'quick'
+                        ? '选择 Quick 模型'
+                        : '选择聊天模型'}
                   </div>
                   <div className="mt-1 text-sm text-white/50">
                     {modelPickerProvider ? `${modelPickerProvider.name} · ${modelPickerGroups.totalCount} 个结果` : '暂无可用模型服务'}
