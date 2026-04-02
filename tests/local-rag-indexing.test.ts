@@ -37,6 +37,33 @@ async function createSearchDatabase() {
       results_json TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE document_metadata (
+      document_id TEXT PRIMARY KEY,
+      source_type TEXT NOT NULL,
+      source_uri TEXT,
+      tags_json TEXT NOT NULL,
+      synced_at TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE document_graph_nodes (
+      document_id TEXT NOT NULL,
+      normalized_entity TEXT NOT NULL,
+      entity TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      weight REAL NOT NULL,
+      PRIMARY KEY (document_id, normalized_entity, entity_type)
+    );
+
+    CREATE TABLE document_graph_edges (
+      document_id TEXT NOT NULL,
+      source_entity TEXT NOT NULL,
+      target_entity TEXT NOT NULL,
+      relation TEXT NOT NULL,
+      weight REAL NOT NULL,
+      PRIMARY KEY (document_id, source_entity, target_entity, relation)
+    );
   `);
 
   return database;
@@ -260,6 +287,52 @@ test('searchDocumentsInDatabase attaches deterministic support metadata', async 
     assert.equal(results[0]?.supportLabel, 'high');
     assert.ok((results[0]?.supportScore ?? 0) >= 0.85);
     assert.ok((results[0]?.matchedTerms?.length ?? 0) > 0);
+  } finally {
+    database.close();
+  }
+});
+
+test('searchDocumentsInDatabase uses graph overlap as an additional ranking signal', async () => {
+  const database = await createSearchDatabase();
+
+  try {
+    database.run(`
+      CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        document_id UNINDEXED,
+        title,
+        content
+      );
+    `);
+
+    const weakLexical =
+      'General retrieval notes about summaries and ranking. # Branch Handoff\nUse `parent_topic_id` when sending a branch summary upward.';
+    const strongerLexical =
+      'branch branch branch summary summary notes about returning information with a generic process.';
+
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      ['doc_graph', 'Topic Branch Guide', weakLexical],
+    );
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      ['doc_plain', 'Generic Summary Notes', strongerLexical],
+    );
+    indexDocumentChunks(database, {
+      id: 'doc_graph',
+      title: 'Topic Branch Guide',
+      content: weakLexical,
+    });
+    indexDocumentChunks(database, {
+      id: 'doc_plain',
+      title: 'Generic Summary Notes',
+      content: strongerLexical,
+    });
+
+    const results = await searchDocumentsInDatabase(database, 'parent topic branch handoff');
+
+    assert.equal(results[0]?.id, 'doc_graph');
+    assert.ok((results[0]?.graphHints?.length ?? 0) > 0);
   } finally {
     database.close();
   }

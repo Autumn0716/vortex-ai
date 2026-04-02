@@ -8,6 +8,20 @@ export interface DocumentChunk {
   text: string;
 }
 
+export interface KnowledgeGraphNode {
+  entity: string;
+  normalizedEntity: string;
+  entityType: 'title' | 'heading' | 'code' | 'term';
+  weight: number;
+}
+
+export interface KnowledgeGraphEdge {
+  sourceEntity: string;
+  targetEntity: string;
+  relation: 'cooccurs';
+  weight: number;
+}
+
 const DEFAULT_CHUNK_SIZE = 800;
 const DEFAULT_CHUNK_OVERLAP = 120;
 const ENGLISH_QUERY_STOPWORDS = new Set([
@@ -72,6 +86,27 @@ const TOKEN_SYNONYMS = new Map<string, string[]>([
   ['docs', ['documentation', 'document']],
   ['sqlite', ['database']],
   ['search', ['retrieval']],
+]);
+const GRAPH_ENTITY_STOPWORDS = new Set([
+  ...ENGLISH_QUERY_STOPWORDS,
+  'about',
+  'flowagent',
+  'general',
+  'guide',
+  'http',
+  'https',
+  'information',
+  'notes',
+  'www',
+  'com',
+  'org',
+  'net',
+  'www',
+  'api',
+  'process',
+  'summary',
+  'use',
+  'using',
 ]);
 
 export function buildSemanticCacheKey(query: string): string {
@@ -242,6 +277,153 @@ export function scoreRetrievedContextSupport(
     score: Number(score.toFixed(3)),
     label,
     matchedTerms,
+  };
+}
+
+function normalizeGraphEntity(value: string) {
+  const normalized = buildSemanticCacheKey(value)
+    .replace(/\b(?:md|ts|tsx|js|json|sql|sqlite)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized || normalized.length < 2 || GRAPH_ENTITY_STOPWORDS.has(normalized)) {
+    return '';
+  }
+  return normalized;
+}
+
+function collectGraphEntity(
+  target: Map<string, KnowledgeGraphNode>,
+  entity: string,
+  entityType: KnowledgeGraphNode['entityType'],
+  weight: number,
+) {
+  const normalizedEntity = normalizeGraphEntity(entity);
+  if (!normalizedEntity) {
+    return;
+  }
+
+  const existing = target.get(normalizedEntity);
+  if (!existing || weight > existing.weight) {
+    target.set(normalizedEntity, {
+      entity: entity.trim(),
+      normalizedEntity,
+      entityType,
+      weight,
+    });
+  }
+}
+
+function extractLineEntities(line: string) {
+  const entities = new Set<string>();
+  const push = (value: string) => {
+    const normalized = normalizeGraphEntity(value);
+    if (normalized) {
+      entities.add(normalized);
+    }
+  };
+
+  for (const match of line.matchAll(/`([^`\n]{2,80})`/g)) {
+    push(match[1] ?? '');
+  }
+  for (const match of line.matchAll(/\b[A-Za-z0-9_/-]+\.(?:md|ts|tsx|js|json|sql|sqlite)\b/g)) {
+    push(match[0] ?? '');
+  }
+  for (const match of line.matchAll(/\b[A-Z][A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*\b/g)) {
+    push(match[0] ?? '');
+  }
+  for (const match of line.matchAll(/\b[a-z]+(?:[-_][a-z0-9]+){1,}\b/gi)) {
+    push(match[0] ?? '');
+  }
+
+  const normalizedLine = buildSemanticCacheKey(line);
+  const tokens = normalizedLine
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !GRAPH_ENTITY_STOPWORDS.has(token));
+
+  tokens.forEach((token) => push(token));
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    push(`${tokens[index]} ${tokens[index + 1]}`);
+  }
+
+  return [...entities];
+}
+
+export function extractKnowledgeGraphEntities(input: string, maxEntities = 12) {
+  const lines = input.split('\n').map((line) => line.trim()).filter(Boolean);
+  const nodes = new Map<string, KnowledgeGraphNode>();
+
+  lines.forEach((line, index) => {
+    const isHeading = /^#{1,6}\s+/.test(line);
+    const headingText = isHeading ? line.replace(/^#{1,6}\s+/, '') : line;
+    if (index === 0) {
+      collectGraphEntity(nodes, headingText, 'title', 1);
+    }
+    if (isHeading) {
+      collectGraphEntity(nodes, headingText, 'heading', 0.9);
+    }
+    for (const match of line.matchAll(/`([^`\n]{2,80})`/g)) {
+      collectGraphEntity(nodes, match[1] ?? '', 'code', 0.95);
+    }
+    extractLineEntities(line).forEach((entity) => {
+      collectGraphEntity(nodes, entity, 'term', isHeading ? 0.8 : 0.65);
+    });
+  });
+
+  return [...nodes.values()]
+    .sort((left, right) => right.weight - left.weight || left.normalizedEntity.localeCompare(right.normalizedEntity))
+    .slice(0, maxEntities);
+}
+
+export function buildDocumentKnowledgeGraph(title: string, content: string, maxNodes = 20) {
+  const nodeMap = new Map<string, KnowledgeGraphNode>();
+  extractKnowledgeGraphEntities(title, Math.min(6, maxNodes)).forEach((node) => {
+    nodeMap.set(node.normalizedEntity, {
+      ...node,
+      entityType: 'title',
+      weight: Math.max(node.weight, 1),
+    });
+  });
+
+  const candidateLines = content.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 80);
+  candidateLines.forEach((line) => {
+    const entityType = /^#{1,6}\s+/.test(line) ? 'heading' : 'term';
+    extractKnowledgeGraphEntities(line, 6).forEach((node) => {
+      collectGraphEntity(nodeMap, node.entity, entityType, node.weight);
+    });
+  });
+
+  const nodes = [...nodeMap.values()]
+    .sort((left, right) => right.weight - left.weight || left.normalizedEntity.localeCompare(right.normalizedEntity))
+    .slice(0, maxNodes);
+
+  const edgeMap = new Map<string, KnowledgeGraphEdge>();
+  const addEdge = (sourceEntity: string, targetEntity: string, weight: number) => {
+    if (sourceEntity === targetEntity) {
+      return;
+    }
+    const [left, right] = [sourceEntity, targetEntity].sort((a, b) => a.localeCompare(b));
+    const key = `${left}::${right}`;
+    const existing = edgeMap.get(key);
+    edgeMap.set(key, {
+      sourceEntity: left,
+      targetEntity: right,
+      relation: 'cooccurs',
+      weight: Math.max(weight, existing?.weight ?? 0),
+    });
+  };
+
+  candidateLines.forEach((line) => {
+    const entities = extractLineEntities(line).filter((entity) => nodeMap.has(entity)).slice(0, 6);
+    for (let index = 0; index < entities.length; index += 1) {
+      for (let next = index + 1; next < entities.length; next += 1) {
+        addEdge(entities[index]!, entities[next]!, 0.6);
+      }
+    }
+  });
+
+  return {
+    nodes,
+    edges: [...edgeMap.values()].slice(0, 48),
   };
 }
 

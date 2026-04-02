@@ -212,5 +212,10 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - `searchKnowledgeDocuments()` 已改成保留压缩后的 excerpt，不再映射回完整正文覆盖掉检索结果
 - 这样本地 `search_knowledge_base` 工具已经具备“召回 -> 重排 -> 压缩 -> 支持度标记”的完整基础链路
 
+进度汇报（2026-04-02，第十三次更新）:
+- 已补上第一版 graph-assisted retrieval：知识库索引现在会为文档派生 `document_graph_nodes / document_graph_edges`
+- 检索时会从 query 中抽取技术实体，与文档图节点做 overlap 打分，并把该信号作为 lexical/vector 之外的附加排序因子
+- 检索结果现在会返回 `graphHints`，方便确认当前命中究竟是哪些术语或结构关系在辅助召回
+
 当前仍待继续：
 - 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开

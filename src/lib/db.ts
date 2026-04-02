@@ -6,10 +6,12 @@ import localforage from 'localforage';
 import { getAgentConfig } from './agent/config';
 import {
   buildSemanticCacheKey,
+  buildDocumentKnowledgeGraph,
   chunkDocumentContent,
   compressRetrievedContext,
   decomposeTaskQuery,
   expandKnowledgeSearchQueries,
+  extractKnowledgeGraphEntities,
   scoreRetrievedContextSupport,
 } from './local-rag-helpers';
 import {
@@ -216,6 +218,7 @@ export interface KnowledgeDocumentSupportMetadata {
   supportScore?: number;
   supportLabel?: 'low' | 'medium' | 'high' | 'unknown';
   matchedTerms?: string[];
+  graphHints?: string[];
 }
 
 export interface KnowledgeDocumentSearchResult
@@ -226,6 +229,7 @@ interface RetrievedDocumentResult extends KnowledgeDocumentSupportMetadata {
   id: string;
   title: string;
   content: string;
+  graphHints?: string[];
 }
 
 export interface KnowledgeDocumentSearchOptions {
@@ -890,6 +894,24 @@ async function ensureSchema(database: Database) {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS document_graph_nodes (
+      document_id TEXT NOT NULL,
+      normalized_entity TEXT NOT NULL,
+      entity TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      weight REAL NOT NULL,
+      PRIMARY KEY (document_id, normalized_entity, entity_type)
+    );
+
+    CREATE TABLE IF NOT EXISTS document_graph_edges (
+      document_id TEXT NOT NULL,
+      source_entity TEXT NOT NULL,
+      target_entity TEXT NOT NULL,
+      relation TEXT NOT NULL,
+      weight REAL NOT NULL,
+      PRIMARY KEY (document_id, source_entity, target_entity, relation)
+    );
+
     CREATE TABLE IF NOT EXISTS document_chunk_embeddings (
       chunk_id TEXT PRIMARY KEY,
       document_id TEXT NOT NULL,
@@ -970,6 +992,9 @@ async function ensureSchema(database: Database) {
     CREATE INDEX IF NOT EXISTS idx_memory_docs_updated ON global_memory_documents(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_document_chunks_document ON document_chunks(document_id, chunk_index ASC);
     CREATE INDEX IF NOT EXISTS idx_document_metadata_source ON document_metadata(source_type, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_document_graph_nodes_entity ON document_graph_nodes(normalized_entity, weight DESC);
+    CREATE INDEX IF NOT EXISTS idx_document_graph_nodes_doc ON document_graph_nodes(document_id, weight DESC);
+    CREATE INDEX IF NOT EXISTS idx_document_graph_edges_doc ON document_graph_edges(document_id, weight DESC);
     CREATE INDEX IF NOT EXISTS idx_document_chunk_embeddings_doc ON document_chunk_embeddings(document_id, updated_at DESC);
   `);
 
@@ -1008,6 +1033,11 @@ function clearDocumentChunks(database: Database, documentId: string) {
   if (getDocumentFtsEnabled(database)) {
     database.run('DELETE FROM document_chunks_fts WHERE document_id = ?', [documentId]);
   }
+}
+
+function clearDocumentGraph(database: Database, documentId: string) {
+  database.run('DELETE FROM document_graph_nodes WHERE document_id = ?', [documentId]);
+  database.run('DELETE FROM document_graph_edges WHERE document_id = ?', [documentId]);
 }
 
 export function clearDocumentSearchCache(database: Database) {
@@ -1054,6 +1084,48 @@ export function indexDocumentChunks(
         [chunkId, document.id, document.title, chunk.text],
       );
     }
+  });
+
+  indexDocumentGraph(database, document);
+}
+
+function indexDocumentGraph(
+  database: Database,
+  document: { id: string; title: string; content: string },
+) {
+  clearDocumentGraph(database, document.id);
+  const graph = buildDocumentKnowledgeGraph(document.title, document.content);
+
+  graph.nodes.forEach((node) => {
+    database.run(
+      `
+        INSERT INTO document_graph_nodes (
+          document_id,
+          normalized_entity,
+          entity,
+          entity_type,
+          weight
+        )
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      [document.id, node.normalizedEntity, node.entity, node.entityType, node.weight],
+    );
+  });
+
+  graph.edges.forEach((edge) => {
+    database.run(
+      `
+        INSERT INTO document_graph_edges (
+          document_id,
+          source_entity,
+          target_entity,
+          relation,
+          weight
+        )
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      [document.id, edge.sourceEntity, edge.targetEntity, edge.relation, edge.weight],
+    );
   });
 }
 
@@ -1181,6 +1253,7 @@ function mergeSearchResultWithMetadata(
     supportScore: result.supportScore,
     supportLabel: result.supportLabel,
     matchedTerms: result.matchedTerms,
+    graphHints: result.graphHints,
   };
 }
 
@@ -2640,6 +2713,7 @@ export async function getDocuments() {
 export async function deleteDocument(id: string) {
   const database = await initDB();
   clearDocumentChunks(database, id);
+  clearDocumentGraph(database, id);
   deleteDocumentChunkEmbeddings(database, id);
   database.run('DELETE FROM document_metadata WHERE document_id = ?', [id]);
   database.run('DELETE FROM documents WHERE id = ?', [id]);
@@ -2710,6 +2784,86 @@ async function readVectorCandidates(
   return [...scored.values()].sort((left, right) => right.vectorScore - left.vectorScore).slice(0, 8);
 }
 
+function readGraphCandidates(
+  database: Database,
+  query: string,
+  options?: Pick<KnowledgeDocumentSearchOptions, 'sourceTypes' | 'sourceUriPrefixes'>,
+): Array<{ id: string; title: string; content: string; graphScore: number; graphHints: string[] }> {
+  const queryEntities = extractKnowledgeGraphEntities(query, 8).map((entry) => entry.normalizedEntity);
+  if (queryEntities.length === 0) {
+    return [];
+  }
+
+  const metadataById = new Map(
+    mapRows<{ document_id: string; source_type: KnowledgeDocumentSourceType | null; source_uri: string | null }>(
+      database.exec('SELECT document_id, source_type, source_uri FROM document_metadata'),
+    ).map((row) => [
+      row.document_id,
+      {
+        sourceType: row.source_type ?? 'user_upload',
+        sourceUri: row.source_uri ?? undefined,
+      },
+    ]),
+  );
+
+  const rows = mapRows<{
+    document_id: string;
+    title: string;
+    content: string;
+    normalized_entity: string;
+    weight: number;
+  }>(
+    database.exec(
+      `
+        SELECT
+          d.id AS document_id,
+          d.title,
+          d.content,
+          g.normalized_entity,
+          g.weight
+        FROM document_graph_nodes g
+        JOIN documents d ON d.id = g.document_id
+      `,
+    ),
+  );
+
+  const scored = new Map<string, { id: string; title: string; content: string; graphScore: number; graphHints: string[] }>();
+  rows.forEach((row) => {
+    if (!queryEntities.includes(row.normalized_entity)) {
+      return;
+    }
+    if (!matchesKnowledgeDocumentFilters(metadataById.get(row.document_id) ?? null, options)) {
+      return;
+    }
+
+    const existing = scored.get(row.document_id);
+    if (existing) {
+      existing.graphScore += row.weight;
+      if (!existing.graphHints.includes(row.normalized_entity)) {
+        existing.graphHints.push(row.normalized_entity);
+      }
+      return;
+    }
+
+    scored.set(row.document_id, {
+      id: row.document_id,
+      title: row.title,
+      content: row.content,
+      graphScore: row.weight,
+      graphHints: [row.normalized_entity],
+    });
+  });
+
+  return [...scored.values()]
+    .map((entry) => ({
+      ...entry,
+      graphScore: Number(Math.min(1, entry.graphScore / Math.max(1, queryEntities.length)).toFixed(3)),
+      graphHints: entry.graphHints.slice(0, 6),
+    }))
+    .sort((left, right) => right.graphScore - left.graphScore)
+    .slice(0, 8);
+}
+
 export async function searchDocumentsInDatabase(
   database: Database,
   query: string,
@@ -2751,6 +2905,7 @@ export async function searchDocumentsInDatabase(
         content: string;
         lexicalScore?: number;
         vectorScore?: number;
+        graphScore?: number;
       }
     >();
     const ftsEnabled = getDocumentFtsEnabled(database);
@@ -2857,7 +3012,25 @@ export async function searchDocumentsInDatabase(
       }
     }
 
+    const graphCandidates = readGraphCandidates(database, normalizedQuery, options);
+    graphCandidates.forEach((candidate) => {
+      const existing = seen.get(candidate.id);
+      if (existing) {
+        existing.graphScore = Math.max(existing.graphScore ?? 0, candidate.graphScore);
+        if (!existing.content.trim()) {
+          existing.content = candidate.content;
+        }
+        return;
+      }
+      seen.set(candidate.id, candidate);
+    });
+
     const results = rerankHybridDocuments(hybridScoreDocuments([...seen.values()]), normalizedQuery)
+      .map((row) => ({
+        ...row,
+        hybridScore: row.hybridScore + (row.graphScore ?? 0) * 0.12,
+      }))
+      .sort((left, right) => right.hybridScore - left.hybridScore)
       .slice(0, options?.maxResults ?? 5)
       .map((row) => {
         const compressedContent = compressRetrievedContext(normalizedQuery, row.content);
@@ -2866,6 +3039,7 @@ export async function searchDocumentsInDatabase(
           id: row.id,
           title: row.title,
           content: compressedContent,
+          graphHints: graphCandidates.find((candidate) => candidate.id === row.id)?.graphHints ?? [],
           supportScore: support.score,
           supportLabel: support.label,
           matchedTerms: support.matchedTerms,

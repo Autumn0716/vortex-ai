@@ -42,3 +42,4 @@
 - Added a deterministic second-pass RAG reranker after hybrid recall so title coverage, content coverage, and exact-phrase matches can refine candidate ordering before truncation.
 - Added deterministic context compression for retrieved knowledge snippets so search results now return focused excerpts around query hits instead of always passing full document bodies downstream.
 - Added deterministic faithfulness/support metadata for retrieved knowledge snippets and preserved compressed excerpts through `searchKnowledgeDocuments()` so downstream tool output can judge result support without reverting to full documents.
+- Added a first-pass graph-assisted retrieval layer for the local knowledge base, including derived document graph nodes/edges, query-entity overlap scoring, and `graphHints` observability in search results.
