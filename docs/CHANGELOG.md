@@ -45,3 +45,4 @@
 - Added a first-pass graph-assisted retrieval layer for the local knowledge base, including derived document graph nodes/edges, query-entity overlap scoring, and `graphHints` observability in search results.
 - Added a bounded corrective retrieval pass for weak or sparse knowledge-base queries so the local RAG pipeline can derive focused follow-up queries from support gaps and graph hints, then merge the extra recall path back into final ranking with `retrievalStage` metadata.
 - Added bounded graph-neighborhood expansion on top of direct graph overlap so second-order entities from `document_graph_edges` can surface related documents, with separate `graphExpansionHints` for observability.
+- Upgraded `search_knowledge_base` to return an explicit evidence summary plus stable per-result support, retrieval-stage, and graph metadata, and added a compact runtime grounding instruction so agent answers treat weak evidence more cautiously.

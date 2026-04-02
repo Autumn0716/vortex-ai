@@ -14,6 +14,22 @@ export interface AgentRuntimeOptions {
   enableTools?: boolean;
 }
 
+export function buildGroundedSystemPrompt(basePrompt: string, options?: { enableTools?: boolean }) {
+  if (options?.enableTools === false) {
+    return basePrompt;
+  }
+
+  return [
+    basePrompt.trim(),
+    'When using search_knowledge_base results, prefer claims backed by medium/high support.',
+    'Cite document titles or source URIs when the answer depends on retrieved knowledge.',
+    'If evidence is only low/unknown support, say the evidence is weak and avoid definitive claims.',
+    'If retrieval stages are corrective or hybrid, treat them as useful but potentially less direct than strong primary evidence.',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 export function createAgentRuntime(options: AgentRuntimeOptions) {
   const { config, providerId, model, systemPrompt, enableTools = true } = options;
   const { provider, model: resolvedModel } = resolveModelSelection(config, providerId, model);
@@ -51,7 +67,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions) {
 
   const callModel = async (state: typeof MessagesAnnotation.State) => {
     const response = await modelWithTools.invoke([
-      new SystemMessage(systemPrompt || config.systemPrompt),
+      new SystemMessage(buildGroundedSystemPrompt(systemPrompt || config.systemPrompt, { enableTools })),
       ...state.messages,
     ]);
     return { messages: [response] };

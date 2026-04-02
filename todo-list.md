@@ -227,5 +227,10 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - 当前实现会把二阶邻接实体单独记为 `graphExpansionHints`，避免和直接命中的 `graphHints` 混在一起
 - 这样即使用户问题没有直接提到某个字段名或术语，只要它和当前 query 实体在图里有稳定邻接关系，也能以较弱分值把相关文档拉进候选集
 
+进度汇报（2026-04-02，第十六次更新）:
+- 已把证据层真正接到 agent 侧：`search_knowledge_base` 不再只返回原始结果数组，而是带 `evidence summary + per-result support / retrievalStage / graph metadata`
+- 当前工具结果会显式给出 `answer_with_citations / answer_carefully / request_more_evidence` 这类 recommendation，便于模型按证据强弱调整回答力度
+- runtime system prompt 也已补上窄范围 grounding 指令：知识库证据弱时要降级表述，证据强时优先引用标题或来源
+
 当前仍待继续：
 - 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开
