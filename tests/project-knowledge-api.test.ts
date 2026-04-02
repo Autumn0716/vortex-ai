@@ -22,8 +22,9 @@ async function createTempRoot() {
 }
 
 async function startServer(rootDir: string) {
-  const { app, nightlyArchiveReady, nightlyArchiveScheduler } = createFlowAgentApiServer({ rootDir });
-  await nightlyArchiveReady;
+  const { app, nightlyArchiveReady, nightlyArchiveScheduler, projectKnowledgeWatcher, projectKnowledgeReady } =
+    createFlowAgentApiServer({ rootDir });
+  await Promise.all([nightlyArchiveReady, projectKnowledgeReady]);
   const server = await new Promise<Server>((resolve, reject) => {
     const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
     instance.on('error', reject);
@@ -34,11 +35,16 @@ async function startServer(rootDir: string) {
     baseUrl: `http://127.0.0.1:${address.port}`,
     async close() {
       nightlyArchiveScheduler.stop();
+      projectKnowledgeWatcher.stop();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
     },
   };
+}
+
+async function waitFor(ms: number) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 test('project knowledge API exposes shared docs and SKILL.md snapshots with change versions', async () => {
@@ -81,6 +87,7 @@ test('project knowledge API exposes shared docs and SKILL.md snapshots with chan
       '# Systematic Debugging\n\nUse reproduction first and capture logs.',
       'utf8',
     );
+    await waitFor(250);
     const statusAfter = await getProjectKnowledgeStatus(settings);
     assert.notEqual(statusAfter?.version, statusBefore?.version);
   } finally {

@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 import { readProjectConfig, writeProjectConfig } from './config-store';
 import { createNightlyMemoryArchiveScheduler } from './nightly-memory-archive';
-import { getProjectKnowledgeStatus, readProjectKnowledgeSnapshot } from './project-knowledge-store';
+import {
+  createProjectKnowledgeWatcher,
+  readProjectKnowledgeSnapshot,
+} from './project-knowledge-store';
 
 export interface FlowAgentApiServerOptions {
   authToken?: string;
@@ -91,7 +94,8 @@ function applyAuth(app: Express, authToken: string) {
 
     const header = request.header('Authorization') ?? '';
     const expected = `Bearer ${authToken}`;
-    if (header !== expected) {
+    const queryToken = String(request.query.authToken ?? '').trim();
+    if (header !== expected && queryToken !== authToken) {
       response.status(401).json({ error: 'Unauthorized.' });
       return;
     }
@@ -109,6 +113,8 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     now: options.nightlyArchiveNow,
   });
   const nightlyArchiveReady = nightlyArchiveScheduler.start();
+  const projectKnowledgeWatcher = createProjectKnowledgeWatcher(rootDir);
+  const projectKnowledgeReady = projectKnowledgeWatcher.ready;
   const app = express();
 
   app.use(express.json({ limit: '2mb' }));
@@ -192,7 +198,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
 
   app.get('/api/project-knowledge/status', async (_request, response) => {
     try {
-      response.json(await getProjectKnowledgeStatus(rootDir));
+      response.json(await projectKnowledgeWatcher.getStatus());
     } catch (error) {
       response.status(500).json({
         error: error instanceof Error ? error.message : 'Failed to read project knowledge status.',
@@ -208,6 +214,23 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
         error: error instanceof Error ? error.message : 'Failed to read project knowledge documents.',
       });
     }
+  });
+
+  app.get('/api/project-knowledge/events', async (request, response) => {
+    response.setHeader('Content-Type', 'text/event-stream');
+    response.setHeader('Cache-Control', 'no-cache, no-transform');
+    response.setHeader('Connection', 'keep-alive');
+    response.flushHeaders?.();
+
+    const unsubscribe = projectKnowledgeWatcher.subscribe((status) => {
+      response.write(`event: project-knowledge\n`);
+      response.write(`data: ${JSON.stringify(status)}\n\n`);
+    });
+
+    request.on('close', () => {
+      unsubscribe();
+      response.end();
+    });
   });
 
   app.get('/api/memory/paths', async (request, response) => {
@@ -303,14 +326,16 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     memoryRootDir,
     nightlyArchiveScheduler,
     nightlyArchiveReady,
+    projectKnowledgeWatcher,
+    projectKnowledgeReady,
   };
 }
 
 async function startServer() {
   const port = Number(process.env.FLOWAGENT_API_PORT ?? 3850);
   const host = process.env.FLOWAGENT_API_HOST ?? '127.0.0.1';
-  const { app, memoryRootDir, nightlyArchiveReady } = createFlowAgentApiServer();
-  await nightlyArchiveReady;
+  const { app, memoryRootDir, nightlyArchiveReady, projectKnowledgeReady } = createFlowAgentApiServer();
+  await Promise.all([nightlyArchiveReady, projectKnowledgeReady]);
 
   app.listen(port, host, () => {
     console.log(`FlowAgent API server listening on http://${host}:${port}`);

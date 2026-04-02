@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { promises as fs, watch, type FSWatcher } from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -18,6 +18,13 @@ export interface ProjectKnowledgeStatus {
 
 export interface ProjectKnowledgeSnapshot extends ProjectKnowledgeStatus {
   documents: ProjectKnowledgeRecord[];
+}
+
+export interface ProjectKnowledgeWatcher {
+  ready: Promise<ProjectKnowledgeStatus>;
+  getStatus: () => Promise<ProjectKnowledgeStatus>;
+  subscribe: (listener: (status: ProjectKnowledgeStatus) => void) => () => void;
+  stop: () => void;
 }
 
 async function walkDirectory(directoryPath: string): Promise<string[]> {
@@ -110,5 +117,105 @@ export async function readProjectKnowledgeSnapshot(rootDir: string): Promise<Pro
   return {
     ...status,
     documents,
+  };
+}
+
+function sameStatus(left: ProjectKnowledgeStatus | null, right: ProjectKnowledgeStatus) {
+  return Boolean(
+    left &&
+      left.version === right.version &&
+      left.documentCount === right.documentCount &&
+      JSON.stringify(left.paths) === JSON.stringify(right.paths),
+  );
+}
+
+export function createProjectKnowledgeWatcher(rootDir: string): ProjectKnowledgeWatcher {
+  const normalizedRoot = path.resolve(rootDir);
+  const listeners = new Set<(status: ProjectKnowledgeStatus) => void>();
+  const watchers = new Set<FSWatcher>();
+  let cachedStatus: ProjectKnowledgeStatus | null = null;
+  let refreshPromise: Promise<ProjectKnowledgeStatus> | null = null;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const emit = (status: ProjectKnowledgeStatus) => {
+    listeners.forEach((listener) => {
+      try {
+        listener(status);
+      } catch (error) {
+        console.warn('Project knowledge watcher listener failed:', error);
+      }
+    });
+  };
+
+  const closeWatchers = () => {
+    watchers.forEach((watcher) => watcher.close());
+    watchers.clear();
+  };
+
+  const attachRecursiveWatch = (targetPath: string) => {
+    const watcher = watch(
+      targetPath,
+      {
+        recursive: true,
+        persistent: false,
+      },
+      () => {
+        if (debounceTimer) {
+          clearTimeout(debounceTimer);
+        }
+        debounceTimer = setTimeout(() => {
+          debounceTimer = null;
+          void refresh();
+        }, 120);
+      },
+    );
+    watchers.add(watcher);
+  };
+
+  const refresh = async () => {
+    if (refreshPromise) {
+      return refreshPromise;
+    }
+
+    refreshPromise = (async () => {
+      const nextStatus = await getProjectKnowledgeStatus(normalizedRoot);
+      if (!sameStatus(cachedStatus, nextStatus)) {
+        cachedStatus = nextStatus;
+        emit(nextStatus);
+      }
+      return nextStatus;
+    })();
+
+    try {
+      return await refreshPromise;
+    } finally {
+      refreshPromise = null;
+    }
+  };
+
+  const ready = (async () => {
+    closeWatchers();
+    attachRecursiveWatch(normalizedRoot);
+    return refresh();
+  })();
+
+  return {
+    ready,
+    getStatus: async () => cachedStatus ?? refresh(),
+    subscribe(listener) {
+      listeners.add(listener);
+      void ready.then((status) => listener(status));
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    stop() {
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
+      }
+      closeWatchers();
+      listeners.clear();
+    },
   };
 }

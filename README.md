@@ -120,6 +120,7 @@ FlowAgent 现在支持两层 `SKILL.md` 技能源：
 运行时规则：
 
 - 应用启动后会优先通过本地 `api-server` 扫描共享 Markdown 文档和 `skills/**/SKILL.md`
+- 共享 docs/skills 由本地 `api-server` 以 watcher + 事件流方式感知变化，前端会自动刷新索引
 - 当前 agent 发送消息前，会补扫自己的私有 `skills/**/SKILL.md`
 - 技能命中时，系统提示会优先注入当前 agent 私有 skills，再补共享 skills
 - `search_knowledge_base` 工具也会返回 `skill_doc` 元数据，方便模型显式调用知识检索时识别技能来源

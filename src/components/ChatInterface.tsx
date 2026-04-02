@@ -64,7 +64,7 @@ import { formatErrorDetails, wrapErrorWithContext } from '../lib/error-details';
 import { registerConfiguredAgentMemoryFileStore } from '../lib/agent-memory-api';
 import { buildModelGroups } from '../lib/model-groups';
 import { isAIMessageChunk } from '@langchain/core/messages';
-import { getProjectKnowledgeStatus } from '../lib/project-knowledge-api';
+import { subscribeProjectKnowledgeEvents } from '../lib/project-knowledge-api';
 import { getRelevantSkillContext, syncAgentSkillDocuments } from '../lib/agent-skills';
 
 const TerminalPanel = lazy(() =>
@@ -447,36 +447,29 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }
 
     let cancelled = false;
-    let timer: number | undefined;
-
-    const syncIfChanged = async () => {
-      try {
-        const status = await getProjectKnowledgeStatus(config.apiServer);
-        if (!status || cancelled) {
+    const unsubscribe = subscribeProjectKnowledgeEvents(config.apiServer, {
+      onStatus(status) {
+        if (cancelled || status.version === projectKnowledgeVersionRef.current) {
           return;
         }
-        if (status.version === projectKnowledgeVersionRef.current) {
-          return;
-        }
-        const result = await syncProjectKnowledgeDocuments(config.apiServer);
-        if (!cancelled) {
-          projectKnowledgeVersionRef.current = result.version;
-        }
-      } catch (error) {
-        console.warn('Project knowledge polling sync failed:', error);
-      }
-    };
-
-    void syncIfChanged();
-    timer = window.setInterval(() => {
-      void syncIfChanged();
-    }, 15000);
+        void syncProjectKnowledgeDocuments(config.apiServer)
+          .then((result) => {
+            if (!cancelled) {
+              projectKnowledgeVersionRef.current = result.version;
+            }
+          })
+          .catch((error) => {
+            console.warn('Project knowledge event sync failed:', error);
+          });
+      },
+      onError(error) {
+        console.warn(error.message);
+      },
+    });
 
     return () => {
       cancelled = true;
-      if (typeof timer === 'number') {
-        window.clearInterval(timer);
-      }
+      unsubscribe();
     };
   }, [config.apiServer]);
 

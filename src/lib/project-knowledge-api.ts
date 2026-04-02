@@ -49,3 +49,37 @@ export async function getProjectKnowledgeStatus(settings: ApiServerSettings) {
 export async function getProjectKnowledgeSnapshot(settings: ApiServerSettings) {
   return requestProjectKnowledgeApi<ProjectKnowledgeSnapshot>(settings, '/api/project-knowledge/documents');
 }
+
+export function subscribeProjectKnowledgeEvents(
+  settings: ApiServerSettings,
+  handlers: {
+    onStatus: (status: ProjectKnowledgeStatus) => void;
+    onError?: (error: Error) => void;
+  },
+) {
+  if (!settings.enabled) {
+    return () => {};
+  }
+
+  const baseUrl = resolveApiServerBaseUrl(settings);
+  const url = new URL(`${baseUrl}/api/project-knowledge/events`);
+  if (settings.authToken.trim()) {
+    url.searchParams.set('authToken', settings.authToken.trim());
+  }
+
+  const source = new EventSource(url.toString());
+  source.addEventListener('project-knowledge', (event) => {
+    try {
+      handlers.onStatus(JSON.parse((event as MessageEvent).data) as ProjectKnowledgeStatus);
+    } catch (error) {
+      handlers.onError?.(error instanceof Error ? error : new Error('Failed to parse project knowledge event.'));
+    }
+  });
+  source.onerror = () => {
+    handlers.onError?.(new Error('Project knowledge event stream disconnected.'));
+  };
+
+  return () => {
+    source.close();
+  };
+}
