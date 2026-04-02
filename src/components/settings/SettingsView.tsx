@@ -334,9 +334,8 @@ function buildModelGroups(provider: ModelProvider, query: string) {
         .map(([key, entry]) => ({
           id: `${normalizeModelGroupKey(label)}_${normalizeModelGroupKey(key)}`,
           label: entry.label,
-          models: entry.models.slice().sort((left, right) => left.localeCompare(right)),
+          models: entry.models.slice(),
         }))
-        .sort((left, right) => right.models.length - left.models.length || left.label.localeCompare(right.label));
 
       return {
         id: normalizeModelGroupKey(label),
@@ -348,7 +347,7 @@ function buildModelGroups(provider: ModelProvider, query: string) {
     .sort((left, right) => {
       const leftRank = MODEL_FAMILY_ORDER.get(left.label) ?? Number.MAX_SAFE_INTEGER;
       const rightRank = MODEL_FAMILY_ORDER.get(right.label) ?? Number.MAX_SAFE_INTEGER;
-      return leftRank - rightRank || right.totalCount - left.totalCount || left.label.localeCompare(right.label);
+      return leftRank - rightRank || 0;
     });
 
   return {
@@ -1034,6 +1033,19 @@ export const SettingsView = ({
     setSelectedImportModels((current) =>
       current.includes(model) ? current.filter((entry) => entry !== model) : [...current, model],
     );
+  };
+
+  const removeModelsFromImportDialog = (modelsToRemove: string[]) => {
+    const targets = new Set(modelsToRemove.map((model) => model.toLowerCase()));
+    setModelImportDialog((current) =>
+      current
+        ? {
+            ...current,
+            models: current.models.filter((model) => !targets.has(model.toLowerCase())),
+          }
+        : current,
+    );
+    setSelectedImportModels((current) => current.filter((model) => !targets.has(model.toLowerCase())));
   };
 
   const setImportSeriesSelection = (models: string[], checked: boolean) => {
@@ -3486,46 +3498,48 @@ export const SettingsView = ({
                                   key={group.id}
                                   className="rounded-2xl border border-white/5 bg-white/[0.03] p-2"
                                 >
-                                  <button
-                                    onClick={() =>
-                                      setCollapsedModelGroups((current) => ({
-                                        ...current,
-                                        [group.id]: !collapsed,
-                                      }))
-                                    }
-                                    className="flex w-full items-center justify-between rounded-[18px] px-3 py-2 text-left transition-colors hover:bg-white/5"
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400/15 to-red-500/15">
-                                        {collapsed ? (
-                                          <ChevronRight size={15} className="text-orange-300" />
-                                        ) : (
-                                          <ChevronDown size={15} className="text-orange-300" />
-                                        )}
-                                      </div>
-                                      <div>
-                                        <div className="text-sm font-medium text-white/90">{group.label}</div>
-                                        <div className="text-[11px] text-white/40">
-                                          {group.series.length} 个系列 · {group.totalCount} 个模型
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() =>
+                                        setCollapsedModelGroups((current) => ({
+                                          ...current,
+                                          [group.id]: !collapsed,
+                                        }))
+                                      }
+                                      className="flex min-w-0 flex-1 items-center justify-between rounded-[18px] px-3 py-2 text-left transition-colors hover:bg-white/5"
+                                    >
+                                      <div className="flex items-center gap-3">
+                                        <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400/15 to-red-500/15">
+                                          {collapsed ? (
+                                            <ChevronRight size={15} className="text-orange-300" />
+                                          ) : (
+                                            <ChevronDown size={15} className="text-orange-300" />
+                                          )}
+                                        </div>
+                                        <div>
+                                          <div className="text-sm font-medium text-white/90">{group.label}</div>
+                                          <div className="text-[11px] text-white/40">
+                                            {group.series.length} 个系列 · {group.totalCount} 个模型
+                                          </div>
                                         </div>
                                       </div>
-                                    </div>
-                                    <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-white/45">
-                                      {group.totalCount}
-                                    </div>
-                                  </button>
-                                  <button
-                                    onClick={() =>
-                                      removeModelsFromProvider(
-                                        activeProvider.id,
-                                        group.series.flatMap((series) => series.models),
-                                      )
-                                    }
-                                    className="rounded-full border border-transparent p-2 text-white/20 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
-                                    title={`移除 ${group.label} 分类`}
-                                  >
-                                    <Minus size={14} />
-                                  </button>
+                                      <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-white/45">
+                                        {group.totalCount}
+                                      </div>
+                                    </button>
+                                    <button
+                                      onClick={() =>
+                                        removeModelsFromProvider(
+                                          activeProvider.id,
+                                          group.series.flatMap((series) => series.models),
+                                        )
+                                      }
+                                      className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
+                                      title={`移除 ${group.label} 分类`}
+                                    >
+                                      <Minus size={14} />
+                                    </button>
+                                  </div>
 
                                   {!collapsed ? (
                                     <div className="mt-2 space-y-3 px-1 pb-1">
@@ -3537,43 +3551,45 @@ export const SettingsView = ({
                                             key={series.id}
                                             className="rounded-[18px] border border-white/5 bg-black/10 p-3"
                                           >
-                                            <button
-                                              onClick={() =>
-                                                setCollapsedModelSeries((current) => ({
-                                                  ...current,
-                                                  [series.id]: !seriesCollapsed,
-                                                }))
-                                              }
-                                              className="flex w-full items-center justify-between gap-3 rounded-[14px] px-1 py-1 text-left transition-colors hover:bg-white/5"
-                                            >
-                                              <div className="flex min-w-0 items-center gap-3">
-                                                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-2xl bg-white/5">
-                                                  {seriesCollapsed ? (
-                                                    <ChevronRight size={14} className="text-white/55" />
-                                                  ) : (
-                                                    <ChevronDown size={14} className="text-white/55" />
-                                                  )}
-                                                </div>
-                                                <div className="min-w-0">
-                                                  <div className="truncate text-sm font-medium text-white/85">
-                                                    {series.label}
+                                            <div className="flex items-center gap-2">
+                                              <button
+                                                onClick={() =>
+                                                  setCollapsedModelSeries((current) => ({
+                                                    ...current,
+                                                    [series.id]: !seriesCollapsed,
+                                                  }))
+                                                }
+                                                className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-[14px] px-1 py-1 text-left transition-colors hover:bg-white/5"
+                                              >
+                                                <div className="flex min-w-0 items-center gap-3">
+                                                  <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-2xl bg-white/5">
+                                                    {seriesCollapsed ? (
+                                                      <ChevronRight size={14} className="text-white/55" />
+                                                    ) : (
+                                                      <ChevronDown size={14} className="text-white/55" />
+                                                    )}
                                                   </div>
-                                                  <div className="text-[11px] text-white/35">系列分组</div>
+                                                  <div className="min-w-0">
+                                                    <div className="truncate text-sm font-medium text-white/85">
+                                                      {series.label}
+                                                    </div>
+                                                    <div className="text-[11px] text-white/35">系列分组</div>
+                                                  </div>
                                                 </div>
-                                              </div>
-                                              <div className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/45">
-                                                {series.models.length}
-                                              </div>
-                                            </button>
-                                            <button
-                                              onClick={() =>
-                                                removeModelsFromProvider(activeProvider.id, series.models)
-                                              }
-                                              className="rounded-full border border-transparent p-2 text-white/20 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
-                                              title={`移除 ${series.label} 系列`}
-                                            >
-                                              <Minus size={13} />
-                                            </button>
+                                                <div className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/45">
+                                                  {series.models.length}
+                                                </div>
+                                              </button>
+                                              <button
+                                                onClick={() =>
+                                                  removeModelsFromProvider(activeProvider.id, series.models)
+                                                }
+                                                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
+                                                title={`移除 ${series.label} 系列`}
+                                              >
+                                                <Minus size={13} />
+                                              </button>
+                                            </div>
 
                                             {!seriesCollapsed ? (
                                               <div className="mt-2 space-y-2">
@@ -3590,11 +3606,7 @@ export const SettingsView = ({
                                                     </div>
                                                     <button
                                                       onClick={() =>
-                                                        updateProvider(activeProvider.id, {
-                                                          models: activeProvider.models.filter(
-                                                            (entry) => entry !== model,
-                                                          ),
-                                                        })
+                                                        removeModelsFromProvider(activeProvider.id, [model])
                                                       }
                                                       className="rounded-full border border-transparent p-1.5 text-white/25 opacity-0 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300 group-hover:opacity-100"
                                                       title="移除模型"
@@ -3772,6 +3784,13 @@ export const SettingsView = ({
                             >
                               {selectedCount === groupModels.length ? '取消整组' : '全选整组'}
                             </button>
+                            <button
+                              onClick={() => removeModelsFromImportDialog(groupModels)}
+                              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
+                              title={`删除 ${group.label} 分类`}
+                            >
+                              <Minus size={14} />
+                            </button>
                           </div>
 
                           {!collapsed ? (
@@ -3829,6 +3848,13 @@ export const SettingsView = ({
                                       >
                                         {seriesSelectedCount === series.models.length ? '取消' : '全选'}
                                       </button>
+                                      <button
+                                        onClick={() => removeModelsFromImportDialog(series.models)}
+                                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
+                                        title={`删除 ${series.label} 系列`}
+                                      >
+                                        <Minus size={13} />
+                                      </button>
                                     </div>
 
                                     {!seriesCollapsed ? (
@@ -3837,31 +3863,42 @@ export const SettingsView = ({
                                           const selected = selectedImportModels.includes(model);
 
                                           return (
-                                            <button
+                                            <div
                                               key={model}
-                                              onClick={() => toggleImportModelSelection(model)}
-                                              className={`flex w-full items-center justify-between rounded-xl border p-3 text-left transition-colors ${
+                                              className={`group flex items-center gap-3 rounded-xl border p-3 transition-colors ${
                                                 selected
                                                   ? 'border-emerald-500/25 bg-emerald-500/10'
                                                   : 'border-white/5 bg-white/5 hover:bg-white/10'
                                               }`}
                                             >
-                                              <div className="flex min-w-0 items-center gap-3">
-                                                <div
-                                                  className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border ${
-                                                    selected
-                                                      ? 'border-emerald-400/70 bg-emerald-400/20 text-emerald-300'
-                                                      : 'border-white/15 bg-black/20 text-transparent'
-                                                  }`}
-                                                >
-                                                  ✓
+                                              <button
+                                                onClick={() => toggleImportModelSelection(model)}
+                                                className="flex min-w-0 flex-1 items-center justify-between text-left"
+                                              >
+                                                <div className="flex min-w-0 items-center gap-3">
+                                                  <div
+                                                    className={`flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border ${
+                                                      selected
+                                                        ? 'border-emerald-400/70 bg-emerald-400/20 text-emerald-300'
+                                                        : 'border-white/15 bg-black/20 text-transparent'
+                                                    }`}
+                                                  >
+                                                    ✓
+                                                  </div>
+                                                  <span className="truncate text-sm text-white/90">{model}</span>
                                                 </div>
-                                                <span className="truncate text-sm text-white/90">{model}</span>
-                                              </div>
-                                              <div className="text-[11px] text-white/35">
-                                                {selected ? '已选中' : '点击选择'}
-                                              </div>
-                                            </button>
+                                                <div className="text-[11px] text-white/35">
+                                                  {selected ? '已选中' : '点击选择'}
+                                                </div>
+                                              </button>
+                                              <button
+                                                onClick={() => removeModelsFromImportDialog([model])}
+                                                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 opacity-0 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300 group-hover:opacity-100"
+                                                title="删除当前模型"
+                                              >
+                                                <Minus size={12} />
+                                              </button>
+                                            </div>
                                           );
                                         })}
                                       </div>

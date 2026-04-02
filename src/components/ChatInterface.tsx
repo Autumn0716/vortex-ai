@@ -1,6 +1,9 @@
-import React, { Suspense, lazy, startTransition, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
+  ChevronDown,
+  ChevronRight,
+  Cloud,
   Globe,
   MessageSquare,
   Paperclip,
@@ -14,6 +17,7 @@ import {
   Sparkles,
   Sun,
   Terminal,
+  X,
 } from 'lucide-react';
 import { AgentLaneColumn } from './chat/AgentLaneColumn';
 import {
@@ -58,6 +62,7 @@ import { syncBundledKnowledgeDocuments } from '../lib/project-knowledge';
 import { TimeoutError, withSoftTimeout } from '../lib/async-timeout';
 import { formatErrorDetails, wrapErrorWithContext } from '../lib/error-details';
 import { registerConfiguredAgentMemoryFileStore } from '../lib/agent-memory-api';
+import { buildModelGroups } from '../lib/model-groups';
 
 const TerminalPanel = lazy(() =>
   import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
@@ -171,6 +176,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState<ChatTab>('chat');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showModelPicker, setShowModelPicker] = useState(false);
   const [settingsInitialCategory, setSettingsInitialCategory] =
     useState<SettingsCategory>('models');
   const [input, setInput] = useState('');
@@ -189,6 +195,10 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<WorkspaceSearchResult[]>([]);
   const [fts5Enabled, setFts5Enabled] = useState(false);
+  const [modelPickerProviderId, setModelPickerProviderId] = useState<string>('');
+  const [modelPickerSearchQuery, setModelPickerSearchQuery] = useState('');
+  const [collapsedPickerGroups, setCollapsedPickerGroups] = useState<Record<string, boolean>>({});
+  const [collapsedPickerSeries, setCollapsedPickerSeries] = useState<Record<string, boolean>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const selectedAgent =
@@ -455,6 +465,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }
   };
 
+  const handleModelSelection = async (providerId: string, model: string) => {
+    await handleModelChange(`${providerId}::${model}`);
+    setShowModelPicker(false);
+  };
+
   const handleSaveAgent = async (draft: {
     id?: string;
     name: string;
@@ -672,6 +687,31 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   };
 
   const enabledProviders = config.providers.filter((provider) => provider.enabled);
+  const modelPickerProvider =
+    enabledProviders.find((provider) => provider.id === modelPickerProviderId) ?? enabledProviders[0] ?? null;
+  const modelPickerGroups = useMemo(
+    () => (modelPickerProvider ? buildModelGroups(modelPickerProvider, modelPickerSearchQuery) : { totalCount: 0, groups: [] }),
+    [modelPickerProvider, modelPickerSearchQuery],
+  );
+
+  useEffect(() => {
+    if (!enabledProviders.length) {
+      setModelPickerProviderId('');
+      return;
+    }
+
+    setModelPickerProviderId((current) =>
+      enabledProviders.some((provider) => provider.id === current) ? current : config.activeProviderId || enabledProviders[0]!.id,
+    );
+  }, [enabledProviders, config.activeProviderId]);
+
+  useEffect(() => {
+    if (!showModelPicker) {
+      setModelPickerSearchQuery('');
+      setCollapsedPickerGroups({});
+      setCollapsedPickerSeries({});
+    }
+  }, [showModelPicker]);
 
   return (
     <div className="app-shell relative z-10 flex h-screen w-full overflow-hidden font-sans text-white">
@@ -901,25 +941,20 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               </div>
 
               <div className="flex items-center gap-2">
-                <div className="rounded-lg border border-white/10 bg-white/5 px-2">
-                  <select
-                    value={`${config.activeProviderId}::${config.activeModel}`}
-                    onChange={(event) => handleModelChange(event.target.value)}
-                    className="bg-transparent py-2 text-sm text-white outline-none"
-                  >
-                    {enabledProviders.map((provider) =>
-                      provider.models.map((model) => (
-                        <option
-                          key={`${provider.id}_${model}`}
-                          value={`${provider.id}::${model}`}
-                          className="bg-[#111111]"
-                        >
-                          {provider.name} · {model}
-                        </option>
-                      )),
-                    )}
-                  </select>
-                </div>
+                <button
+                  onClick={() => {
+                    setModelPickerProviderId(config.activeProviderId);
+                    setShowModelPicker(true);
+                  }}
+                  className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <span className="max-w-[260px] truncate">
+                    {(enabledProviders.find((provider) => provider.id === config.activeProviderId)?.name ?? 'Model')}
+                    {' · '}
+                    {config.activeModel}
+                  </span>
+                  <ChevronDown size={14} className="text-white/45" />
+                </button>
                 <button
                   onClick={() => setActiveTab('prompts')}
                   className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75 hover:bg-white/10 hover:text-white"
@@ -1136,6 +1171,214 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             }}
           />
         </Suspense>
+      ) : null}
+
+      {showModelPicker ? (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+          <div className="flex h-[78vh] min-h-[560px] w-full max-w-[1080px] overflow-hidden rounded-[30px] border border-white/10 bg-[#171717] shadow-2xl">
+            <div className="flex w-64 flex-col border-r border-white/5 bg-[#141414]">
+              <div className="border-b border-white/5 px-4 py-4">
+                <div className="text-sm font-semibold text-white">选择模型服务</div>
+                <div className="mt-1 text-[11px] text-white/40">先选 provider，再选具体模型</div>
+              </div>
+              <div className="flex-1 space-y-1 overflow-y-auto p-2 custom-scrollbar">
+                {enabledProviders.map((provider) => (
+                  <button
+                    key={provider.id}
+                    onClick={() => {
+                      setModelPickerProviderId(provider.id);
+                      setCollapsedPickerGroups({});
+                      setCollapsedPickerSeries({});
+                    }}
+                    className={`flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition-colors ${
+                      modelPickerProviderId === provider.id
+                        ? 'bg-white/10 text-white'
+                        : 'text-white/65 hover:bg-white/5 hover:text-white/90'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium">{provider.name}</div>
+                      <div className="text-[11px] text-white/35">{provider.models.length} 个模型</div>
+                    </div>
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400/15 to-emerald-600/15">
+                      <Cloud size={14} className="text-emerald-300" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
+                <div>
+                  <div className="text-lg font-semibold text-white">选择聊天模型</div>
+                  <div className="mt-1 text-sm text-white/50">
+                    {modelPickerProvider ? `${modelPickerProvider.name} · ${modelPickerGroups.totalCount} 个结果` : '暂无可用模型服务'}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowModelPicker(false)}
+                  className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="flex min-h-0 flex-1 flex-col px-6 py-5">
+                <div className="mb-4 flex flex-col gap-3 rounded-[24px] border border-white/5 bg-black/10 p-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="text-sm font-medium text-white/90">按厂商与系列前缀浏览</div>
+                    <div className="text-[11px] text-white/40">
+                      模型过多时，先定位 provider，再按系列选择具体模型。
+                    </div>
+                  </div>
+                  <div className="relative w-full md:max-w-xs">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+                    <input
+                      type="text"
+                      value={modelPickerSearchQuery}
+                      onChange={(event) => setModelPickerSearchQuery(event.target.value)}
+                      placeholder="搜索模型名称..."
+                      className="w-full rounded-full border border-white/10 bg-black/20 py-2 pl-9 pr-4 text-sm text-white focus:border-emerald-500/50 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+                  {!modelPickerProvider ? (
+                    <div className="rounded-[24px] border border-dashed border-white/10 bg-white/[0.03] px-4 py-12 text-center text-sm text-white/40">
+                      当前没有启用的模型服务。
+                    </div>
+                  ) : modelPickerGroups.groups.length === 0 ? (
+                    <div className="rounded-[24px] border border-dashed border-white/10 bg-white/[0.03] px-4 py-12 text-center text-sm text-white/40">
+                      没有匹配的模型。
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {modelPickerGroups.groups.map((group) => {
+                        const collapsed = collapsedPickerGroups[group.id] ?? false;
+
+                        return (
+                          <div key={group.id} className="rounded-2xl border border-white/5 bg-white/[0.03] p-2">
+                            <button
+                              onClick={() =>
+                                setCollapsedPickerGroups((current) => ({
+                                  ...current,
+                                  [group.id]: !collapsed,
+                                }))
+                              }
+                              className="flex w-full items-center justify-between rounded-[18px] px-3 py-2 text-left transition-colors hover:bg-white/5"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-400/15 to-red-500/15">
+                                  {collapsed ? (
+                                    <ChevronRight size={15} className="text-orange-300" />
+                                  ) : (
+                                    <ChevronDown size={15} className="text-orange-300" />
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="text-sm font-medium text-white/90">{group.label}</div>
+                                  <div className="text-[11px] text-white/40">
+                                    {group.series.length} 个系列 · {group.totalCount} 个模型
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-white/45">
+                                {group.totalCount}
+                              </div>
+                            </button>
+
+                            {!collapsed ? (
+                              <div className="mt-2 space-y-3 px-1 pb-1">
+                                {group.series.map((series) => {
+                                  const seriesCollapsed = collapsedPickerSeries[series.id] ?? false;
+
+                                  return (
+                                    <div key={series.id} className="rounded-[18px] border border-white/5 bg-black/10 p-3">
+                                      <button
+                                        onClick={() =>
+                                          setCollapsedPickerSeries((current) => ({
+                                            ...current,
+                                            [series.id]: !seriesCollapsed,
+                                          }))
+                                        }
+                                        className="flex w-full items-center justify-between gap-3 rounded-[14px] px-1 py-1 text-left transition-colors hover:bg-white/5"
+                                      >
+                                        <div className="flex min-w-0 items-center gap-3">
+                                          <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-2xl bg-white/5">
+                                            {seriesCollapsed ? (
+                                              <ChevronRight size={14} className="text-white/55" />
+                                            ) : (
+                                              <ChevronDown size={14} className="text-white/55" />
+                                            )}
+                                          </div>
+                                          <div className="min-w-0">
+                                            <div className="truncate text-sm font-medium text-white/85">
+                                              {series.label}
+                                            </div>
+                                            <div className="text-[11px] text-white/35">系列分组</div>
+                                          </div>
+                                        </div>
+                                        <div className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/45">
+                                          {series.models.length}
+                                        </div>
+                                      </button>
+
+                                      {!seriesCollapsed ? (
+                                        <div className="mt-2 space-y-2">
+                                          {series.models.map((model) => {
+                                            const active =
+                                              modelPickerProvider.id === config.activeProviderId &&
+                                              model === config.activeModel;
+
+                                            return (
+                                              <button
+                                                key={model}
+                                                onClick={() =>
+                                                  handleModelSelection(modelPickerProvider.id, model).catch(console.error)
+                                                }
+                                                className={`flex w-full items-center justify-between rounded-xl border p-3 text-left transition-colors ${
+                                                  active
+                                                    ? 'border-emerald-500/30 bg-emerald-500/12'
+                                                    : 'border-white/5 bg-white/5 hover:bg-white/10'
+                                                }`}
+                                              >
+                                                <div className="min-w-0">
+                                                  <div className="truncate text-sm text-white/90">{model}</div>
+                                                  <div className="mt-1 text-[11px] text-white/35">
+                                                    {modelPickerProvider.name}
+                                                  </div>
+                                                </div>
+                                                <div
+                                                  className={`rounded-full border px-2.5 py-1 text-[11px] ${
+                                                    active
+                                                      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                                                      : 'border-white/10 text-white/40'
+                                                  }`}
+                                                >
+                                                  {active ? '当前' : '切换'}
+                                                </div>
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );
