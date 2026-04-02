@@ -33,3 +33,4 @@
 - Improved local API request diagnostics so host-backed config and memory failures now include the concrete local API URL in the surfaced error message.
 - Added a topic-level session settings modal so each `Topic` can now override display name, system prompt, model, and feature flags without mutating the underlying agent template or global config.
 - Reused the grouped chat model picker for topic-local model overrides, so session-scoped runtime selection now follows the same provider/family/series browsing flow as the existing model picker.
+- Added topic-local stop controls and run-state badges so each session can stop its own stream, keep partial output when interrupted, and surface background topic generation directly in the topic list and composer shell.

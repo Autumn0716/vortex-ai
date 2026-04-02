@@ -202,6 +202,14 @@ function extractToolUsage(messages: any[], initialCount: number) {
   return tools;
 }
 
+function isAbortError(error: unknown) {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const candidate = error as { name?: unknown; message?: unknown };
+  return candidate.name === 'AbortError' || String(candidate.message ?? '').toLowerCase().includes('abort');
+}
+
 interface TopicRunState {
   isGenerating: boolean;
   composerNotice: string;
@@ -258,12 +266,20 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [topicRunStates, setTopicRunStates] = useState<Record<string, TopicRunState>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const projectKnowledgeVersionRef = useRef('');
+  const topicAbortControllersRef = useRef<Record<string, AbortController>>({});
 
   const selectedAgent =
     workspace?.agent ?? agents.find((entry) => entry.id === activeAgentId) ?? null;
   const activeRunState = activeTopicId ? topicRunStates[activeTopicId] : undefined;
   const isGenerating = activeRunState?.isGenerating ?? false;
   const composerNotice = activeRunState?.composerNotice ?? shellNotice;
+  const backgroundGeneratingCount = useMemo(
+    () =>
+      Object.entries(topicRunStates).filter(
+        ([topicId, runState]) => topicId !== activeTopicId && runState.isGenerating,
+      ).length,
+    [activeTopicId, topicRunStates],
+  );
   const activeDisplayName =
     workspace?.runtime.displayName ?? workspace?.agent.name ?? selectedAgent?.name ?? 'FlowAgent';
   const activeProviderId =
@@ -296,14 +312,46 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }));
   };
 
-  const clearTopicRunState = (topicId: string) => {
+  const finalizeTopicRunState = (
+    topicId: string,
+    next: Partial<TopicRunState> = {},
+  ) => {
     setTopicRunStates((previous) => {
-      if (!(topicId in previous)) {
+      const prior = previous[topicId];
+      if (!prior && !next.composerNotice && !next.draftAssistantMessage && !next.isGenerating) {
         return previous;
       }
-      const next = { ...previous };
-      delete next[topicId];
-      return next;
+
+      const merged: TopicRunState = {
+        isGenerating: next.isGenerating ?? false,
+        composerNotice: next.composerNotice ?? '',
+        draftAssistantMessage: next.draftAssistantMessage,
+      };
+
+      if (!merged.isGenerating && !merged.composerNotice && !merged.draftAssistantMessage) {
+        if (!(topicId in previous)) {
+          return previous;
+        }
+        const cleaned = { ...previous };
+        delete cleaned[topicId];
+        return cleaned;
+      }
+
+      return {
+        ...previous,
+        [topicId]: merged,
+      };
+    });
+  };
+
+  const stopTopicGeneration = (topicId: string) => {
+    const controller = topicAbortControllersRef.current[topicId];
+    if (!controller) {
+      return;
+    }
+    controller.abort();
+    finalizeTopicRunState(topicId, {
+      composerNotice: 'Stopping generation…',
     });
   };
 
@@ -849,6 +897,12 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }));
     await addTopicMessages([userMessage]);
     await maybeAutoTitleTopic(workspaceSnapshot.topic.id, userContent);
+    const abortController = new AbortController();
+    topicAbortControllersRef.current[workspaceSnapshot.topic.id] = abortController;
+    let lcMessages: any[] = [];
+    let lastValuesState: { messages?: any[] } | null = null;
+    let assistantDraftId = createLocalId('message');
+    let streamedAssistantContent = '';
 
     try {
       const [{ HumanMessage, AIMessage }, { createAgentRuntime }] = await Promise.all([
@@ -860,7 +914,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         .filter((message) => message.role === 'user' || message.role === 'assistant')
         .slice(-configSnapshot.memory.historyWindow);
 
-      const lcMessages = messageHistory.map((message) =>
+      lcMessages = messageHistory.map((message) =>
         message.role === 'user' ? new HumanMessage(message.content) : new AIMessage(message.content),
       );
 
@@ -908,12 +962,8 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
       const stream = await runtime.stream(
         { messages: lcMessages },
-        { streamMode: ['messages', 'values'] },
+        { streamMode: ['messages', 'values'], signal: abortController.signal },
       );
-
-      let lastValuesState: { messages?: any[] } | null = null;
-      let assistantDraftId = createLocalId('message');
-      let streamedAssistantContent = '';
 
       for await (const chunk of stream) {
         if (!Array.isArray(chunk) || chunk.length < 2) {
@@ -988,7 +1038,33 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
       setWorkspace((previous) => upsertWorkspaceMessage(previous, toTopicMessage(assistantMessage)));
       await addTopicMessages([assistantMessage]);
+      finalizeTopicRunState(workspaceSnapshot.topic.id);
     } catch (error: any) {
+      if (isAbortError(error)) {
+        delete topicAbortControllersRef.current[workspaceSnapshot.topic.id];
+        const partialContent = streamedAssistantContent.trim();
+        if (partialContent) {
+          const partialMessage: TopicMessageInput = {
+            id: assistantDraftId,
+            topicId: workspaceSnapshot.topic.id,
+            agentId: workspaceSnapshot.agent.id,
+            role: 'assistant',
+            authorName: workspaceSnapshot.runtime.displayName,
+            content: partialContent,
+            createdAt: new Date().toISOString(),
+            tools: extractToolUsage(lastValuesState?.messages ?? [], lcMessages.length),
+          };
+          setWorkspace((previous) => upsertWorkspaceMessage(previous, toTopicMessage(partialMessage)));
+          await addTopicMessages([partialMessage]);
+        }
+        finalizeTopicRunState(workspaceSnapshot.topic.id, {
+          composerNotice: partialContent
+            ? 'Generation stopped. Partial response kept.'
+            : 'Generation stopped.',
+        });
+        return;
+      }
+
       const fallbackMessage: TopicMessageInput = {
         id: createLocalId('message'),
         topicId: workspaceSnapshot.topic.id,
@@ -1000,8 +1076,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       };
       setWorkspace((previous) => mergeWorkspaceMessages(previous, [toTopicMessage(fallbackMessage)]));
       await addTopicMessages([fallbackMessage]);
+      finalizeTopicRunState(workspaceSnapshot.topic.id, {
+        composerNotice: 'Generation failed. Check model credentials or session settings.',
+      });
     } finally {
-      clearTopicRunState(workspaceSnapshot.topic.id);
+      delete topicAbortControllersRef.current[workspaceSnapshot.topic.id];
       void refreshTopicList(workspaceSnapshot.agent.id).catch(console.error);
     }
   };
@@ -1230,6 +1309,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                           Quick
                         </span>
                       ) : null}
+                      {topicRunStates[topic.id]?.isGenerating ? (
+                        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-200/80">
+                          Running
+                        </span>
+                      ) : null}
                     </div>
                     <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/45">
                       {topic.messageCount}
@@ -1269,6 +1353,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       {workspace?.topic.sessionMode === 'quick' ? (
                         <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] text-amber-200/80">
                           Quick
+                        </span>
+                      ) : null}
+                      {activeRunState?.isGenerating ? (
+                        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-200/80">
+                          Streaming
                         </span>
                       ) : null}
                       {workspace ? (
@@ -1402,6 +1491,16 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/50">
                       {activeMemoryEnabled ? '记忆注入已开启' : '记忆注入已暂停'}
                     </span>
+                    {activeRunState?.isGenerating ? (
+                      <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] text-emerald-200/85">
+                        正在生成
+                      </span>
+                    ) : null}
+                    {!activeRunState?.isGenerating && backgroundGeneratingCount > 0 ? (
+                      <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/55">
+                        后台运行中 {backgroundGeneratingCount}
+                      </span>
+                    ) : null}
                   </div>
                   <textarea
                     value={input}
@@ -1453,14 +1552,29 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                         <Plus size={18} />
                       </button>
                     </div>
-                    <button
-                      onClick={() => handleSend().catch(console.error)}
-                      disabled={!input.trim() || isGenerating || !workspace}
-                      className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Send size={18} className="ml-0.5" />
-                      发送
-                    </button>
+                    {isGenerating ? (
+                      <button
+                        onClick={() => {
+                          if (workspace) {
+                            stopTopicGeneration(workspace.topic.id);
+                          }
+                        }}
+                        disabled={!workspace}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-red-400/25 bg-red-400/12 px-4 py-2 text-sm font-medium text-red-100 transition-colors hover:bg-red-400/18 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <X size={18} className="ml-0.5" />
+                        停止
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => handleSend().catch(console.error)}
+                        disabled={!input.trim() || !workspace}
+                        className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Send size={18} className="ml-0.5" />
+                        发送
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 text-[11px] text-white/35">
