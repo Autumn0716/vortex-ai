@@ -53,6 +53,7 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
     CREATE TABLE IF NOT EXISTS topics (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
+      parent_topic_id TEXT,
       session_mode TEXT NOT NULL DEFAULT 'agent',
       display_name TEXT,
       system_prompt_override TEXT,
@@ -114,6 +115,7 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
   ensureColumn(database, 'agent_memory_documents', 'topic_id', 'topic_id TEXT');
   ensureColumn(database, 'agent_memory_documents', 'event_date', 'event_date TEXT');
   ensureColumn(database, 'topics', 'session_mode', "session_mode TEXT NOT NULL DEFAULT 'agent'");
+  ensureColumn(database, 'topics', 'parent_topic_id', 'parent_topic_id TEXT');
   ensureColumn(database, 'topics', 'display_name', 'display_name TEXT');
   ensureColumn(database, 'topics', 'system_prompt_override', 'system_prompt_override TEXT');
   ensureColumn(database, 'topics', 'provider_id_override', 'provider_id_override TEXT');
@@ -131,6 +133,7 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
   database.run(`
     CREATE INDEX IF NOT EXISTS idx_agents_default ON agents(is_default DESC, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_topics_agent_updated ON topics(agent_id, last_message_at DESC, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_topics_parent_updated ON topics(parent_topic_id, last_message_at DESC, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_topic_messages_topic_created ON topic_messages(topic_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_topic_messages_agent_created ON topic_messages(agent_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_agent_memory_agent_updated ON agent_memory_documents(agent_id, updated_at DESC);

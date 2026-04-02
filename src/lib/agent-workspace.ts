@@ -62,6 +62,7 @@ export interface AgentProfile {
 export interface TopicSummary {
   id: string;
   agentId: string;
+  parentTopicId?: string;
   sessionMode: TopicSessionMode;
   displayName?: string;
   systemPromptOverride?: string;
@@ -342,6 +343,7 @@ function toAgentProfile(row: {
 function toTopicSummary(row: {
   id: string;
   agent_id: string;
+  parent_topic_id: string | null;
   session_mode: TopicSessionMode | null;
   display_name: string | null;
   system_prompt_override: string | null;
@@ -362,6 +364,7 @@ function toTopicSummary(row: {
   return {
     id: row.id,
     agentId: row.agent_id,
+    parentTopicId: row.parent_topic_id ?? undefined,
     sessionMode: row.session_mode === 'quick' ? 'quick' : 'agent',
     displayName: row.display_name ?? undefined,
     systemPromptOverride: row.system_prompt_override ?? undefined,
@@ -466,6 +469,7 @@ function fetchTopicSummaryById(database: Database, topicId: string): TopicSummar
   const row = mapRows<{
     id: string;
     agent_id: string;
+    parent_topic_id: string | null;
     session_mode: TopicSessionMode | null;
     display_name: string | null;
     system_prompt_override: string | null;
@@ -488,6 +492,7 @@ function fetchTopicSummaryById(database: Database, topicId: string): TopicSummar
         SELECT
           t.id,
           t.agent_id,
+          t.parent_topic_id,
           t.session_mode,
           t.display_name,
           t.system_prompt_override,
@@ -1321,6 +1326,7 @@ export async function listTopics(agentId: string): Promise<TopicSummary[]> {
   const rows = mapRows<{
     id: string;
     agent_id: string;
+    parent_topic_id: string | null;
     session_mode: TopicSessionMode | null;
     display_name: string | null;
     system_prompt_override: string | null;
@@ -1343,6 +1349,7 @@ export async function listTopics(agentId: string): Promise<TopicSummary[]> {
         SELECT
           t.id,
           t.agent_id,
+          t.parent_topic_id,
           t.session_mode,
           t.display_name,
           t.system_prompt_override,
@@ -1382,6 +1389,7 @@ export async function listTopics(agentId: string): Promise<TopicSummary[]> {
 
 export async function createTopic(options: {
   agentId: string;
+  parentTopicId?: string;
   title?: string;
   sessionMode?: TopicSessionMode;
   displayName?: string;
@@ -1411,6 +1419,7 @@ export async function createTopic(options: {
       INSERT INTO topics (
         id,
         agent_id,
+        parent_topic_id,
         session_mode,
         display_name,
         system_prompt_override,
@@ -1426,11 +1435,12 @@ export async function createTopic(options: {
         updated_at,
         last_message_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       topicId,
       options.agentId,
+      options.parentTopicId?.trim() || null,
       sessionMode,
       options.displayName?.trim() || null,
       options.systemPromptOverride?.trim() || null,
@@ -1452,6 +1462,7 @@ export async function createTopic(options: {
   const topic = mapRows<{
     id: string;
     agent_id: string;
+    parent_topic_id: string | null;
     session_mode: TopicSessionMode | null;
     display_name: string | null;
     system_prompt_override: string | null;
@@ -1474,6 +1485,7 @@ export async function createTopic(options: {
         SELECT
           id,
           agent_id,
+          parent_topic_id,
           session_mode,
           display_name,
           system_prompt_override,
@@ -1527,6 +1539,50 @@ export async function createQuickTopic(options: {
     enableTools: false,
     enableAgentSharedShortTerm: false,
   });
+}
+
+export async function createBranchTopicFromTopic(options: {
+  sourceTopicId: string;
+  title?: string;
+  branchGoal?: string;
+  includeRecentMessages?: number;
+}) {
+  const sourceWorkspace = await getTopicWorkspace(options.sourceTopicId);
+  if (!sourceWorkspace) {
+    throw new Error('Source topic not found.');
+  }
+
+  const branchTopic = await createTopic({
+    agentId: sourceWorkspace.agent.id,
+    parentTopicId: sourceWorkspace.topic.id,
+    title: options.title?.trim() || `${sourceWorkspace.topic.title} · Branch`,
+    sessionMode: sourceWorkspace.runtime.sessionMode,
+    displayName: sourceWorkspace.runtime.displayName,
+    systemPromptOverride: sourceWorkspace.runtime.systemPrompt,
+    providerIdOverride: sourceWorkspace.runtime.providerId,
+    modelOverride: sourceWorkspace.runtime.model,
+    enableMemory: sourceWorkspace.runtime.enableMemory,
+    enableSkills: sourceWorkspace.runtime.enableSkills,
+    enableTools: sourceWorkspace.runtime.enableTools,
+    enableAgentSharedShortTerm: sourceWorkspace.runtime.enableAgentSharedShortTerm,
+  });
+
+  await addTopicMessages([
+    {
+      topicId: branchTopic.id,
+      agentId: sourceWorkspace.agent.id,
+      role: 'system',
+      authorName: 'Branch Bootstrap',
+      content: buildBranchBootstrapContent(
+        sourceWorkspace,
+        options.branchGoal,
+        options.includeRecentMessages ?? 6,
+      ),
+    },
+  ]);
+
+  const hydratedBranch = await getTopicWorkspace(branchTopic.id);
+  return hydratedBranch?.topic ?? branchTopic;
 }
 
 export async function updateTopicTitle(topicId: string, title: string): Promise<void> {
@@ -1614,6 +1670,7 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
   const topicRow = mapRows<{
     id: string;
     agent_id: string;
+    parent_topic_id: string | null;
     session_mode: TopicSessionMode | null;
     display_name: string | null;
     system_prompt_override: string | null;
@@ -1636,6 +1693,7 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
         SELECT
           t.id,
           t.agent_id,
+          t.parent_topic_id,
           t.session_mode,
           t.display_name,
           t.system_prompt_override,
@@ -1760,6 +1818,39 @@ function appendMemoryLine(existingContent: string, line: string) {
 
 function dateKeyFromIso(timestamp: string) {
   return timestamp.slice(0, 10);
+}
+
+function formatBranchSnapshotLine(message: TopicMessage) {
+  const label =
+    message.role === 'user'
+      ? 'User'
+      : message.role === 'assistant'
+        ? 'Assistant'
+        : message.role === 'system'
+          ? 'System'
+          : 'Tool';
+  return `- ${label}: ${message.content.replace(/\s+/g, ' ').trim().slice(0, 280)}`;
+}
+
+function buildBranchBootstrapContent(
+  workspace: TopicWorkspace,
+  branchGoal: string | undefined,
+  includeRecentMessages: number,
+) {
+  const recentMessages = workspace.messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .slice(-Math.max(0, includeRecentMessages))
+    .map(formatBranchSnapshotLine);
+
+  return [
+    `Branched from topic: ${workspace.topic.title}`,
+    `Branch goal: ${branchGoal?.trim() || 'Continue a focused follow-up task from the parent topic.'}`,
+    'This is a child branch topic. Treat the parent topic and this branch as separate sessions after creation.',
+    recentMessages.length ? `Recent parent context:\n${recentMessages.join('\n')}` : '',
+    'Only rely on the snapshot above. Do not assume access to the full parent transcript unless it is explicitly included here.',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function upsertDailyMemoryLog(

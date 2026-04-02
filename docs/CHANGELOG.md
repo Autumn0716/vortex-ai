@@ -35,3 +35,4 @@
 - Reused the grouped chat model picker for topic-local model overrides, so session-scoped runtime selection now follows the same provider/family/series browsing flow as the existing model picker.
 - Added topic-local stop controls and run-state badges so each session can stop its own stream, keep partial output when interrupted, and surface background topic generation directly in the topic list and composer shell.
 - Replaced prompt-based quick-topic creation with an in-app modal and added `All / Agent / Quick` topic filtering so session-mode creation and sidebar management are easier without leaving the current theme shell.
+- Added first-pass topic branching so the active session can spawn a child branch topic with inherited runtime settings, a compact parent-context bootstrap, and visible `Branch` badges in the chat shell.

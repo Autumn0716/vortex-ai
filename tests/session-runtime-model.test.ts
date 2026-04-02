@@ -4,6 +4,8 @@ import test from 'node:test';
 import localforage from 'localforage';
 
 import {
+  addTopicMessages,
+  createBranchTopicFromTopic,
   createQuickTopic,
   createTopic,
   getAgentMemoryContext,
@@ -217,4 +219,77 @@ test('updateTopicSessionSettings persists topic-level runtime overrides without 
   assert.equal(resetWorkspace?.runtime.systemPrompt, 'Template system prompt.');
   assert.equal(resetWorkspace?.runtime.providerId, 'openai');
   assert.equal(resetWorkspace?.runtime.model, 'gpt-4o');
+});
+
+test('branch topics inherit runtime settings but keep isolated follow-up context', async () => {
+  localforageState.clear();
+  const agentId = createAgentId('agent_topic_branch');
+  await saveAgent({
+    id: agentId,
+    name: 'Branching Agent',
+    description: 'Agent used to verify topic branching',
+    systemPrompt: 'Template prompt.',
+    accentColor: 'from-fuchsia-500/20 to-rose-500/20',
+    workspaceRelpath: `agents/${agentId}`,
+    providerId: 'openai',
+    model: 'gpt-4.1',
+  });
+
+  const parentTopic = await createTopic({
+    agentId,
+    title: 'Parent Thread',
+    displayName: 'Deal Desk',
+    systemPromptOverride: 'You are a focused deal desk copilot.',
+    providerIdOverride: 'anthropic',
+    modelOverride: 'claude-3-7-sonnet-latest',
+    enableMemory: false,
+    enableSkills: true,
+    enableTools: false,
+    enableAgentSharedShortTerm: true,
+  });
+
+  await addTopicMessages([
+    {
+      topicId: parentTopic.id,
+      agentId,
+      role: 'user',
+      authorName: 'You',
+      content: 'We need a pricing options summary for the enterprise plan.',
+    },
+    {
+      topicId: parentTopic.id,
+      agentId,
+      role: 'assistant',
+      authorName: 'Deal Desk',
+      content: 'Current options are annual commit, ramp plan, and pilot-to-paid conversion.',
+    },
+  ]);
+
+  const branchTopic = await createBranchTopicFromTopic({
+    sourceTopicId: parentTopic.id,
+    title: 'Pricing branch',
+    branchGoal: 'Draft only the pilot-to-paid recommendation.',
+    includeRecentMessages: 4,
+  });
+
+  const branchWorkspace = await getTopicWorkspace(branchTopic.id);
+  const refreshedParent = await getTopicWorkspace(parentTopic.id);
+
+  assert.ok(branchWorkspace);
+  assert.ok(refreshedParent);
+  assert.equal(branchWorkspace?.topic.parentTopicId, parentTopic.id);
+  assert.equal(branchWorkspace?.runtime.displayName, 'Deal Desk');
+  assert.equal(branchWorkspace?.runtime.systemPrompt, 'You are a focused deal desk copilot.');
+  assert.equal(branchWorkspace?.runtime.providerId, 'anthropic');
+  assert.equal(branchWorkspace?.runtime.model, 'claude-3-7-sonnet-latest');
+  assert.equal(branchWorkspace?.runtime.enableMemory, false);
+  assert.equal(branchWorkspace?.runtime.enableSkills, true);
+  assert.equal(branchWorkspace?.runtime.enableTools, false);
+  assert.equal(branchWorkspace?.runtime.enableAgentSharedShortTerm, true);
+  assert.equal(branchWorkspace?.messages.length, 1);
+  assert.equal(branchWorkspace?.messages[0]?.role, 'system');
+  assert.match(branchWorkspace?.messages[0]?.content ?? '', /Branched from topic: Parent Thread/);
+  assert.match(branchWorkspace?.messages[0]?.content ?? '', /pilot-to-paid recommendation/);
+  assert.match(branchWorkspace?.messages[0]?.content ?? '', /pricing options summary/i);
+  assert.equal(refreshedParent?.messages.length, 2);
 });

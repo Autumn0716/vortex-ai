@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Cloud,
   Globe,
+  GitBranch,
   MessageSquare,
   Paperclip,
   PanelLeft,
@@ -28,6 +29,7 @@ import {
 } from '../lib/db';
 import {
   addTopicMessages,
+  createBranchTopicFromTopic,
   createQuickTopic,
   createTopic,
   deleteAgentMemoryDocument,
@@ -235,6 +237,11 @@ interface QuickTopicDraft {
   modelOverride: string;
 }
 
+interface BranchTopicDraft {
+  title: string;
+  goal: string;
+}
+
 type ModelPickerTarget = 'global' | 'topic' | 'quick';
 type TopicModeFilter = 'all' | 'agent' | 'quick';
 
@@ -247,10 +254,13 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showSessionSettings, setShowSessionSettings] = useState(false);
   const [showQuickTopicDialog, setShowQuickTopicDialog] = useState(false);
+  const [showBranchTopicDialog, setShowBranchTopicDialog] = useState(false);
   const [sessionSettingsDraft, setSessionSettingsDraft] = useState<SessionSettingsDraft | null>(null);
   const [quickTopicDraft, setQuickTopicDraft] = useState<QuickTopicDraft | null>(null);
+  const [branchTopicDraft, setBranchTopicDraft] = useState<BranchTopicDraft | null>(null);
   const [sessionSettingsSaving, setSessionSettingsSaving] = useState(false);
   const [quickTopicSaving, setQuickTopicSaving] = useState(false);
+  const [branchTopicSaving, setBranchTopicSaving] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelPickerTarget, setModelPickerTarget] = useState<ModelPickerTarget>('global');
   const [settingsInitialCategory, setSettingsInitialCategory] =
@@ -321,6 +331,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         : config.activeModel;
   const pickerCurrentProviderName =
     config.providers.find((provider) => provider.id === pickerEffectiveProviderId)?.name ?? 'Model';
+  const activeParentTopic = workspace?.topic.parentTopicId
+    ? topics.find((topic) => topic.id === workspace.topic.parentTopicId) ?? null
+    : null;
   const topicCounts = useMemo(
     () => ({
       all: topics.length,
@@ -742,6 +755,39 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       setShellNotice(`Created quick session "${created.title}".`);
     } finally {
       setQuickTopicSaving(false);
+    }
+  };
+
+  const handleOpenBranchTopicDialog = () => {
+    if (!workspace) {
+      return;
+    }
+
+    setBranchTopicDraft({
+      title: `${workspace.topic.title} · Branch`,
+      goal: '',
+    });
+    setShowBranchTopicDialog(true);
+  };
+
+  const handleCreateBranchTopic = async () => {
+    if (!workspace || !branchTopicDraft) {
+      return;
+    }
+
+    setBranchTopicSaving(true);
+    try {
+      const branchTopic = await createBranchTopicFromTopic({
+        sourceTopicId: workspace.topic.id,
+        title: branchTopicDraft.title.trim() || `${workspace.topic.title} · Branch`,
+        branchGoal: branchTopicDraft.goal.trim(),
+      });
+      await activateTopic(branchTopic.id);
+      setShowBranchTopicDialog(false);
+      setBranchTopicDraft(null);
+      setShellNotice(`Created branch topic "${branchTopic.title}".`);
+    } finally {
+      setBranchTopicSaving(false);
     }
   };
 
@@ -1402,6 +1448,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                           Quick
                         </span>
                       ) : null}
+                      {topic.parentTopicId ? (
+                        <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-2 py-0.5 text-[10px] text-sky-200/80">
+                          Branch
+                        </span>
+                      ) : null}
                       {topicRunStates[topic.id]?.isGenerating ? (
                         <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-200/80">
                           Running
@@ -1412,6 +1463,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       {topic.messageCount}
                     </span>
                   </div>
+                  {topic.parentTopicId ? (
+                    <p className="mt-1 truncate text-[11px] text-sky-200/45">
+                      From {topics.find((entry) => entry.id === topic.parentTopicId)?.title ?? 'parent topic'}
+                    </p>
+                  ) : null}
                   <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-white/40">
                     {topic.preview}
                   </p>
@@ -1450,6 +1506,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                           Quick
                         </span>
                       ) : null}
+                      {workspace?.topic.parentTopicId ? (
+                        <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-2 py-0.5 text-[10px] text-sky-200/80">
+                          Branch
+                        </span>
+                      ) : null}
                       {activeRunState?.isGenerating ? (
                         <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-200/80">
                           Streaming
@@ -1466,6 +1527,15 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       ) : null}
                       {workspace ? (
                         <button
+                          onClick={handleOpenBranchTopicDialog}
+                          className="rounded-md px-2 py-1 text-[11px] text-sky-200/55 transition-colors hover:bg-sky-400/10 hover:text-sky-100"
+                          title="Branch task"
+                        >
+                          Branch
+                        </button>
+                      ) : null}
+                      {workspace ? (
+                        <button
                           onClick={handleOpenSessionSettings}
                           className="rounded-md px-2 py-1 text-[11px] text-white/45 transition-colors hover:bg-white/10 hover:text-white/85"
                           title="Session settings"
@@ -1478,6 +1548,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       {workspace?.runtime.displayName ?? workspace?.agent.name ?? selectedAgent?.name ?? 'Loading agent...'} ·{' '}
                       {workspace?.agent.workspaceRelpath ?? selectedAgent?.workspaceRelpath ?? 'agents/...'}
                     </div>
+                    {activeParentTopic ? (
+                      <div className="text-[11px] text-sky-200/45">Branched from {activeParentTopic.title}</div>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -1912,6 +1985,116 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     className="rounded-xl border border-sky-500/20 bg-sky-500/15 px-4 py-2 text-sm font-medium text-sky-100 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {quickTopicSaving ? '创建中...' : '创建 Quick Topic'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showBranchTopicDialog && workspace && branchTopicDraft ? (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+          <div className="flex h-[68vh] min-h-[520px] w-full max-w-[900px] overflow-hidden rounded-[30px] border border-white/10 bg-[#171717] shadow-2xl">
+            <div className="flex w-[300px] flex-col border-r border-white/5 bg-[#141414] px-5 py-6">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Branch Task</div>
+              <div className="mt-3 flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-sky-400/20 bg-sky-400/10">
+                  <GitBranch size={18} className="text-sky-200/85" />
+                </div>
+                <div>
+                  <div className="text-xl font-semibold text-white">Create Branch Topic</div>
+                  <div className="text-sm text-white/45">{workspace.topic.title}</div>
+                </div>
+              </div>
+              <div className="mt-5 rounded-[24px] border border-white/8 bg-black/20 p-4">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Branch Behavior</div>
+                <div className="mt-3 space-y-3 text-sm leading-6 text-white/70">
+                  <div>继承当前会话的模型、提示词和功能开关。</div>
+                  <div>带入一份精简上下文快照，而不是复制整段历史消息。</div>
+                  <div>创建后可与父会话并行运行，互不锁定。</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
+                <div>
+                  <div className="text-lg font-semibold text-white">创建子任务分支</div>
+                  <div className="mt-1 text-sm text-white/50">把当前会话派生为一个并行处理的 branch topic。</div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowBranchTopicDialog(false);
+                    setBranchTopicDraft(null);
+                  }}
+                  className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 custom-scrollbar">
+                <div className="space-y-5">
+                  <label className="block">
+                    <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">Branch Title</div>
+                    <input
+                      type="text"
+                      value={branchTopicDraft.title}
+                      onChange={(event) =>
+                        setBranchTopicDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                title: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                      className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-sky-500/40"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">Branch Goal</div>
+                    <textarea
+                      value={branchTopicDraft.goal}
+                      onChange={(event) =>
+                        setBranchTopicDraft((current) =>
+                          current
+                            ? {
+                                ...current,
+                                goal: event.target.value,
+                              }
+                            : current,
+                        )
+                      }
+                      rows={8}
+                      placeholder="例如：只整理报价策略；只拆任务清单；只产出一个技术方案草稿。"
+                      className="w-full rounded-[22px] border border-white/10 bg-black/20 px-4 py-3 text-sm leading-7 text-white outline-none transition-colors focus:border-sky-500/40 custom-scrollbar"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-white/5 px-6 py-4">
+                <div className="text-xs text-white/35">分支创建后会自动插入一条 system bootstrap，标明父会话来源与子任务目标。</div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      setShowBranchTopicDialog(false);
+                      setBranchTopicDraft(null);
+                    }}
+                    className="rounded-xl border border-white/10 bg-black/20 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={() => handleCreateBranchTopic().catch(console.error)}
+                    disabled={branchTopicSaving}
+                    className="rounded-xl border border-sky-500/20 bg-sky-500/15 px-4 py-2 text-sm font-medium text-sky-100 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {branchTopicSaving ? '创建中...' : '创建 Branch Topic'}
                   </button>
                 </div>
               </div>
