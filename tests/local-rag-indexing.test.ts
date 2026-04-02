@@ -337,3 +337,58 @@ test('searchDocumentsInDatabase uses graph overlap as an additional ranking sign
     database.close();
   }
 });
+
+test('searchDocumentsInDatabase adds corrective retrieval results when the primary pass is sparse', async () => {
+  const database = await createSearchDatabase();
+
+  try {
+    database.run(`
+      CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        document_id UNINDEXED,
+        title,
+        content
+      );
+    `);
+
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      [
+        'doc_primary',
+        'Branch Return Guide',
+        'Branch handoff summary with audit notes. Use `parent_topic_id` to send findings back to the parent thread.',
+      ],
+    );
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      [
+        'doc_corrective',
+        'Parent Topic Id API',
+        '`parent_topic_id` stores the upstream topic identifier used by branch metadata records.',
+      ],
+    );
+
+    indexDocumentChunks(database, {
+      id: 'doc_primary',
+      title: 'Branch Return Guide',
+      content:
+        'Branch handoff summary with audit notes. Use `parent_topic_id` to send findings back to the parent thread.',
+    });
+    indexDocumentChunks(database, {
+      id: 'doc_corrective',
+      title: 'Parent Topic Id API',
+      content: '`parent_topic_id` stores the upstream topic identifier used by branch metadata records.',
+    });
+
+    const results = await searchDocumentsInDatabase(database, 'return branch findings');
+
+    assert.equal(results[0]?.id, 'doc_primary');
+    assert.ok(results.some((result) => result.id === 'doc_corrective'));
+    assert.notEqual(
+      results.find((result) => result.id === 'doc_corrective')?.retrievalStage,
+      'primary',
+    );
+  } finally {
+    database.close();
+  }
+});

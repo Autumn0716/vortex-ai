@@ -43,3 +43,4 @@
 - Added deterministic context compression for retrieved knowledge snippets so search results now return focused excerpts around query hits instead of always passing full document bodies downstream.
 - Added deterministic faithfulness/support metadata for retrieved knowledge snippets and preserved compressed excerpts through `searchKnowledgeDocuments()` so downstream tool output can judge result support without reverting to full documents.
 - Added a first-pass graph-assisted retrieval layer for the local knowledge base, including derived document graph nodes/edges, query-entity overlap scoring, and `graphHints` observability in search results.
+- Added a bounded corrective retrieval pass for weak or sparse knowledge-base queries so the local RAG pipeline can derive focused follow-up queries from support gaps and graph hints, then merge the extra recall path back into final ranking with `retrievalStage` metadata.

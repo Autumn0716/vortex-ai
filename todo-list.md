@@ -217,5 +217,10 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - 检索时会从 query 中抽取技术实体，与文档图节点做 overlap 打分，并把该信号作为 lexical/vector 之外的附加排序因子
 - 检索结果现在会返回 `graphHints`，方便确认当前命中究竟是哪些术语或结构关系在辅助召回
 
+进度汇报（2026-04-02，第十四次更新）:
+- 已补上第一版 corrective retrieval：当首轮知识库结果过少或支持度偏弱时，会再生成一组有界的补救查询
+- 当前补救查询优先利用首轮结果里的 `matchedTerms / graphHints`，把模糊问法往更具体的技术术语或结构字段上收窄
+- 最终结果会把主检索与补救检索合并重排，并返回 `retrievalStage = primary / corrective / hybrid` 供后续观测和 UI 接线使用
+
 当前仍待继续：
 - 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开

@@ -22,6 +22,17 @@ export interface KnowledgeGraphEdge {
   weight: number;
 }
 
+export interface CorrectiveRetrievalSignal {
+  supportLabel?: 'low' | 'medium' | 'high' | 'unknown';
+  matchedTerms?: string[];
+  graphHints?: string[];
+}
+
+export interface CorrectiveKnowledgeQueryPlan {
+  reason: 'none' | 'sparse' | 'low_support';
+  queries: string[];
+}
+
 const DEFAULT_CHUNK_SIZE = 800;
 const DEFAULT_CHUNK_OVERLAP = 120;
 const ENGLISH_QUERY_STOPWORDS = new Set([
@@ -424,6 +435,70 @@ export function buildDocumentKnowledgeGraph(title: string, content: string, maxN
   return {
     nodes,
     edges: [...edgeMap.values()].slice(0, 48),
+  };
+}
+
+export function planCorrectiveKnowledgeQueries(
+  query: string,
+  signals: CorrectiveRetrievalSignal[],
+  options: { maxResults?: number; maxQueries?: number } = {},
+): CorrectiveKnowledgeQueryPlan {
+  const maxResults = Math.max(1, options.maxResults ?? 5);
+  const maxQueries = Math.max(2, options.maxQueries ?? 6);
+  const strongHits = signals.filter((signal) => signal.supportLabel === 'high').length;
+  const usableHits = signals.filter(
+    (signal) => signal.supportLabel === 'high' || signal.supportLabel === 'medium',
+  ).length;
+  const sparse = signals.length < Math.min(3, maxResults);
+  const lowSupport = strongHits === 0 && usableHits < Math.max(1, Math.ceil(maxResults / 2));
+
+  if (!sparse && !lowSupport) {
+    return {
+      reason: 'none',
+      queries: [],
+    };
+  }
+
+  const seeds = new Set<string>();
+  const pushSeed = (value: string) => {
+    const normalized = buildSemanticCacheKey(value);
+    if (!normalized || normalized.length < 3) {
+      return;
+    }
+    seeds.add(normalized);
+  };
+
+  extractKnowledgeGraphEntities(query, 8).forEach((entry) => {
+    pushSeed(entry.normalizedEntity);
+  });
+
+  signals.slice(0, 3).forEach((signal) => {
+    signal.graphHints?.slice(0, 4).forEach((hint) => pushSeed(hint));
+    signal.matchedTerms?.slice(0, 4).forEach((term) => pushSeed(term));
+    const combinedHint = [...(signal.graphHints ?? []), ...(signal.matchedTerms ?? [])]
+      .slice(0, 4)
+      .join(' ');
+    pushSeed(combinedHint);
+  });
+
+  const queries: string[] = [];
+  const seen = new Set<string>();
+  const pushQuery = (value: string) => {
+    const normalized = buildSemanticCacheKey(value);
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    queries.push(normalized);
+  };
+
+  [...seeds]
+    .slice(0, maxQueries)
+    .forEach((seed) => expandKnowledgeSearchQueries(seed, 3).forEach((candidate) => pushQuery(candidate)));
+
+  return {
+    reason: sparse ? 'sparse' : 'low_support',
+    queries: queries.slice(0, maxQueries),
   };
 }
 

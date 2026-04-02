@@ -12,6 +12,7 @@ import {
   decomposeTaskQuery,
   expandKnowledgeSearchQueries,
   extractKnowledgeGraphEntities,
+  planCorrectiveKnowledgeQueries,
   scoreRetrievedContextSupport,
 } from './local-rag-helpers';
 import {
@@ -219,6 +220,7 @@ export interface KnowledgeDocumentSupportMetadata {
   supportLabel?: 'low' | 'medium' | 'high' | 'unknown';
   matchedTerms?: string[];
   graphHints?: string[];
+  retrievalStage?: 'primary' | 'corrective' | 'hybrid';
 }
 
 export interface KnowledgeDocumentSearchResult
@@ -229,6 +231,16 @@ interface RetrievedDocumentResult extends KnowledgeDocumentSupportMetadata {
   id: string;
   title: string;
   content: string;
+  graphHints?: string[];
+}
+
+interface DocumentSearchCandidate {
+  id: string;
+  title: string;
+  content: string;
+  lexicalScore?: number;
+  vectorScore?: number;
+  graphScore?: number;
   graphHints?: string[];
 }
 
@@ -1254,6 +1266,7 @@ function mergeSearchResultWithMetadata(
     supportLabel: result.supportLabel,
     matchedTerms: result.matchedTerms,
     graphHints: result.graphHints,
+    retrievalStage: result.retrievalStage,
   };
 }
 
@@ -2864,6 +2877,165 @@ function readGraphCandidates(
     .slice(0, 8);
 }
 
+function mergeDocumentSearchCandidate(
+  seen: Map<string, DocumentSearchCandidate>,
+  candidate: DocumentSearchCandidate,
+) {
+  const existing = seen.get(candidate.id);
+  if (!existing) {
+    seen.set(candidate.id, {
+      ...candidate,
+      graphHints: [...(candidate.graphHints ?? [])],
+    });
+    return;
+  }
+
+  existing.lexicalScore = Math.min(
+    existing.lexicalScore ?? Number.POSITIVE_INFINITY,
+    candidate.lexicalScore ?? Number.POSITIVE_INFINITY,
+  );
+  if (!Number.isFinite(existing.lexicalScore)) {
+    delete existing.lexicalScore;
+  }
+
+  existing.vectorScore = Math.max(existing.vectorScore ?? 0, candidate.vectorScore ?? 0) || undefined;
+  existing.graphScore = Math.max(existing.graphScore ?? 0, candidate.graphScore ?? 0) || undefined;
+
+  if (!existing.content.trim() && candidate.content.trim()) {
+    existing.content = candidate.content;
+  }
+
+  const graphHints = new Set([...(existing.graphHints ?? []), ...(candidate.graphHints ?? [])]);
+  existing.graphHints = [...graphHints].slice(0, 6);
+}
+
+async function collectDocumentCandidates(
+  database: Database,
+  retrievalQuery: string,
+  subqueries: string[],
+  options?: KnowledgeDocumentSearchOptions,
+): Promise<DocumentSearchCandidate[]> {
+  const seen = new Map<string, DocumentSearchCandidate>();
+  const ftsEnabled = getDocumentFtsEnabled(database);
+  const filter = buildKnowledgeDocumentFilterSql(options);
+
+  for (const subquery of subqueries) {
+    const matchQuery = buildFtsMatchQuery(subquery);
+    if (ftsEnabled && matchQuery) {
+      const rows = mapRows<DocumentSearchRow>(
+        database.exec(
+          `
+            SELECT
+              d.id,
+              d.title,
+              c.content,
+              bm25(document_chunks_fts, 1.0, 0.6) AS score
+            FROM document_chunks_fts
+            JOIN document_chunks c ON c.id = document_chunks_fts.chunk_id
+            JOIN documents d ON d.id = c.document_id
+            ${filter.joinSql}
+            WHERE document_chunks_fts MATCH ?
+            ${filter.whereSql}
+            ORDER BY score ASC
+            LIMIT 8
+          `,
+          [matchQuery, ...filter.params],
+        ),
+      );
+
+      rows.forEach((row) => {
+        mergeDocumentSearchCandidate(seen, {
+          id: row.id,
+          title: row.title,
+          content: row.content,
+          lexicalScore: row.score,
+        });
+      });
+      continue;
+    }
+
+    const terms = buildSemanticCacheKey(subquery)
+      .split(/\s+/)
+      .filter((word) => word.length > 0);
+    if (terms.length === 0) {
+      continue;
+    }
+
+    const conditions = terms.map(() => '(title LIKE ? OR content LIKE ?)').join(' OR ');
+    const params = terms.flatMap((word) => [`%${word}%`, `%${word}%`]);
+    const rows = mapRows<{ id: string; title: string; content: string }>(
+      database.exec(
+        `
+          SELECT d.id, d.title, d.content
+          FROM documents d
+          ${filter.joinSql}
+          WHERE (${conditions})
+          ${filter.whereSql}
+          LIMIT 8
+        `,
+        [...params, ...filter.params],
+      ),
+    );
+
+    rows.forEach((row, index) => {
+      mergeDocumentSearchCandidate(seen, {
+        id: row.id,
+        title: row.title,
+        content: row.content,
+        lexicalScore: index + 1,
+      });
+    });
+  }
+
+  if (options?.embeddingConfig) {
+    try {
+      await ensureDocumentEmbeddings(database, options.embeddingConfig);
+      const embeddingResponse = await createEmbeddings(retrievalQuery, options.embeddingConfig);
+      const queryEmbedding = embeddingResponse.data[0]?.embedding;
+      if (Array.isArray(queryEmbedding) && queryEmbedding.length > 0) {
+        const vectorCandidates = await readVectorCandidates(database, queryEmbedding, options);
+        vectorCandidates.forEach((candidate) => mergeDocumentSearchCandidate(seen, candidate));
+      }
+    } catch (error) {
+      console.warn('Vector search failed, falling back to lexical results:', error);
+    }
+  }
+
+  const graphCandidates = readGraphCandidates(database, retrievalQuery, options);
+  graphCandidates.forEach((candidate) => mergeDocumentSearchCandidate(seen, candidate));
+
+  return [...seen.values()];
+}
+
+function shapeRetrievedDocumentResults(
+  query: string,
+  candidates: DocumentSearchCandidate[],
+  options?: KnowledgeDocumentSearchOptions,
+  retrievalStages?: Map<string, 'primary' | 'corrective' | 'hybrid'>,
+): RetrievedDocumentResult[] {
+  return rerankHybridDocuments(hybridScoreDocuments(candidates), query)
+    .map((row) => ({
+      ...row,
+      hybridScore: row.hybridScore + (row.graphScore ?? 0) * 0.12,
+    }))
+    .sort((left, right) => right.hybridScore - left.hybridScore)
+    .slice(0, options?.maxResults ?? 5)
+    .map((row) => {
+      const compressedContent = compressRetrievedContext(query, row.content);
+      const support = scoreRetrievedContextSupport(query, row.title, compressedContent);
+      return {
+        id: row.id,
+        title: row.title,
+        content: compressedContent,
+        graphHints: row.graphHints ?? [],
+        supportScore: support.score,
+        supportLabel: support.label,
+        matchedTerms: support.matchedTerms,
+        retrievalStage: retrievalStages?.get(row.id) ?? 'primary',
+      };
+    });
+}
+
 export async function searchDocumentsInDatabase(
   database: Database,
   query: string,
@@ -2897,157 +3069,54 @@ export async function searchDocumentsInDatabase(
     }
 
     const subqueries = expandedQueries.length > 0 ? expandedQueries : decomposeTaskQuery(normalizedQuery);
-    const seen = new Map<
-      string,
-      {
-        id: string;
-        title: string;
-        content: string;
-        lexicalScore?: number;
-        vectorScore?: number;
-        graphScore?: number;
-      }
-    >();
-    const ftsEnabled = getDocumentFtsEnabled(database);
-    const filter = buildKnowledgeDocumentFilterSql(options);
+    const primaryCandidates = await collectDocumentCandidates(database, normalizedQuery, subqueries, options);
+    const retrievalStages = new Map<string, 'primary' | 'corrective' | 'hybrid'>(
+      primaryCandidates.map((candidate) => [candidate.id, 'primary']),
+    );
 
-    for (const subquery of subqueries) {
-      const matchQuery = buildFtsMatchQuery(subquery);
-      if (ftsEnabled && matchQuery) {
-        const rows = mapRows<DocumentSearchRow>(
-          database.exec(
-            `
-              SELECT
-                d.id,
-                d.title,
-                c.content,
-                bm25(document_chunks_fts, 1.0, 0.6) AS score
-              FROM document_chunks_fts
-              JOIN document_chunks c ON c.id = document_chunks_fts.chunk_id
-              JOIN documents d ON d.id = c.document_id
-              ${filter.joinSql}
-              WHERE document_chunks_fts MATCH ?
-              ${filter.whereSql}
-              ORDER BY score ASC
-              LIMIT 8
-            `,
-            [matchQuery, ...filter.params],
-          ),
-        );
+    const primaryResults = shapeRetrievedDocumentResults(normalizedQuery, primaryCandidates, options, retrievalStages);
+    const correctivePlan = planCorrectiveKnowledgeQueries(normalizedQuery, primaryResults, options);
 
-        rows.forEach((row) => {
-          const existing = seen.get(row.id);
-          if (!existing || row.score < (existing.lexicalScore ?? Number.POSITIVE_INFINITY)) {
-            seen.set(row.id, {
-              id: row.id,
-              title: row.title,
-              content: row.content,
-              lexicalScore: row.score,
-              vectorScore: existing?.vectorScore,
-            });
-          }
-        });
-        continue;
-      }
-
-      const terms = buildSemanticCacheKey(subquery)
-        .split(/\s+/)
-        .filter((word) => word.length > 0);
-      if (terms.length === 0) {
-        continue;
-      }
-
-      const conditions = terms.map(() => '(title LIKE ? OR content LIKE ?)').join(' OR ');
-      const params = terms.flatMap((word) => [`%${word}%`, `%${word}%`]);
-      const rows = mapRows<{ id: string; title: string; content: string }>(
-        database.exec(
-          `
-            SELECT d.id, d.title, d.content
-            FROM documents d
-            ${filter.joinSql}
-            WHERE (${conditions})
-            ${filter.whereSql}
-            LIMIT 8
-          `,
-          [...params, ...filter.params],
-        ),
+    let finalResults = primaryResults;
+    if (correctivePlan.queries.length > 0) {
+      const correctiveCandidates = await collectDocumentCandidates(
+        database,
+        correctivePlan.queries.join(' '),
+        correctivePlan.queries,
+        options,
       );
 
-      rows.forEach((row, index) => {
-        const existing = seen.get(row.id);
-        const fallbackScore = index + 1;
-        if (!existing || fallbackScore < (existing.lexicalScore ?? Number.POSITIVE_INFINITY)) {
-          seen.set(row.id, {
-            id: row.id,
-            title: row.title,
-            content: row.content,
-            lexicalScore: fallbackScore,
-            vectorScore: existing?.vectorScore,
-          });
-        }
-      });
-    }
+      if (correctiveCandidates.length > 0) {
+        const merged = new Map<string, DocumentSearchCandidate>(
+          primaryCandidates.map((candidate) => [candidate.id, { ...candidate, graphHints: [...(candidate.graphHints ?? [])] }]),
+        );
 
-    if (options?.embeddingConfig) {
-      try {
-        await ensureDocumentEmbeddings(database, options.embeddingConfig);
-        const embeddingResponse = await createEmbeddings(normalizedQuery, options.embeddingConfig);
-        const queryEmbedding = embeddingResponse.data[0]?.embedding;
-        if (Array.isArray(queryEmbedding) && queryEmbedding.length > 0) {
-          const vectorCandidates = await readVectorCandidates(database, queryEmbedding, options);
-          vectorCandidates.forEach((candidate) => {
-            const existing = seen.get(candidate.id);
-            if (existing) {
-              existing.vectorScore = Math.max(existing.vectorScore ?? 0, candidate.vectorScore);
-              if (!existing.content.trim()) {
-                existing.content = candidate.content;
-              }
-              return;
-            }
-            seen.set(candidate.id, candidate);
+        correctiveCandidates.forEach((candidate) => {
+          const existing = merged.get(candidate.id);
+          if (existing) {
+            mergeDocumentSearchCandidate(merged, candidate);
+            retrievalStages.set(candidate.id, 'hybrid');
+            return;
+          }
+
+          merged.set(candidate.id, {
+            ...candidate,
+            graphHints: [...(candidate.graphHints ?? [])],
           });
-        }
-      } catch (error) {
-        console.warn('Vector search failed, falling back to lexical results:', error);
+          retrievalStages.set(candidate.id, 'corrective');
+        });
+
+        finalResults = shapeRetrievedDocumentResults(
+          normalizedQuery,
+          [...merged.values()],
+          options,
+          retrievalStages,
+        );
       }
     }
 
-    const graphCandidates = readGraphCandidates(database, normalizedQuery, options);
-    graphCandidates.forEach((candidate) => {
-      const existing = seen.get(candidate.id);
-      if (existing) {
-        existing.graphScore = Math.max(existing.graphScore ?? 0, candidate.graphScore);
-        if (!existing.content.trim()) {
-          existing.content = candidate.content;
-        }
-        return;
-      }
-      seen.set(candidate.id, candidate);
-    });
-
-    const results = rerankHybridDocuments(hybridScoreDocuments([...seen.values()]), normalizedQuery)
-      .map((row) => ({
-        ...row,
-        hybridScore: row.hybridScore + (row.graphScore ?? 0) * 0.12,
-      }))
-      .sort((left, right) => right.hybridScore - left.hybridScore)
-      .slice(0, options?.maxResults ?? 5)
-      .map((row) => {
-        const compressedContent = compressRetrievedContext(normalizedQuery, row.content);
-        const support = scoreRetrievedContextSupport(normalizedQuery, row.title, compressedContent);
-        return {
-          id: row.id,
-          title: row.title,
-          content: compressedContent,
-          graphHints: graphCandidates.find((candidate) => candidate.id === row.id)?.graphHints ?? [],
-          supportScore: support.score,
-          supportLabel: support.label,
-          matchedTerms: support.matchedTerms,
-        };
-      });
-
-    writeDocumentSearchCache(database, scopedCacheKey, normalizedQuery, results);
-    return results;
+    writeDocumentSearchCache(database, scopedCacheKey, normalizedQuery, finalResults);
+    return finalResults;
   } catch (error) {
     console.error('Search error:', error);
     return [];
