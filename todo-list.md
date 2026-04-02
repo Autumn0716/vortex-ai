@@ -144,3 +144,15 @@ b.引入"高频技能缓存"（Semantic Cache)
 Session → Agent 映射：每个会话创建独立的 Agent 实例
     状态隔离：每个实例有自己的上下文、记忆、工具状态
     共享资源：知识库、向量索引等只读资源可共享
+
+进度汇报（2026-04-02，第一次更新）:
+已开始把 `Topic` 提升为真正的会话级实例：
+- `topics` 已新增 `session_mode / display_name / system_prompt_override / provider_id_override / model_override / enable_memory / enable_skills / enable_tools / enable_agent_shared_short_term`
+- 生成状态已从全局布尔值改成按 `topic` 跟踪，为不同会话并行处理打基础
+- 已接入第一版 `Quick Topic`，默认关闭记忆、skills、tools，只保留模型 + 身份 + 提示词的轻量对话路径
+- 记忆读取规则已开始分层：会话短期记忆可按 `topicId` 隔离，agent 共享短期记忆继续由 `config.json` 控制，默认关闭
+
+当前仍待继续：
+- 会话级模型/提示词/开关的可视化设置面板
+- 更完整的不同 topic 并行流式体验与状态恢复
+- `quick` 与普通 `agent` 会话的入口和管理体验继续打磨

@@ -73,6 +73,10 @@ export interface MemorySettings {
   autoTitleFromFirstMessage: boolean;
   historyWindow: number;
   keepAssistantContext: boolean;
+  enableSessionMemory: boolean;
+  enableAgentSharedShortTerm: boolean;
+  agentSharedShortTermWindowDays: number;
+  enableAgentLongTerm: boolean;
   includeGlobalMemory: boolean;
   includeRecentMemorySnapshot: boolean;
   promotionScoreThreshold: number;
@@ -346,6 +350,10 @@ export const DEFAULT_CONFIG: AgentConfig = {
     autoTitleFromFirstMessage: true,
     historyWindow: 18,
     keepAssistantContext: true,
+    enableSessionMemory: true,
+    enableAgentSharedShortTerm: false,
+    agentSharedShortTermWindowDays: 3,
+    enableAgentLongTerm: true,
     includeGlobalMemory: true,
     includeRecentMemorySnapshot: true,
     promotionScoreThreshold: 4,

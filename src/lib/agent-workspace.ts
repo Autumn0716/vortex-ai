@@ -62,6 +62,15 @@ export interface AgentProfile {
 export interface TopicSummary {
   id: string;
   agentId: string;
+  sessionMode: TopicSessionMode;
+  displayName?: string;
+  systemPromptOverride?: string;
+  providerIdOverride?: string;
+  modelOverride?: string;
+  enableMemory: boolean;
+  enableSkills: boolean;
+  enableTools: boolean;
+  enableAgentSharedShortTerm: boolean;
   title: string;
   titleSource: 'auto' | 'manual';
   preview: string;
@@ -107,9 +116,24 @@ export interface AgentMemoryDocument {
   updatedAt: string;
 }
 
+export type TopicSessionMode = 'agent' | 'quick';
+
+export interface TopicRuntimeProfile {
+  sessionMode: TopicSessionMode;
+  displayName: string;
+  systemPrompt: string;
+  providerId?: string;
+  model?: string;
+  enableMemory: boolean;
+  enableSkills: boolean;
+  enableTools: boolean;
+  enableAgentSharedShortTerm: boolean;
+}
+
 export interface TopicWorkspace {
   agent: AgentProfile;
   topic: TopicSummary;
+  runtime: TopicRuntimeProfile;
   messages: TopicMessage[];
   memoryDocuments: AgentMemoryDocument[];
 }
@@ -318,6 +342,15 @@ function toAgentProfile(row: {
 function toTopicSummary(row: {
   id: string;
   agent_id: string;
+  session_mode: TopicSessionMode | null;
+  display_name: string | null;
+  system_prompt_override: string | null;
+  provider_id_override: string | null;
+  model_override: string | null;
+  enable_memory: number | null;
+  enable_skills: number | null;
+  enable_tools: number | null;
+  enable_agent_shared_short_term: number | null;
   title: string;
   title_source: 'auto' | 'manual';
   preview: string | null;
@@ -329,6 +362,16 @@ function toTopicSummary(row: {
   return {
     id: row.id,
     agentId: row.agent_id,
+    sessionMode: row.session_mode === 'quick' ? 'quick' : 'agent',
+    displayName: row.display_name ?? undefined,
+    systemPromptOverride: row.system_prompt_override ?? undefined,
+    providerIdOverride: row.provider_id_override ?? undefined,
+    modelOverride: row.model_override ?? undefined,
+    enableMemory: row.enable_memory == null ? true : toBoolean(row.enable_memory),
+    enableSkills: row.enable_skills == null ? true : toBoolean(row.enable_skills),
+    enableTools: row.enable_tools == null ? true : toBoolean(row.enable_tools),
+    enableAgentSharedShortTerm:
+      row.enable_agent_shared_short_term == null ? false : toBoolean(row.enable_agent_shared_short_term),
     title: row.title,
     titleSource: row.title_source,
     preview: formatTopicPreview(String(row.preview ?? '')),
@@ -336,6 +379,27 @@ function toTopicSummary(row: {
     updatedAt: row.updated_at,
     lastMessageAt: row.last_message_at,
     messageCount: Number(row.message_count) || 0,
+  };
+}
+
+function resolveTopicRuntimeProfile(topic: TopicSummary, agent: AgentProfile): TopicRuntimeProfile {
+  const displayName = topic.displayName?.trim() || (topic.sessionMode === 'quick' ? topic.title : agent.name);
+  const systemPrompt =
+    topic.systemPromptOverride?.trim() ||
+    (topic.sessionMode === 'quick'
+      ? 'You are a concise, helpful AI assistant. Follow the user-defined identity and system instructions.'
+      : agent.systemPrompt);
+
+  return {
+    sessionMode: topic.sessionMode,
+    displayName,
+    systemPrompt,
+    providerId: topic.providerIdOverride ?? agent.providerId,
+    model: topic.modelOverride ?? agent.model,
+    enableMemory: topic.enableMemory,
+    enableSkills: topic.enableSkills,
+    enableTools: topic.enableTools,
+    enableAgentSharedShortTerm: topic.enableAgentSharedShortTerm,
   };
 }
 
@@ -1185,6 +1249,15 @@ export async function listTopics(agentId: string): Promise<TopicSummary[]> {
   const rows = mapRows<{
     id: string;
     agent_id: string;
+    session_mode: TopicSessionMode | null;
+    display_name: string | null;
+    system_prompt_override: string | null;
+    provider_id_override: string | null;
+    model_override: string | null;
+    enable_memory: number | null;
+    enable_skills: number | null;
+    enable_tools: number | null;
+    enable_agent_shared_short_term: number | null;
     title: string;
     title_source: 'auto' | 'manual';
     preview: string | null;
@@ -1198,6 +1271,15 @@ export async function listTopics(agentId: string): Promise<TopicSummary[]> {
         SELECT
           t.id,
           t.agent_id,
+          t.session_mode,
+          t.display_name,
+          t.system_prompt_override,
+          t.provider_id_override,
+          t.model_override,
+          t.enable_memory,
+          t.enable_skills,
+          t.enable_tools,
+          t.enable_agent_shared_short_term,
           t.title,
           t.title_source,
           (
@@ -1226,33 +1308,87 @@ export async function listTopics(agentId: string): Promise<TopicSummary[]> {
   return rows.map(toTopicSummary);
 }
 
-export async function createTopic(options: { agentId: string; title?: string }): Promise<TopicSummary> {
+export async function createTopic(options: {
+  agentId: string;
+  title?: string;
+  sessionMode?: TopicSessionMode;
+  displayName?: string;
+  systemPromptOverride?: string;
+  providerIdOverride?: string;
+  modelOverride?: string;
+  enableMemory?: boolean;
+  enableSkills?: boolean;
+  enableTools?: boolean;
+  enableAgentSharedShortTerm?: boolean;
+}): Promise<TopicSummary> {
   const database = await ensureAgentSchema();
+  const config = await getAgentConfig();
   const timestamp = nowIso();
   const topicId = createId('topic');
   const title = options.title?.trim() || DEFAULT_TOPIC_TITLE;
   const titleSource = options.title?.trim() ? 'manual' : 'auto';
+  const sessionMode = options.sessionMode ?? 'agent';
+  const enableMemory = options.enableMemory ?? (sessionMode === 'quick' ? false : true);
+  const enableSkills = options.enableSkills ?? (sessionMode === 'quick' ? false : true);
+  const enableTools = options.enableTools ?? (sessionMode === 'quick' ? false : true);
+  const enableAgentSharedShortTerm =
+    options.enableAgentSharedShortTerm ?? (sessionMode === 'quick' ? false : config.memory.enableAgentSharedShortTerm);
 
   database.run(
     `
       INSERT INTO topics (
         id,
         agent_id,
+        session_mode,
+        display_name,
+        system_prompt_override,
+        provider_id_override,
+        model_override,
+        enable_memory,
+        enable_skills,
+        enable_tools,
+        enable_agent_shared_short_term,
         title,
         title_source,
         created_at,
         updated_at,
         last_message_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
-    [topicId, options.agentId, title, titleSource, timestamp, timestamp, timestamp],
+    [
+      topicId,
+      options.agentId,
+      sessionMode,
+      options.displayName?.trim() || null,
+      options.systemPromptOverride?.trim() || null,
+      options.providerIdOverride?.trim() || null,
+      options.modelOverride?.trim() || null,
+      enableMemory ? 1 : 0,
+      enableSkills ? 1 : 0,
+      enableTools ? 1 : 0,
+      enableAgentSharedShortTerm ? 1 : 0,
+      title,
+      titleSource,
+      timestamp,
+      timestamp,
+      timestamp,
+    ],
   );
   await persistAndMaybeRebuildFts(database);
 
   const topic = mapRows<{
     id: string;
     agent_id: string;
+    session_mode: TopicSessionMode | null;
+    display_name: string | null;
+    system_prompt_override: string | null;
+    provider_id_override: string | null;
+    model_override: string | null;
+    enable_memory: number | null;
+    enable_skills: number | null;
+    enable_tools: number | null;
+    enable_agent_shared_short_term: number | null;
     title: string;
     title_source: 'auto' | 'manual';
     preview: string | null;
@@ -1266,6 +1402,15 @@ export async function createTopic(options: { agentId: string; title?: string }):
         SELECT
           id,
           agent_id,
+          session_mode,
+          display_name,
+          system_prompt_override,
+          provider_id_override,
+          model_override,
+          enable_memory,
+          enable_skills,
+          enable_tools,
+          enable_agent_shared_short_term,
           title,
           title_source,
           '' AS preview,
@@ -1286,6 +1431,30 @@ export async function createTopic(options: { agentId: string; title?: string }):
   }
 
   return toTopicSummary(topic);
+}
+
+export async function createQuickTopic(options: {
+  agentId: string;
+  title?: string;
+  displayName?: string;
+  systemPromptOverride?: string;
+  providerIdOverride?: string;
+  modelOverride?: string;
+}) {
+  const config = await getAgentConfig();
+  return createTopic({
+    agentId: options.agentId,
+    title: options.title,
+    sessionMode: 'quick',
+    displayName: options.displayName,
+    systemPromptOverride: options.systemPromptOverride,
+    providerIdOverride: options.providerIdOverride ?? config.activeProviderId,
+    modelOverride: options.modelOverride ?? config.activeModel,
+    enableMemory: false,
+    enableSkills: false,
+    enableTools: false,
+    enableAgentSharedShortTerm: false,
+  });
 }
 
 export async function updateTopicTitle(topicId: string, title: string): Promise<void> {
@@ -1310,6 +1479,15 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
   const topicRow = mapRows<{
     id: string;
     agent_id: string;
+    session_mode: TopicSessionMode | null;
+    display_name: string | null;
+    system_prompt_override: string | null;
+    provider_id_override: string | null;
+    model_override: string | null;
+    enable_memory: number | null;
+    enable_skills: number | null;
+    enable_tools: number | null;
+    enable_agent_shared_short_term: number | null;
     title: string;
     title_source: 'auto' | 'manual';
     preview: string | null;
@@ -1323,6 +1501,15 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
         SELECT
           t.id,
           t.agent_id,
+          t.session_mode,
+          t.display_name,
+          t.system_prompt_override,
+          t.provider_id_override,
+          t.model_override,
+          t.enable_memory,
+          t.enable_skills,
+          t.enable_tools,
+          t.enable_agent_shared_short_term,
           t.title,
           t.title_source,
           (
@@ -1420,9 +1607,12 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
     ),
   );
 
+  const topic = toTopicSummary(topicRow);
+
   return {
     agent,
-    topic: toTopicSummary(topicRow),
+    topic,
+    runtime: resolveTopicRuntimeProfile(topic, agent),
     messages: messageRows.map(toTopicMessage),
     memoryDocuments: memoryRows.map(toAgentMemoryDocument),
   };
@@ -1906,14 +2096,32 @@ export async function getAgentMemoryContext(
     now?: string;
     query?: string;
     embeddingConfig?: EmbeddingProviderConfig | null;
+    topicId?: string;
+    includeSessionMemory?: boolean;
+    includeAgentSharedShortTerm?: boolean;
   },
 ): Promise<string> {
   const now = options?.now ?? new Date().toISOString();
   const database = await ensureAgentSchema();
+  const rawDocuments = await listAgentMemoryDocuments(agentId, {
+    scopes: ['global', 'daily', 'session'],
+    now,
+  });
   const documents = selectEffectiveMemoryDocuments(
-    await listAgentMemoryDocuments(agentId, {
-      scopes: ['global', 'daily', 'session'],
-      now,
+    rawDocuments.filter((document) => {
+      if (document.memoryScope === 'global') {
+        return true;
+      }
+      if (document.memoryScope === 'daily') {
+        return options?.includeAgentSharedShortTerm ?? true;
+      }
+      if (document.memoryScope === 'session') {
+        if (!(options?.includeSessionMemory ?? true)) {
+          return false;
+        }
+        return options?.topicId ? document.topicId === options.topicId : true;
+      }
+      return false;
     }),
     { now },
   );

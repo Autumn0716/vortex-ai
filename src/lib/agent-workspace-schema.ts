@@ -53,6 +53,15 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
     CREATE TABLE IF NOT EXISTS topics (
       id TEXT PRIMARY KEY,
       agent_id TEXT NOT NULL,
+      session_mode TEXT NOT NULL DEFAULT 'agent',
+      display_name TEXT,
+      system_prompt_override TEXT,
+      provider_id_override TEXT,
+      model_override TEXT,
+      enable_memory INTEGER NOT NULL DEFAULT 1,
+      enable_skills INTEGER NOT NULL DEFAULT 1,
+      enable_tools INTEGER NOT NULL DEFAULT 1,
+      enable_agent_shared_short_term INTEGER NOT NULL DEFAULT 0,
       title TEXT NOT NULL,
       title_source TEXT NOT NULL DEFAULT 'auto',
       created_at TEXT NOT NULL,
@@ -104,6 +113,20 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
   ensureColumn(database, 'agent_memory_documents', 'importance_score', "importance_score INTEGER NOT NULL DEFAULT 3");
   ensureColumn(database, 'agent_memory_documents', 'topic_id', 'topic_id TEXT');
   ensureColumn(database, 'agent_memory_documents', 'event_date', 'event_date TEXT');
+  ensureColumn(database, 'topics', 'session_mode', "session_mode TEXT NOT NULL DEFAULT 'agent'");
+  ensureColumn(database, 'topics', 'display_name', 'display_name TEXT');
+  ensureColumn(database, 'topics', 'system_prompt_override', 'system_prompt_override TEXT');
+  ensureColumn(database, 'topics', 'provider_id_override', 'provider_id_override TEXT');
+  ensureColumn(database, 'topics', 'model_override', 'model_override TEXT');
+  ensureColumn(database, 'topics', 'enable_memory', 'enable_memory INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(database, 'topics', 'enable_skills', 'enable_skills INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(database, 'topics', 'enable_tools', 'enable_tools INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(
+    database,
+    'topics',
+    'enable_agent_shared_short_term',
+    'enable_agent_shared_short_term INTEGER NOT NULL DEFAULT 0',
+  );
 
   database.run(`
     CREATE INDEX IF NOT EXISTS idx_agents_default ON agents(is_default DESC, created_at ASC);

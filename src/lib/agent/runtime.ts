@@ -11,10 +11,11 @@ export interface AgentRuntimeOptions {
   providerId?: string;
   model?: string;
   systemPrompt?: string;
+  enableTools?: boolean;
 }
 
 export function createAgentRuntime(options: AgentRuntimeOptions) {
-  const { config, providerId, model, systemPrompt } = options;
+  const { config, providerId, model, systemPrompt, enableTools = true } = options;
   const { provider, model: resolvedModel } = resolveModelSelection(config, providerId, model);
 
   let llm;
@@ -46,7 +47,7 @@ export function createAgentRuntime(options: AgentRuntimeOptions) {
     throw new Error(`Unsupported provider type: ${provider.type}`);
   }
 
-  const modelWithTools = llm.bindTools(agentTools);
+  const modelWithTools = enableTools ? llm.bindTools(agentTools) : llm;
 
   const callModel = async (state: typeof MessagesAnnotation.State) => {
     const response = await modelWithTools.invoke([
@@ -67,11 +68,11 @@ export function createAgentRuntime(options: AgentRuntimeOptions) {
     return '__end__';
   };
 
-  return new StateGraph(MessagesAnnotation)
-    .addNode('agent', callModel)
-    .addNode('tools', toolNode)
-    .addEdge('__start__', 'agent')
-    .addConditionalEdges('agent', shouldContinue)
-    .addEdge('tools', 'agent')
-    .compile();
+  const graph = new StateGraph(MessagesAnnotation).addNode('agent', callModel).addEdge('__start__', 'agent');
+
+  if (!enableTools) {
+    return graph.addEdge('agent', '__end__').compile();
+  }
+
+  return graph.addNode('tools', toolNode).addConditionalEdges('agent', shouldContinue).addEdge('tools', 'agent').compile();
 }

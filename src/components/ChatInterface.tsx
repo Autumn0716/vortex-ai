@@ -28,6 +28,7 @@ import {
 } from '../lib/db';
 import {
   addTopicMessages,
+  createQuickTopic,
   createTopic,
   deleteAgentMemoryDocument,
   ensureAgentWorkspaceBootstrap,
@@ -200,6 +201,12 @@ function extractToolUsage(messages: any[], initialCount: number) {
   return tools;
 }
 
+interface TopicRunState {
+  isGenerating: boolean;
+  composerNotice: string;
+  draftAssistantMessage?: TopicMessage;
+}
+
 const WORKSPACE_BOOT_SOFT_TIMEOUT_MS = 8000;
 const WORKSPACE_BOOT_HARD_TIMEOUT_MS = 45000;
 
@@ -220,8 +227,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [activeAgentId, setActiveAgentIdState] = useState<string | null>(null);
   const [activeTopicId, setActiveTopicIdState] = useState<string | null>(null);
   const [loadingWorkspace, setLoadingWorkspace] = useState(true);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [composerNotice, setComposerNotice] = useState('');
+  const [shellNotice, setShellNotice] = useState('');
   const [bootstrapErrorDetails, setBootstrapErrorDetails] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<WorkspaceSearchResult[]>([]);
@@ -231,11 +237,33 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [modelPickerSearchQuery, setModelPickerSearchQuery] = useState('');
   const [collapsedPickerGroups, setCollapsedPickerGroups] = useState<Record<string, boolean>>({});
   const [collapsedPickerSeries, setCollapsedPickerSeries] = useState<Record<string, boolean>>({});
+  const [topicRunStates, setTopicRunStates] = useState<Record<string, TopicRunState>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const projectKnowledgeVersionRef = useRef('');
 
   const selectedAgent =
     workspace?.agent ?? agents.find((entry) => entry.id === activeAgentId) ?? null;
+  const activeRunState = activeTopicId ? topicRunStates[activeTopicId] : undefined;
+  const isGenerating = activeRunState?.isGenerating ?? false;
+  const composerNotice = activeRunState?.composerNotice ?? shellNotice;
+
+  const setTopicRunState = (topicId: string, updater: (previous: TopicRunState | undefined) => TopicRunState) => {
+    setTopicRunStates((previous) => ({
+      ...previous,
+      [topicId]: updater(previous[topicId]),
+    }));
+  };
+
+  const clearTopicRunState = (topicId: string) => {
+    setTopicRunStates((previous) => {
+      if (!(topicId in previous)) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[topicId];
+      return next;
+    });
+  };
 
   const refreshLibrary = async () => {
     const [agentRecords, snippetRecords] = await Promise.all([
@@ -287,12 +315,16 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       listAgentMemoryDocuments(nextWorkspace.agent.id),
       refreshLibrary(),
     ]);
+    const draftAssistantMessage = topicRunStates[topicId]?.draftAssistantMessage;
+    const hydratedWorkspace = {
+      ...nextWorkspace,
+      memoryDocuments: memoryRecords,
+    };
 
     startTransition(() => {
-      setWorkspace({
-        ...nextWorkspace,
-        memoryDocuments: memoryRecords,
-      });
+      setWorkspace(
+        draftAssistantMessage ? upsertWorkspaceMessage(hydratedWorkspace, draftAssistantMessage) : hydratedWorkspace,
+      );
       setTopics(topicRecords);
       setMemoryDocuments(memoryRecords);
       setActiveAgentIdState(nextWorkspace.agent.id);
@@ -303,7 +335,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   const bootstrapWorkspace = async () => {
     setLoadingWorkspace(true);
-    setComposerNotice('');
+    setShellNotice('');
     setBootstrapErrorDetails('');
 
     try {
@@ -321,7 +353,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           hardTimeoutMs: WORKSPACE_BOOT_HARD_TIMEOUT_MS,
           onSoftTimeout: () => {
             startTransition(() => {
-              setComposerNotice(
+              setShellNotice(
                 'Opening the local workspace is taking longer than usual. FlowAgent is still loading your local data.',
               );
             });
@@ -342,7 +374,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           setMemoryDocuments([]);
           setActiveTopicIdState(null);
           setLoadingWorkspace(false);
-          setComposerNotice(
+          setShellNotice(
             'Local workspace is empty or did not finish initializing. You can still open Settings or retry.',
           );
         });
@@ -358,7 +390,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           hardTimeoutMs: WORKSPACE_BOOT_HARD_TIMEOUT_MS,
           onSoftTimeout: () => {
             startTransition(() => {
-              setComposerNotice(
+              setShellNotice(
                 'Loading the current topic is taking longer than usual. FlowAgent is still waiting on local workspace data.',
               );
             });
@@ -366,7 +398,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           hardTimeoutMessage: 'Timed out while loading the current topic.',
         },
       );
-      setComposerNotice('');
+      setShellNotice('');
     } catch (error) {
       console.error('Failed to initialize agent workspace:', error);
       const errorDetails = formatErrorDetails(error);
@@ -378,7 +410,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         setActiveTopicIdState(null);
         setLoadingWorkspace(false);
         setBootstrapErrorDetails(errorDetails);
-        setComposerNotice(
+        setShellNotice(
           error instanceof TimeoutError
             ? 'Local workspace is still taking too long to open. Settings is still available, and you can retry the workspace bootstrap.'
             : 'Local workspace failed to open. Settings is still available, and you can retry the workspace bootstrap.',
@@ -390,13 +422,13 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const activateAgent = async (agentId: string) => {
     const topic = await getOrCreateActiveTopic(agentId);
     await hydrateTopic(topic.id);
-    setComposerNotice('');
+    setShellNotice('');
     setActiveTab('chat');
   };
 
   const activateTopic = async (topicId: string) => {
     await hydrateTopic(topicId);
-    setComposerNotice('');
+    setShellNotice('');
     setActiveTab('chat');
   };
 
@@ -525,6 +557,30 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     await activateTopic(created.id);
   };
 
+  const handleCreateQuickTopic = async () => {
+    const targetAgentId = activeAgentId ?? agents[0]?.id;
+    if (!targetAgentId) {
+      return;
+    }
+
+    const title = globalThis.prompt('快速会话标题', 'Quick Chat')?.trim() || 'Quick Chat';
+    const displayName = globalThis.prompt('快速会话身份名', 'Quick Assistant')?.trim() || 'Quick Assistant';
+    const systemPromptOverride =
+      globalThis.prompt('快速会话系统提示词', 'You are a concise, helpful assistant.')?.trim() ||
+      'You are a concise, helpful assistant.';
+
+    const created = await createQuickTopic({
+      agentId: targetAgentId,
+      title,
+      displayName,
+      systemPromptOverride,
+      providerIdOverride: config.activeProviderId,
+      modelOverride: config.activeModel,
+    });
+    await activateTopic(created.id);
+    setShellNotice(`Created quick session "${created.title}".`);
+  };
+
   const handleModelChange = async (value: string) => {
     const [providerId, model] = value.split('::');
     const nextConfig: AgentConfig = {
@@ -536,7 +592,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     try {
       await saveAgentConfig(nextConfig);
     } catch (error) {
-      setComposerNotice(error instanceof Error ? error.message : '配置未能写入 config.json。');
+      setShellNotice(error instanceof Error ? error.message : '配置未能写入 config.json。');
     }
   };
 
@@ -567,7 +623,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       isDefault: draft.isDefault,
       workspaceRelpath: draft.workspaceRelpath,
     });
-    setComposerNotice(`Saved agent "${saved.name}".`);
+    setShellNotice(`Saved agent "${saved.name}".`);
     await refreshLibrary();
     if (!activeAgentId || activeAgentId === saved.id || !draft.id) {
       await activateAgent(saved.id);
@@ -585,7 +641,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       title: draft.title,
       content: draft.content,
     });
-    setComposerNotice(`Updated memory for ${selectedAgent?.name ?? 'the current agent'}.`);
+    setShellNotice(`Updated memory for ${selectedAgent?.name ?? 'the current agent'}.`);
     await refreshMemory(activeAgentId);
   };
 
@@ -595,7 +651,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }
 
     await deleteAgentMemoryDocument(memoryId);
-    setComposerNotice(`Removed an agent memory entry.`);
+    setShellNotice(`Removed an agent memory entry.`);
     await refreshMemory(activeAgentId);
   };
 
@@ -611,7 +667,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       category: draft.category,
       content: draft.content,
     });
-    setComposerNotice(`Saved snippet "${draft.title}".`);
+    setShellNotice(`Saved snippet "${draft.title}".`);
     await refreshLibrary();
   };
 
@@ -635,7 +691,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     );
 
     await Promise.all(entries.map((entry) => addDocument(entry.id, entry.title, entry.content)));
-    setComposerNotice(
+    setShellNotice(
       `Imported ${entries.length} document${entries.length > 1 ? 's' : ''} into the shared knowledge base.`,
     );
     event.target.value = '';
@@ -653,7 +709,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
     await updateTopicTitle(workspace.topic.id, nextTitle);
     await hydrateTopic(workspace.topic.id);
-    setComposerNotice(`Renamed topic to "${nextTitle.trim() || workspace.topic.title}".`);
+    setShellNotice(`Renamed topic to "${nextTitle.trim() || workspace.topic.title}".`);
   };
 
   const handleSend = async () => {
@@ -678,8 +734,10 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const optimisticUserMessage = toTopicMessage(userMessage);
     setWorkspace((previous) => mergeWorkspaceMessages(previous, [optimisticUserMessage]));
     setInput('');
-    setComposerNotice('');
-    setIsGenerating(true);
+    setTopicRunState(workspaceSnapshot.topic.id, () => ({
+      isGenerating: true,
+      composerNotice: '',
+    }));
     await addTopicMessages([userMessage]);
     await maybeAutoTitleTopic(workspaceSnapshot.topic.id, userContent);
 
@@ -697,33 +755,43 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         message.role === 'user' ? new HumanMessage(message.content) : new AIMessage(message.content),
       );
 
-      const memoryContext = configSnapshot.memory.includeGlobalMemory
+      const includeAgentSharedShortTerm =
+        workspaceSnapshot.runtime.enableAgentSharedShortTerm || configSnapshot.memory.enableAgentSharedShortTerm;
+      const memoryContext = workspaceSnapshot.runtime.enableMemory && configSnapshot.memory.enableAgentLongTerm
         ? (
             await getAgentMemoryContext(workspaceSnapshot.agent.id, {
               includeRecentMemorySnapshot: configSnapshot.memory.includeRecentMemorySnapshot,
               query: userContent,
+              topicId: workspaceSnapshot.topic.id,
+              includeSessionMemory: configSnapshot.memory.enableSessionMemory,
+              includeAgentSharedShortTerm,
             })
           ).slice(0, 4000)
         : '';
-      if (configSnapshot.apiServer.enabled) {
+      if (workspaceSnapshot.runtime.enableSkills && configSnapshot.apiServer.enabled) {
         await syncAgentSkillDocuments(workspaceSnapshot.agent.id, configSnapshot.apiServer).catch((error) => {
           console.warn('Agent skill sync failed before send:', error);
         });
       }
-      const skillContext = (await getRelevantSkillContext(workspaceSnapshot.agent.id, userContent, {
-        maxResults: 4,
-        maxChars: 420,
-      })).slice(0, 2400);
+      const skillContext = workspaceSnapshot.runtime.enableSkills
+        ? (
+            await getRelevantSkillContext(workspaceSnapshot.agent.id, userContent, {
+              maxResults: 4,
+              maxChars: 420,
+            })
+          ).slice(0, 2400)
+        : '';
 
       const runtime = createAgentRuntime({
         config: configSnapshot,
-        providerId: workspaceSnapshot.agent.providerId,
-        model: workspaceSnapshot.agent.model,
+        providerId: workspaceSnapshot.runtime.providerId,
+        model: workspaceSnapshot.runtime.model,
+        enableTools: workspaceSnapshot.runtime.enableTools,
         systemPrompt: [
           configSnapshot.systemPrompt,
           memoryContext ? `Agent memory:\n${memoryContext}` : '',
           skillContext ? skillContext : '',
-          `Agent identity:\n${workspaceSnapshot.agent.systemPrompt}`,
+          `Session identity:\n${workspaceSnapshot.runtime.systemPrompt}`,
         ]
           .filter(Boolean)
           .join('\n\n'),
@@ -773,11 +841,20 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           topicId: workspaceSnapshot.topic.id,
           agentId: workspaceSnapshot.agent.id,
           role: 'assistant',
-          authorName: workspaceSnapshot.agent.name,
+          authorName: workspaceSnapshot.runtime.displayName,
           content: streamedAssistantContent,
           createdAt: new Date().toISOString(),
         });
-        setWorkspace((previous) => upsertWorkspaceMessage(previous, optimisticAssistantMessage));
+        setTopicRunState(workspaceSnapshot.topic.id, (previous) => ({
+          isGenerating: true,
+          composerNotice: previous?.composerNotice ?? '',
+          draftAssistantMessage: optimisticAssistantMessage,
+        }));
+        setWorkspace((previous) =>
+          previous?.topic.id === workspaceSnapshot.topic.id
+            ? upsertWorkspaceMessage(previous, optimisticAssistantMessage)
+            : previous,
+        );
       }
 
       const finalMessages = lastValuesState?.messages ?? [];
@@ -794,7 +871,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         topicId: workspaceSnapshot.topic.id,
         agentId: workspaceSnapshot.agent.id,
         role: 'assistant',
-        authorName: workspaceSnapshot.agent.name,
+        authorName: workspaceSnapshot.runtime.displayName,
         content: stringifyMessageContent(lastAssistantMessage.content),
         createdAt: new Date().toISOString(),
         tools: extractToolUsage(finalMessages, lcMessages.length),
@@ -808,14 +885,14 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         topicId: workspaceSnapshot.topic.id,
         agentId: workspaceSnapshot.agent.id,
         role: 'assistant',
-        authorName: workspaceSnapshot.agent.name,
+        authorName: workspaceSnapshot.runtime.displayName,
         content: `**Agent error:** ${error.message}\n\nPlease check model credentials or the runtime configuration in Settings.`,
         createdAt: new Date().toISOString(),
       };
       setWorkspace((previous) => mergeWorkspaceMessages(previous, [toTopicMessage(fallbackMessage)]));
       await addTopicMessages([fallbackMessage]);
     } finally {
-      setIsGenerating(false);
+      clearTopicRunState(workspaceSnapshot.topic.id);
       void refreshTopicList(workspaceSnapshot.agent.id).catch(console.error);
     }
   };
@@ -963,13 +1040,22 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               </select>
             </div>
 
-            <button
-              onClick={handleCreateTopic}
-              className="group flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 transition-colors hover:bg-white/10"
-            >
-              <span className="text-sm font-medium text-white/90">New Topic</span>
-              <Plus size={16} className="text-white/50 transition-colors group-hover:text-white" />
-            </button>
+            <div className="grid gap-2">
+              <button
+                onClick={handleCreateTopic}
+                className="group flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 transition-colors hover:bg-white/10"
+              >
+                <span className="text-sm font-medium text-white/90">New Topic</span>
+                <Plus size={16} className="text-white/50 transition-colors group-hover:text-white" />
+              </button>
+              <button
+                onClick={handleCreateQuickTopic}
+                className="group flex w-full items-center justify-between rounded-xl border border-white/10 bg-black/20 px-4 py-3 transition-colors hover:bg-white/10"
+              >
+                <span className="text-sm font-medium text-white/80">Quick Topic</span>
+                <Sparkles size={16} className="text-white/45 transition-colors group-hover:text-white" />
+              </button>
+            </div>
 
             <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
               <Search size={15} className="text-white/35" />
@@ -1028,7 +1114,14 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="truncate text-sm font-medium">{topic.title}</span>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-sm font-medium">{topic.title}</span>
+                      {topic.sessionMode === 'quick' ? (
+                        <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] text-amber-200/80">
+                          Quick
+                        </span>
+                      ) : null}
+                    </div>
                     <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/45">
                       {topic.messageCount}
                     </span>
@@ -1064,6 +1157,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       <div className="truncate text-sm font-semibold text-white">
                         {workspace?.topic.title ?? 'Loading topic...'}
                       </div>
+                      {workspace?.topic.sessionMode === 'quick' ? (
+                        <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] text-amber-200/80">
+                          Quick
+                        </span>
+                      ) : null}
                       {workspace ? (
                         <button
                           onClick={handleRenameTopic}
@@ -1075,7 +1173,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       ) : null}
                     </div>
                     <div className="text-[11px] text-white/40">
-                      {workspace?.agent.name ?? selectedAgent?.name ?? 'Loading agent...'} ·{' '}
+                      {workspace?.runtime.displayName ?? workspace?.agent.name ?? selectedAgent?.name ?? 'Loading agent...'} ·{' '}
                       {workspace?.agent.workspaceRelpath ?? selectedAgent?.workspaceRelpath ?? 'agents/...'}
                     </div>
                   </div>
@@ -1151,9 +1249,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     <AgentLaneColumn
                       lane={{
                         id: workspace.agent.id,
-                        name: workspace.agent.name,
+                        name: workspace.runtime.displayName,
                         description: workspace.agent.description,
-                        model: workspace.agent.model,
+                        model: workspace.runtime.model,
                         accentColor: workspace.agent.accentColor,
                         position: 0,
                       }}
@@ -1175,10 +1273,10 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 <div className="rounded-[26px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-2.5 shadow-[0_18px_50px_rgba(0,0,0,0.32)] transition-all focus-within:border-white/20 focus-within:bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))]">
                   <div className="mb-2 flex flex-wrap items-center gap-2 px-2 pb-2">
                     <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/65">
-                      {selectedAgent?.name ?? 'Agent'}
+                      {workspace.runtime.displayName}
                     </span>
                     <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/50">
-                      {config.activeModel}
+                      {workspace.runtime.model ?? config.activeModel}
                     </span>
                     <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/50">
                       {config.memory.includeGlobalMemory ? '记忆注入已开启' : '记忆注入已暂停'}
@@ -1194,7 +1292,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       }
                     }}
                     placeholder={
-                      selectedAgent ? `Message ${selectedAgent.name}...` : 'Message FlowAgent...'
+                      workspace ? `Message ${workspace.runtime.displayName}...` : 'Message FlowAgent...'
                     }
                     className="min-h-[56px] max-h-[220px] w-full resize-none bg-transparent px-3 py-2 text-sm leading-7 text-white outline-none placeholder:text-white/40 custom-scrollbar"
                     rows={1}
