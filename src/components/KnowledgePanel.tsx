@@ -100,7 +100,8 @@ export const KnowledgePanel = ({ onClose }: { onClose: () => void }) => {
         <div className="mt-6 space-y-3">
           <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3">Stored Documents</h3>
           <p className="mb-3 text-xs text-white/35">
-            Project markdown and future <code className="rounded bg-white/5 px-1 py-0.5">skills</code> docs are synced into the local index automatically on app startup.
+            Project markdown, shared <code className="rounded bg-white/5 px-1 py-0.5">skills/**/SKILL.md</code>，
+            以及当前 agent 的私有 skills 文档都会同步到本地索引。
           </p>
           
           {isLoading ? (

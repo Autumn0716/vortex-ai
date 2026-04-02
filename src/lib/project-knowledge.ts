@@ -1,5 +1,12 @@
-import { classifyKnowledgeDocument } from './knowledge-document-model';
-import { syncKnowledgeDocuments } from './db';
+import type { ApiServerSettings } from './agent/config';
+import { deleteDocument, getDocuments, syncKnowledgeDocuments } from './db';
+import { getProjectKnowledgeSnapshot } from './project-knowledge-api';
+import {
+  buildPathScopedKnowledgeDocumentId,
+  createProjectKnowledgeRecord,
+  normalizeProjectKnowledgePath,
+  type ProjectKnowledgeRecord,
+} from './project-knowledge-model';
 
 const PROJECT_MARKDOWN_DOCUMENTS = import.meta.glob(
   ['../../README.md', '../../todo-list.md', '../../docs/**/*.md', '../../skills.md', '../../skills/**/*.md'],
@@ -10,30 +17,64 @@ const PROJECT_MARKDOWN_DOCUMENTS = import.meta.glob(
   },
 ) as Record<string, string>;
 
-function toDocumentTitle(path: string) {
-  const segments = path.split('/');
-  return segments[segments.length - 1] ?? path;
+function isManagedProjectKnowledgeId(id: string) {
+  return id.startsWith('project_') || id.startsWith('bundled_');
 }
 
-function buildDocumentId(path: string) {
-  return `bundled_${path.replace(/[^a-zA-Z0-9]+/g, '_')}`;
+async function pruneStaleManagedProjectKnowledge(validRecords: ProjectKnowledgeRecord[]) {
+  const validIds = new Set(validRecords.map((record) => record.id));
+  const existing = await getDocuments();
+  const staleIds = existing
+    .filter((document) => isManagedProjectKnowledgeId(document.id))
+    .filter((document) => !validIds.has(document.id))
+    .map((document) => document.id);
+
+  for (const id of staleIds) {
+    await deleteDocument(id);
+  }
+
+  return staleIds.length;
+}
+
+async function syncManagedProjectKnowledge(records: ProjectKnowledgeRecord[]) {
+  const changed = await syncKnowledgeDocuments(records, { skipEmbeddings: true });
+  const deleted = await pruneStaleManagedProjectKnowledge(records);
+  return {
+    changed,
+    deleted,
+    total: records.length,
+  };
+}
+
+function buildBundledKnowledgeRecords() {
+  return Object.entries(PROJECT_MARKDOWN_DOCUMENTS).map(([path, content]) =>
+    createProjectKnowledgeRecord(normalizeProjectKnowledgePath(path), content),
+  );
 }
 
 export async function syncBundledKnowledgeDocuments() {
-  const records = Object.entries(PROJECT_MARKDOWN_DOCUMENTS).map(([path, content]) => {
-    const title = toDocumentTitle(path);
-    const identity = classifyKnowledgeDocument({ title, sourceUri: path });
+  return syncManagedProjectKnowledge(buildBundledKnowledgeRecords());
+}
 
-    return {
-      id: buildDocumentId(path),
-      title,
-      content,
-      sourceType: identity.sourceType,
-      sourceUri: path,
-      tags: identity.tags,
-      syncedAt: new Date().toISOString(),
-    };
-  });
+export async function syncProjectKnowledgeDocuments(settings?: ApiServerSettings | null) {
+  if (settings?.enabled) {
+    try {
+      const snapshot = await getProjectKnowledgeSnapshot(settings);
+      if (snapshot?.documents?.length) {
+        return {
+          ...(await syncManagedProjectKnowledge(snapshot.documents)),
+          version: snapshot.version,
+          source: 'host' as const,
+        };
+      }
+    } catch (error) {
+      console.warn('Host-backed project knowledge sync failed, falling back to bundled markdown:', error);
+    }
+  }
 
-  return syncKnowledgeDocuments(records, { skipEmbeddings: true });
+  return {
+    ...(await syncBundledKnowledgeDocuments()),
+    version: buildPathScopedKnowledgeDocumentId('project', 'bundled'),
+    source: 'bundled' as const,
+  };
 }

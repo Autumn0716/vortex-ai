@@ -58,12 +58,14 @@ import {
   saveAgentConfig,
 } from '../lib/agent/config';
 import { applyThemePreferences } from '../lib/theme';
-import { syncBundledKnowledgeDocuments } from '../lib/project-knowledge';
+import { syncProjectKnowledgeDocuments } from '../lib/project-knowledge';
 import { TimeoutError, withSoftTimeout } from '../lib/async-timeout';
 import { formatErrorDetails, wrapErrorWithContext } from '../lib/error-details';
 import { registerConfiguredAgentMemoryFileStore } from '../lib/agent-memory-api';
 import { buildModelGroups } from '../lib/model-groups';
 import { isAIMessageChunk } from '@langchain/core/messages';
+import { getProjectKnowledgeStatus } from '../lib/project-knowledge-api';
+import { getRelevantSkillContext, syncAgentSkillDocuments } from '../lib/agent-skills';
 
 const TerminalPanel = lazy(() =>
   import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
@@ -230,6 +232,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [collapsedPickerGroups, setCollapsedPickerGroups] = useState<Record<string, boolean>>({});
   const [collapsedPickerSeries, setCollapsedPickerSeries] = useState<Record<string, boolean>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const projectKnowledgeVersionRef = useRef('');
 
   const selectedAgent =
     workspace?.agent ?? agents.find((entry) => entry.id === activeAgentId) ?? null;
@@ -401,8 +404,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     let cancelled = false;
 
     const setup = async () => {
+      let currentConfig = normalizeAgentConfig();
       try {
-        const currentConfig = await getAgentConfig();
+        currentConfig = await getAgentConfig();
         registerConfiguredAgentMemoryFileStore(currentConfig.apiServer);
         if (!cancelled) {
           startTransition(() => {
@@ -417,8 +421,10 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         await bootstrapWorkspace();
       } finally {
         if (!cancelled) {
-          void syncBundledKnowledgeDocuments().catch((error) => {
-            console.warn('Bundled knowledge sync failed after bootstrap:', error);
+          void syncProjectKnowledgeDocuments(currentConfig.apiServer).then((result) => {
+            projectKnowledgeVersionRef.current = result.version;
+          }).catch((error) => {
+            console.warn('Project knowledge sync failed after bootstrap:', error);
           });
         }
       }
@@ -434,6 +440,45 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     applyThemePreferences(config);
     registerConfiguredAgentMemoryFileStore(config.apiServer);
   }, [config]);
+
+  useEffect(() => {
+    if (!config.apiServer.enabled) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const syncIfChanged = async () => {
+      try {
+        const status = await getProjectKnowledgeStatus(config.apiServer);
+        if (!status || cancelled) {
+          return;
+        }
+        if (status.version === projectKnowledgeVersionRef.current) {
+          return;
+        }
+        const result = await syncProjectKnowledgeDocuments(config.apiServer);
+        if (!cancelled) {
+          projectKnowledgeVersionRef.current = result.version;
+        }
+      } catch (error) {
+        console.warn('Project knowledge polling sync failed:', error);
+      }
+    };
+
+    void syncIfChanged();
+    timer = window.setInterval(() => {
+      void syncIfChanged();
+    }, 15000);
+
+    return () => {
+      cancelled = true;
+      if (typeof timer === 'number') {
+        window.clearInterval(timer);
+      }
+    };
+  }, [config.apiServer]);
 
   useEffect(() => {
     let cancelled = false;
@@ -667,6 +712,15 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             })
           ).slice(0, 4000)
         : '';
+      if (configSnapshot.apiServer.enabled) {
+        await syncAgentSkillDocuments(workspaceSnapshot.agent.id, configSnapshot.apiServer).catch((error) => {
+          console.warn('Agent skill sync failed before send:', error);
+        });
+      }
+      const skillContext = (await getRelevantSkillContext(workspaceSnapshot.agent.id, userContent, {
+        maxResults: 4,
+        maxChars: 420,
+      })).slice(0, 2400);
 
       const runtime = createAgentRuntime({
         config: configSnapshot,
@@ -675,6 +729,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         systemPrompt: [
           configSnapshot.systemPrompt,
           memoryContext ? `Agent memory:\n${memoryContext}` : '',
+          skillContext ? skillContext : '',
           `Agent identity:\n${workspaceSnapshot.agent.systemPrompt}`,
         ]
           .filter(Boolean)

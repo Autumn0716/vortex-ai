@@ -1,12 +1,12 @@
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { searchDocuments } from '../db';
+import { searchKnowledgeDocuments } from '../db';
 import { runSnippetInSandbox } from '../webcontainer';
 
 export const searchKnowledgeBaseTool = tool(
   async ({ query }) => {
     try {
-      const results = await searchDocuments(query);
+      const results = await searchKnowledgeDocuments(query, { maxResults: 5 });
       if (results.length === 0) {
         return 'No relevant documents found in the local SQLite knowledge base.';
       }
@@ -18,7 +18,7 @@ export const searchKnowledgeBaseTool = tool(
   {
     name: 'search_knowledge_base',
     description:
-      'Search the local SQLite knowledge base for information. Use this to find context or documents the user has saved.',
+      'Search the local SQLite knowledge base for information, including project docs and SKILL.md-based local skills.',
     schema: z.object({
       query: z.string().describe('The search query to look up in the database.'),
     }),

@@ -209,6 +209,15 @@ export interface KnowledgeDocumentRecord {
   updatedAt?: string;
 }
 
+export interface KnowledgeDocumentSearchResult extends KnowledgeDocumentRecord {}
+
+export interface KnowledgeDocumentSearchOptions {
+  embeddingConfig?: EmbeddingProviderConfig | null;
+  maxResults?: number;
+  sourceTypes?: KnowledgeDocumentSourceType[];
+  sourceUriPrefixes?: string[];
+}
+
 interface AssistantSeed {
   id: string;
   name: string;
@@ -1137,6 +1146,54 @@ function getDocumentMetadataRecord(database: Database, documentId: string): Know
     tags,
     syncedAt: row.synced_at ?? undefined,
     updatedAt: row.updated_at,
+  };
+}
+
+function matchesKnowledgeDocumentFilters(
+  record: Pick<KnowledgeDocumentRecord, 'sourceType' | 'sourceUri'> | null,
+  options?: Pick<KnowledgeDocumentSearchOptions, 'sourceTypes' | 'sourceUriPrefixes'>,
+) {
+  if (!record) {
+    return !options?.sourceTypes?.length && !options?.sourceUriPrefixes?.length;
+  }
+
+  if (options?.sourceTypes?.length && !options.sourceTypes.includes(record.sourceType)) {
+    return false;
+  }
+
+  if (options?.sourceUriPrefixes?.length) {
+    const sourceUri = (record.sourceUri ?? '').toLowerCase();
+    if (!options.sourceUriPrefixes.some((prefix) => sourceUri.startsWith(prefix.toLowerCase()))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function buildKnowledgeDocumentFilterSql(
+  options?: Pick<KnowledgeDocumentSearchOptions, 'sourceTypes' | 'sourceUriPrefixes'>,
+) {
+  const clauses: string[] = [];
+  const params: SqlValue[] = [];
+  const requiresMetadataJoin = Boolean(options?.sourceTypes?.length || options?.sourceUriPrefixes?.length);
+
+  if (options?.sourceTypes?.length) {
+    clauses.push(`m.source_type IN (${options.sourceTypes.map(() => '?').join(', ')})`);
+    params.push(...options.sourceTypes);
+  }
+
+  if (options?.sourceUriPrefixes?.length) {
+    clauses.push(
+      `(${options.sourceUriPrefixes.map(() => "LOWER(COALESCE(m.source_uri, '')) LIKE ?").join(' OR ')})`,
+    );
+    params.push(...options.sourceUriPrefixes.map((prefix) => `${prefix.toLowerCase()}%`));
+  }
+
+  return {
+    joinSql: requiresMetadataJoin ? 'JOIN document_metadata m ON m.document_id = d.id' : '',
+    whereSql: clauses.length > 0 ? ` AND ${clauses.join(' AND ')}` : '',
+    params,
   };
 }
 
@@ -2558,6 +2615,7 @@ export async function deleteDocument(id: string) {
 async function readVectorCandidates(
   database: Database,
   queryEmbedding: number[],
+  options?: Pick<KnowledgeDocumentSearchOptions, 'sourceTypes' | 'sourceUriPrefixes'>,
 ): Promise<Array<{ id: string; title: string; content: string; vectorScore: number }>> {
   const rows = mapRows<DocumentChunkEmbeddingRow>(
     database.exec(
@@ -2580,8 +2638,23 @@ async function readVectorCandidates(
       row.title,
     ]),
   );
+  const metadataById = new Map(
+    mapRows<{ document_id: string; source_type: KnowledgeDocumentSourceType | null; source_uri: string | null }>(
+      database.exec('SELECT document_id, source_type, source_uri FROM document_metadata'),
+    ).map((row) => [
+      row.document_id,
+      {
+        sourceType: row.source_type ?? 'user_upload',
+        sourceUri: row.source_uri ?? undefined,
+      },
+    ]),
+  );
 
   rows.forEach((row) => {
+    if (!matchesKnowledgeDocumentFilters(metadataById.get(row.document_id) ?? null, options)) {
+      return;
+    }
+
     const embedding = parseEmbeddingJson(row.embedding_json);
     const similarity = cosineSimilarity(queryEmbedding, embedding);
     if (similarity <= 0) {
@@ -2605,7 +2678,7 @@ async function readVectorCandidates(
 export async function searchDocumentsInDatabase(
   database: Database,
   query: string,
-  options?: { embeddingConfig?: EmbeddingProviderConfig | null; maxResults?: number },
+  options?: KnowledgeDocumentSearchOptions,
 ) {
   try {
     const normalizedQuery = query.trim();
@@ -2620,8 +2693,15 @@ export async function searchDocumentsInDatabase(
     const cacheKey = options?.embeddingConfig
       ? `${baseCacheKey}::hybrid::${options.embeddingConfig.model}`
       : `${baseCacheKey}::lexical`;
+    const scopedCacheKey = [
+      cacheKey,
+      options?.sourceTypes?.length ? `types=${options.sourceTypes.join(',')}` : '',
+      options?.sourceUriPrefixes?.length ? `uris=${options.sourceUriPrefixes.join(',')}` : '',
+    ]
+      .filter(Boolean)
+      .join('::');
 
-    const cached = readDocumentSearchCache(database, cacheKey);
+    const cached = readDocumentSearchCache(database, scopedCacheKey);
     if (cached) {
       return cached;
     }
@@ -2638,6 +2718,7 @@ export async function searchDocumentsInDatabase(
       }
     >();
     const ftsEnabled = getDocumentFtsEnabled(database);
+    const filter = buildKnowledgeDocumentFilterSql(options);
 
     for (const subquery of subqueries) {
       const matchQuery = buildFtsMatchQuery(subquery);
@@ -2653,11 +2734,13 @@ export async function searchDocumentsInDatabase(
               FROM document_chunks_fts
               JOIN document_chunks c ON c.id = document_chunks_fts.chunk_id
               JOIN documents d ON d.id = c.document_id
+              ${filter.joinSql}
               WHERE document_chunks_fts MATCH ?
+              ${filter.whereSql}
               ORDER BY score ASC
               LIMIT 8
             `,
-            [matchQuery],
+            [matchQuery, ...filter.params],
           ),
         );
 
@@ -2687,8 +2770,15 @@ export async function searchDocumentsInDatabase(
       const params = terms.flatMap((word) => [`%${word}%`, `%${word}%`]);
       const rows = mapRows<{ id: string; title: string; content: string }>(
         database.exec(
-          `SELECT id, title, content FROM documents WHERE ${conditions} LIMIT 8`,
-          params,
+          `
+            SELECT d.id, d.title, d.content
+            FROM documents d
+            ${filter.joinSql}
+            WHERE (${conditions})
+            ${filter.whereSql}
+            LIMIT 8
+          `,
+          [...params, ...filter.params],
         ),
       );
 
@@ -2713,7 +2803,7 @@ export async function searchDocumentsInDatabase(
         const embeddingResponse = await createEmbeddings(normalizedQuery, options.embeddingConfig);
         const queryEmbedding = embeddingResponse.data[0]?.embedding;
         if (Array.isArray(queryEmbedding) && queryEmbedding.length > 0) {
-          const vectorCandidates = await readVectorCandidates(database, queryEmbedding);
+          const vectorCandidates = await readVectorCandidates(database, queryEmbedding, options);
           vectorCandidates.forEach((candidate) => {
             const existing = seen.get(candidate.id);
             if (existing) {
@@ -2739,7 +2829,7 @@ export async function searchDocumentsInDatabase(
         content: row.content,
       }));
 
-    writeDocumentSearchCache(database, cacheKey, normalizedQuery, results);
+    writeDocumentSearchCache(database, scopedCacheKey, normalizedQuery, results);
     return results;
   } catch (error) {
     console.error('Search error:', error);
@@ -2754,6 +2844,24 @@ export async function searchDocuments(query: string) {
     embeddingConfig: buildEmbeddingConfigFromDocuments(config.documents),
     maxResults: config.documents.maxSearchResults,
   });
+  await saveDB();
+  return results;
+}
+
+export async function searchKnowledgeDocuments(
+  query: string,
+  options: Omit<KnowledgeDocumentSearchOptions, 'embeddingConfig'> = {},
+): Promise<KnowledgeDocumentSearchResult[]> {
+  const database = await initDB();
+  const config = await getAgentConfig();
+  const rows = await searchDocumentsInDatabase(database, query, {
+    ...options,
+    embeddingConfig: buildEmbeddingConfigFromDocuments(config.documents),
+  });
+
+  const results = rows
+    .map((row) => getDocumentMetadataRecord(database, row.id))
+    .filter((row): row is KnowledgeDocumentSearchResult => Boolean(row));
   await saveDB();
   return results;
 }

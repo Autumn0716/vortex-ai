@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { readProjectConfig, writeProjectConfig } from './config-store';
 import { createNightlyMemoryArchiveScheduler } from './nightly-memory-archive';
+import { getProjectKnowledgeStatus, readProjectKnowledgeSnapshot } from './project-knowledge-store';
 
 export interface FlowAgentApiServerOptions {
   authToken?: string;
@@ -185,6 +186,26 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     } catch (error) {
       response.status(400).json({
         error: error instanceof Error ? error.message : 'Failed to update nightly archive settings.',
+      });
+    }
+  });
+
+  app.get('/api/project-knowledge/status', async (_request, response) => {
+    try {
+      response.json(await getProjectKnowledgeStatus(rootDir));
+    } catch (error) {
+      response.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to read project knowledge status.',
+      });
+    }
+  });
+
+  app.get('/api/project-knowledge/documents', async (_request, response) => {
+    try {
+      response.json(await readProjectKnowledgeSnapshot(rootDir));
+    } catch (error) {
+      response.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to read project knowledge documents.',
       });
     }
   });
