@@ -1,5 +1,7 @@
 以下是所需要完成的一系列工作,你可以一步一步实现;但是务必保证功能实现完全;需要保存工作结果记录和完成度;
 todolist每项任务在完成之后要求在原文的下方进行汇报进度;
+新增要求（2026-04-02）:
+应用配置不要再只保存在浏览器里，改为项目级 `config.json` 文件真源；前端与本地宿主统一通过同一套文件配置工作，并为后续 Electron 化保留兼容路径。
 
 1.实现rag与记忆机制:
 RAG策略:
@@ -62,6 +64,11 @@ RAG策略:
 已完成第一版夜间自动归档：本地 `api-server` 现在内置 nightly scheduler，可按项目级 `.flowagent/nightly-memory-archive-settings.json` 配置在固定时间执行 agent 记忆生命周期同步。
 如果夜间服务未开启，`api-server` 下次启动时会自动检测错过的时间窗并补跑一次归档；归档结果与失败摘要会写回 `.flowagent/nightly-memory-archive-state.json`，不会因为单个 agent 失败而阻塞其他 agent。
 设置页 `API 服务器` 分类已新增“夜间自动归档”卡片，可直接启用任务、设置时间并查看最近一次执行、下一次计划时间和补跑状态。当前剩余的是重要性评分驱动驻留、将全局/热/温层逐步并入统一 memory RAG，以及更细粒度的 Query Router 扩展。
+
+进度汇报（2026-04-02，第十次更新）:
+已开始把应用配置从浏览器 `localforage` 迁移到项目级 `config.json`：当前仓库已新增 `config.example.json` 模板，`config.json` 会作为本地私有配置文件存在于项目根目录，并加入 `.gitignore`。
+本地 `api-server` 已补上 `/api/config` 读写接口，前端配置读取会优先走 host bridge；若发现旧浏览器配置且当前文件配置仍是默认值，会自动把 legacy 配置迁移到 `config.json`。
+开发态启动链路也开始向“内置宿主服务”收口：`npm run dev` 现在会同时带起前端和本地 `api-server`，为后续 Electron 封装预留同一套 host/config 结构。当前剩余的是把所有设置写入路径完全切到文件真源，并在此基础上接入 LLM 夜间重要性评分。
 
 全局记忆每次更新，会建立 rag 索引，
 每日记忆改为实时增量索引,当天内容也能及时检索,夜间再做压缩;且 2 天内保留索引（热层），

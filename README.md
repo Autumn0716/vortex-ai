@@ -46,7 +46,16 @@ npm install
 npm run dev
 ```
 
-Vite 应用默认运行在 `http://127.0.0.1:3000`。
+`npm run dev` 现在会同时启动前端和本地 `api-server`。默认情况下：
+
+- Vite 前端运行在 `http://127.0.0.1:3000`
+- 本地 `api-server` 运行在 `http://127.0.0.1:3850`
+
+如果你只想单独启动前端开发服务器，可以使用：
+
+```bash
+npm run dev:web
+```
 
 ### 本地记忆 API 服务器
 
@@ -69,6 +78,20 @@ npm run api-server
 - 启用本地 API 服务器开关
 - 保持 `http://127.0.0.1:3850` 作为默认 `baseUrl`，或指向自定义服务器
 - 如果配置了 `FLOWAGENT_API_TOKEN`，在 `authToken` 中放入相同令牌
+
+## 配置存储机制
+
+应用配置现在使用项目根目录的文件作为真源。
+
+- 本地私有配置文件：`config.json`
+- 仓库模板文件：`config.example.json`
+- `config.json` 已加入 `.gitignore`，不会提交到 git
+
+运行时规则：
+
+- 前端优先通过本地 `api-server` 读取和写入 `config.json`
+- 如果检测到旧浏览器配置且当前文件配置还是默认值，会自动迁移到 `config.json`
+- 如果本地 host bridge 不可用，前端会回退到默认配置启动，但不会假装已经持久化保存成功
 
 ## 记忆存储机制
 
@@ -132,6 +155,7 @@ npm run api-server
 - ✅ 温层摘要替身
 - ✅ 冷层向量归档（第一版）
 - ✅ 夜间自动归档（api-server 调度 + 启动补跑）
+- ✅ 配置迁移到项目级 `config.json`
 
 ### 正在进行
 - 🔄 重要性评分驱动驻留

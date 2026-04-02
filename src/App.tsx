@@ -21,7 +21,7 @@ import {
 import { FlowingPixels } from './components/FlowingPixels';
 import { ChatInterface } from './components/ChatInterface';
 import { cn } from './lib/utils';
-import { getAgentConfig } from './lib/agent/config';
+import { getAgentConfig, normalizeAgentConfig } from './lib/agent/config';
 import { applyThemePreferences } from './lib/theme';
 
 const FeatureCard = ({ icon: Icon, title, description }: { icon: any, title: string, description: string }) => (
@@ -43,7 +43,10 @@ export default function App() {
   useEffect(() => {
     getAgentConfig()
       .then((config) => applyThemePreferences(config))
-      .catch(console.error);
+      .catch((error) => {
+        console.error('Failed to load agent config:', error);
+        applyThemePreferences(normalizeAgentConfig());
+      });
   }, []);
 
   if (currentView === 'chat') {
@@ -290,4 +293,3 @@ export default function App() {
     </div>
   );
 }
-

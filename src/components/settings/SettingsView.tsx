@@ -335,6 +335,7 @@ export const SettingsView = ({
   const [memoryFileLoading, setMemoryFileLoading] = useState(false);
   const [memoryFileStatus, setMemoryFileStatus] = useState<MemoryFileStatus | null>(null);
   const [apiServerSummary, setApiServerSummary] = useState<string>('');
+  const [configSaveStatus, setConfigSaveStatus] = useState<MemoryFileStatus | null>(null);
   const [nightlyArchiveStatus, setNightlyArchiveStatus] = useState<NightlyArchiveStatus | null>(null);
   const [nightlyArchiveLoading, setNightlyArchiveLoading] = useState(false);
   const [nightlyArchiveEnabled, setNightlyArchiveEnabled] = useState(false);
@@ -466,8 +467,16 @@ export const SettingsView = ({
     const normalized = normalizeAgentConfig(nextConfig);
     setDraft(normalized);
     applyThemePreferences(normalized);
-    await saveAgentConfig(normalized);
-    onConfigSaved?.(normalized);
+    try {
+      await saveAgentConfig(normalized);
+      setConfigSaveStatus({ tone: 'success', message: '已写入项目根目录 config.json。' });
+      onConfigSaved?.(normalized);
+    } catch (error) {
+      setConfigSaveStatus({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '写入 config.json 失败。',
+      });
+    }
   };
 
   const updateDraft = async (updater: (current: AgentConfig) => AgentConfig) => {
@@ -2957,7 +2966,24 @@ export const SettingsView = ({
               <X size={18} />
             </button>
 
-            <div className="flex-1 overflow-y-auto p-6 pr-14 custom-scrollbar">{renderSettingsContent()}</div>
+            <div className="flex-1 overflow-y-auto p-6 pr-14 custom-scrollbar">
+              <div className="space-y-4">
+                {configSaveStatus ? (
+                  <div
+                    className={`rounded-2xl border px-4 py-3 text-sm ${
+                      configSaveStatus.tone === 'error'
+                        ? 'border-red-500/20 bg-red-500/10 text-red-100'
+                        : configSaveStatus.tone === 'success'
+                          ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100'
+                          : 'border-white/10 bg-white/[0.03] text-white/70'
+                    }`}
+                  >
+                    {configSaveStatus.message}
+                  </div>
+                ) : null}
+                {renderSettingsContent()}
+              </div>
+            </div>
           </div>
         )}
       </div>

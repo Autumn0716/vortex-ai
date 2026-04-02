@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev": "node scripts/dev-all.mjs",
+    "dev:all": "node scripts/dev-all.mjs",
+    "dev:web": "vite --port=3000 --host=0.0.0.0",
     "api-server": "tsx server/api-server.ts",
     "build": "vite build",
     "preview": "vite preview",

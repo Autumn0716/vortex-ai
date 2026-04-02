@@ -1,4 +1,5 @@
 import localforage from 'localforage';
+import { DEFAULT_API_SERVER_BASE_URL, getProjectConfig, saveProjectConfig } from '../agent-memory-api';
 
 export type ProviderType = 'openai' | 'anthropic' | 'custom_openai';
 export type ProxyMode = 'direct' | 'system' | 'custom';
@@ -138,6 +139,15 @@ export interface AgentConfig {
   apiServer: ApiServerSettings;
   documents: DocumentProcessingSettings;
   data: DataSettings;
+}
+
+interface ConfigMigrationDependencies {
+  bootstrapSettings?: ApiServerSettings;
+  defaultConfig?: AgentConfig;
+  readLegacyConfig?: () => Promise<AgentConfig | null>;
+  clearLegacyConfig?: () => Promise<void>;
+  readHostConfig?: (settings: ApiServerSettings) => Promise<AgentConfig | null>;
+  writeHostConfig?: (settings: ApiServerSettings, value: AgentConfig) => Promise<AgentConfig | null>;
 }
 
 interface EmbeddingEnvironmentDefaults {
@@ -383,6 +393,86 @@ function readEmbeddingEnvironmentDefaults(): EmbeddingEnvironmentDefaults {
   };
 }
 
+const LEGACY_CONFIG_KEY = 'agent_config_v3';
+let lastKnownConfigApiSettings: ApiServerSettings = {
+  enabled: true,
+  baseUrl: DEFAULT_API_SERVER_BASE_URL,
+  authToken: '',
+};
+
+function normalizeConfigBridgeSettings(value?: Partial<ApiServerSettings> | null): ApiServerSettings {
+  return {
+    enabled: true,
+    baseUrl: value?.baseUrl?.trim() || DEFAULT_API_SERVER_BASE_URL,
+    authToken: value?.authToken ?? '',
+  };
+}
+
+function syncLastKnownConfigApiSettings(config: AgentConfig) {
+  lastKnownConfigApiSettings = normalizeConfigBridgeSettings(config.apiServer);
+}
+
+function isDefaultConfig(config: AgentConfig) {
+  return JSON.stringify(normalizeAgentConfig(config)) === JSON.stringify(normalizeAgentConfig(DEFAULT_CONFIG));
+}
+
+async function readLegacyAgentConfig() {
+  const config = await localforage.getItem<AgentConfig>(LEGACY_CONFIG_KEY);
+  return config ? normalizeAgentConfig(config) : null;
+}
+
+async function clearLegacyAgentConfig() {
+  await localforage.removeItem(LEGACY_CONFIG_KEY);
+}
+
+export async function loadConfigWithMigration(
+  dependencies: ConfigMigrationDependencies = {},
+): Promise<AgentConfig> {
+  const defaultConfig = normalizeAgentConfig(dependencies.defaultConfig ?? DEFAULT_CONFIG);
+  const readLegacyConfig = dependencies.readLegacyConfig ?? readLegacyAgentConfig;
+  const clearLegacyConfig = dependencies.clearLegacyConfig ?? clearLegacyAgentConfig;
+  const readHostConfig = dependencies.readHostConfig ?? getProjectConfig;
+  const writeHostConfig = dependencies.writeHostConfig ?? saveProjectConfig;
+  const bootstrapSettings = normalizeConfigBridgeSettings(
+    dependencies.bootstrapSettings ?? lastKnownConfigApiSettings,
+  );
+  const legacyConfig = await readLegacyConfig();
+
+  try {
+    const hostConfig = await readHostConfig(bootstrapSettings);
+    if (!hostConfig) {
+      const created = normalizeAgentConfig((await writeHostConfig(bootstrapSettings, legacyConfig ?? defaultConfig)) ?? (legacyConfig ?? defaultConfig));
+      syncLastKnownConfigApiSettings(created);
+      if (legacyConfig) {
+        await clearLegacyConfig();
+      }
+      return created;
+    }
+
+    const normalizedHostConfig = normalizeAgentConfig(hostConfig);
+    if (legacyConfig && isDefaultConfig(normalizedHostConfig)) {
+      const migrated = normalizeAgentConfig((await writeHostConfig(bootstrapSettings, legacyConfig)) ?? legacyConfig);
+      syncLastKnownConfigApiSettings(migrated);
+      await clearLegacyConfig();
+      return migrated;
+    }
+
+    syncLastKnownConfigApiSettings(normalizedHostConfig);
+    if (legacyConfig) {
+      await clearLegacyConfig();
+    }
+    return normalizedHostConfig;
+  } catch (error) {
+    if (legacyConfig) {
+      syncLastKnownConfigApiSettings(legacyConfig);
+      return legacyConfig;
+    }
+    console.warn('Failed to load file-backed config, falling back to defaults:', error);
+    syncLastKnownConfigApiSettings(defaultConfig);
+    return defaultConfig;
+  }
+}
+
 export function resolveDocumentProcessingSettings(
   value?: Partial<DocumentProcessingSettings>,
   envDefaults: EmbeddingEnvironmentDefaults = readEmbeddingEnvironmentDefaults(),
@@ -620,10 +710,15 @@ export function resolveModelSelection(config: AgentConfig, providerId?: string, 
 }
 
 export async function getAgentConfig(): Promise<AgentConfig> {
-  const config = await localforage.getItem<AgentConfig>('agent_config_v3');
-  return normalizeAgentConfig(config);
+  return loadConfigWithMigration();
 }
 
 export async function saveAgentConfig(config: AgentConfig): Promise<void> {
-  await localforage.setItem('agent_config_v3', normalizeAgentConfig(config));
+  const normalized = normalizeAgentConfig(config);
+  const saved = await saveProjectConfig(lastKnownConfigApiSettings, normalized);
+  if (!saved) {
+    throw new Error('The local API server is unavailable, so config.json could not be updated.');
+  }
+  syncLastKnownConfigApiSettings(normalized);
+  await clearLegacyAgentConfig().catch(() => undefined);
 }

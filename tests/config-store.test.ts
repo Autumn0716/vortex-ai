@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { getConfigFilePath, readProjectConfig, writeProjectConfig } from '../server/config-store';
-import { normalizeAgentConfig } from '../src/lib/agent/config';
+import { type AgentConfig, normalizeAgentConfig } from '../src/lib/agent/config';
 
 const tempRoots: string[] = [];
 
@@ -41,14 +41,14 @@ test('writeProjectConfig persists normalized config to config.json', async () =>
     activeModel: 'gpt-4o',
     apiServer: { enabled: true, baseUrl: 'http://127.0.0.1:3850' },
     memory: { includeRecentMemorySnapshot: false },
-  });
+  } as Partial<AgentConfig>);
 
   const expected = normalizeAgentConfig({
     activeProviderId: 'openai',
     activeModel: 'gpt-4o',
     apiServer: { enabled: true, baseUrl: 'http://127.0.0.1:3850' },
     memory: { includeRecentMemorySnapshot: false },
-  });
+  } as Partial<AgentConfig>);
 
   assert.deepEqual(saved, expected);
 

@@ -448,7 +448,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       activeModel: model,
     };
     setConfig(nextConfig);
-    await saveAgentConfig(nextConfig);
+    try {
+      await saveAgentConfig(nextConfig);
+    } catch (error) {
+      setComposerNotice(error instanceof Error ? error.message : '配置未能写入 config.json。');
+    }
   };
 
   const handleSaveAgent = async (draft: {
