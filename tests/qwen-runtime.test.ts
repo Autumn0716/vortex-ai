@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { z } from 'zod';
 import { normalizeAgentConfig } from '../src/lib/agent/config';
 import { buildChatModelKwargs, buildResponseTools } from '../src/lib/agent/runtime';
 
@@ -71,4 +72,29 @@ test('buildResponseTools includes official qwen responses tools and enabled SSE 
   assert.deepEqual(tools[4], { type: 'image_search' });
   assert.equal(tools[5]?.type, 'mcp');
   assert.equal((tools[5] as Record<string, unknown>).server_protocol, 'sse');
+});
+
+test('buildResponseTools appends custom function tools using official responses schema', () => {
+  const config = normalizeAgentConfig();
+  const tools = buildResponseTools(config, {
+    enableTools: true,
+    enableWebSearch: false,
+    customTools: [
+      {
+        name: 'search_knowledge_base',
+        description: 'Search local docs',
+        schema: z.object({
+          query: z.string(),
+        }),
+      },
+    ],
+  });
+
+  const functionTool = tools.find((entry) => (entry as Record<string, unknown>).type === 'function') as
+    | Record<string, unknown>
+    | undefined;
+  assert.ok(functionTool);
+  assert.equal(functionTool?.name, 'search_knowledge_base');
+  assert.equal(functionTool?.description, 'Search local docs');
+  assert.equal((functionTool?.parameters as Record<string, unknown>).type, 'object');
 });

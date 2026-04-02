@@ -8,11 +8,13 @@ import {
   createBranchTopicFromTopic,
   createQuickTopic,
   createTopic,
+  getDefaultTopicModelFeatures,
   getAgentMemoryContext,
   getTopicWorkspace,
   handoffBranchTopicToParent,
   saveAgent,
   saveAgentMemoryDocument,
+  updateTopicModelFeatures,
   updateTopicSessionSettings,
 } from '../src/lib/agent-workspace';
 
@@ -77,6 +79,7 @@ test('quick topics resolve to session-scoped runtime overrides with agent featur
   assert.equal(quickWorkspace?.runtime.enableSkills, false);
   assert.equal(quickWorkspace?.runtime.enableTools, false);
   assert.equal(quickWorkspace?.runtime.enableAgentSharedShortTerm, false);
+  assert.deepEqual(quickWorkspace?.runtime.modelFeatures, getDefaultTopicModelFeatures());
 });
 
 test('agent memory context keeps session short-term isolated unless agent-shared short-term is enabled', async () => {
@@ -220,6 +223,57 @@ test('updateTopicSessionSettings persists topic-level runtime overrides without 
   assert.equal(resetWorkspace?.runtime.systemPrompt, 'Template system prompt.');
   assert.equal(resetWorkspace?.runtime.providerId, 'openai');
   assert.equal(resetWorkspace?.runtime.model, 'gpt-4o');
+});
+
+test('topic model features persist and branch topics inherit them', async () => {
+  localforageState.clear();
+  const agentId = createAgentId('agent_model_features');
+  await saveAgent({
+    id: agentId,
+    name: 'Model Feature Agent',
+    description: 'Agent used to verify persisted model feature settings',
+    systemPrompt: 'Template prompt.',
+    accentColor: 'from-violet-500/20 to-indigo-500/20',
+    workspaceRelpath: `agents/${agentId}`,
+    providerId: 'dashscope',
+    model: 'qwen-plus',
+  });
+
+  const topic = await createTopic({ agentId, title: 'Qwen Runtime' });
+  await updateTopicModelFeatures(topic.id, {
+    enableThinking: true,
+    enableCustomFunctionCalling: true,
+    responsesTools: {
+      webSearch: true,
+      webSearchImage: false,
+      webExtractor: true,
+      codeInterpreter: true,
+      imageSearch: false,
+      mcp: true,
+    },
+    structuredOutput: {
+      mode: 'json_schema',
+      schema: '{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}',
+    },
+  });
+
+  const updatedWorkspace = await getTopicWorkspace(topic.id);
+  assert.ok(updatedWorkspace);
+  assert.equal(updatedWorkspace?.runtime.modelFeatures.enableThinking, true);
+  assert.equal(updatedWorkspace?.runtime.modelFeatures.enableCustomFunctionCalling, true);
+  assert.equal(updatedWorkspace?.runtime.modelFeatures.responsesTools.webSearch, true);
+  assert.equal(updatedWorkspace?.runtime.modelFeatures.responsesTools.webExtractor, true);
+  assert.equal(updatedWorkspace?.runtime.modelFeatures.responsesTools.codeInterpreter, true);
+  assert.equal(updatedWorkspace?.runtime.modelFeatures.responsesTools.mcp, true);
+  assert.equal(updatedWorkspace?.runtime.modelFeatures.structuredOutput.mode, 'json_schema');
+
+  const branchTopic = await createBranchTopicFromTopic({
+    sourceTopicId: topic.id,
+    title: 'Qwen Runtime · Branch',
+  });
+  const branchWorkspace = await getTopicWorkspace(branchTopic.id);
+  assert.ok(branchWorkspace);
+  assert.deepEqual(branchWorkspace?.runtime.modelFeatures, updatedWorkspace?.runtime.modelFeatures);
 });
 
 test('branch topics inherit runtime settings but keep isolated follow-up context', async () => {

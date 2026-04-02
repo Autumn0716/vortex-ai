@@ -59,6 +59,7 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
       system_prompt_override TEXT,
       provider_id_override TEXT,
       model_override TEXT,
+      model_features_json TEXT,
       enable_memory INTEGER NOT NULL DEFAULT 1,
       enable_skills INTEGER NOT NULL DEFAULT 1,
       enable_tools INTEGER NOT NULL DEFAULT 1,
@@ -121,6 +122,7 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
   ensureColumn(database, 'topics', 'system_prompt_override', 'system_prompt_override TEXT');
   ensureColumn(database, 'topics', 'provider_id_override', 'provider_id_override TEXT');
   ensureColumn(database, 'topics', 'model_override', 'model_override TEXT');
+  ensureColumn(database, 'topics', 'model_features_json', 'model_features_json TEXT');
   ensureColumn(database, 'topics', 'enable_memory', 'enable_memory INTEGER NOT NULL DEFAULT 1');
   ensureColumn(database, 'topics', 'enable_skills', 'enable_skills INTEGER NOT NULL DEFAULT 1');
   ensureColumn(database, 'topics', 'enable_tools', 'enable_tools INTEGER NOT NULL DEFAULT 1');

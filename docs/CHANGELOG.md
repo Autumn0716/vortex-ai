@@ -58,3 +58,6 @@
 - Added reasoning-preview plumbing so chat-compatible Qwen streams that emit `reasoning_content` can surface a compact “思考中” notice instead of silently discarding the reasoning delta.
 - Added image attachments to topic messages so local uploads are persisted with the conversation and can be reused by retries or future runtime calls instead of existing only in composer state.
 - Added first-pass Qwen image tool wiring for `web_search_image` and `image_search`, including composer-side image uploads, persisted message attachments, and Responses input conversion to `input_image` data URLs.
+- Moved vendor/model-specific advanced capabilities out of the composer search popover and into a dedicated topic-level `模型功能` panel in the chat header, leaving the composer popover responsible only for basic web-search provider selection.
+- Added topic-persisted model feature state so current-session settings like Qwen thinking, Responses built-in tools, structured output, and function-calling mode now survive reloads and branch inheritance.
+- Added official-style Qwen Responses function-calling support by serializing local tool schemas as `type: function`, executing model-issued function calls locally, and continuing the Responses loop with `function_call_output` payloads until a final assistant answer is produced.

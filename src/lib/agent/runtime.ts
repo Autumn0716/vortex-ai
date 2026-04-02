@@ -6,6 +6,7 @@ import { AIMessage, SystemMessage, isAIMessageChunk } from '@langchain/core/mess
 import { createAgentTools } from './tools';
 import { AgentConfig, resolveModelSelection } from './config';
 import { getProviderRequestMode, normalizeBaseUrl } from '../provider-compatibility';
+import { z } from 'zod';
 
 export interface AgentRuntimeOptions {
   config: AgentConfig;
@@ -23,6 +24,7 @@ export interface AgentRuntimeOptions {
     codeInterpreter?: boolean;
     imageSearch?: boolean;
     mcp?: boolean;
+    customFunctionCalling?: boolean;
   };
   structuredOutput?: {
     mode: 'text' | 'json_object' | 'json_schema';
@@ -55,6 +57,12 @@ interface CompiledAgentRuntime {
     input: AgentRuntimeInput,
     options?: AgentRuntimeStreamOptions,
   ): AsyncGenerator<AgentRuntimeStreamEvent, void, void>;
+}
+
+interface PendingResponseFunctionCall {
+  name: string;
+  callId: string;
+  argumentsText: string;
 }
 
 function stringifyMessageContent(content: unknown) {
@@ -148,6 +156,7 @@ export function buildResponseTools(
     enableCodeInterpreter?: boolean;
     enableImageSearch?: boolean;
     enableMcp?: boolean;
+    customTools?: Array<{ name: string; description?: string; schema?: z.ZodTypeAny }>;
   },
 ) {
   if (!options.enableTools) {
@@ -195,7 +204,112 @@ export function buildResponseTools(
       });
   }
 
+  if (options.customTools?.length) {
+    options.customTools.forEach((tool) => {
+      const parameters =
+        tool.schema && typeof z.toJSONSchema === 'function' ? z.toJSONSchema(tool.schema) : {};
+      tools.push({
+        type: 'function',
+        name: tool.name,
+        description: tool.description || tool.name,
+        parameters,
+      });
+    });
+  }
+
   return tools;
+}
+
+function parsePendingFunctionCall(item: Record<string, any>): PendingResponseFunctionCall | null {
+  if (item.type !== 'function_call') {
+    return null;
+  }
+
+  const name = typeof item.name === 'string' ? item.name.trim() : '';
+  const callId =
+    typeof item.call_id === 'string'
+      ? item.call_id.trim()
+      : typeof item.id === 'string'
+        ? item.id.trim()
+        : typeof item.tool_call_id === 'string'
+          ? item.tool_call_id.trim()
+          : '';
+  if (!name || !callId) {
+    return null;
+  }
+
+  return {
+    name,
+    callId,
+    argumentsText:
+      typeof item.arguments === 'string'
+        ? item.arguments
+        : item.arguments == null
+          ? '{}'
+          : JSON.stringify(item.arguments),
+  };
+}
+
+async function executeResponseFunctionCall(
+  toolMap: Map<string, any>,
+  call: PendingResponseFunctionCall,
+) {
+  const tool = toolMap.get(call.name);
+  if (!tool) {
+    const errorPayload = `Tool "${call.name}" is not registered in the current runtime.`;
+    return {
+      toolEvent: {
+        name: call.name,
+        status: 'completed' as const,
+        result: errorPayload,
+      },
+      outputItem: {
+        type: 'function_call_output',
+        call_id: call.callId,
+        output: errorPayload,
+      },
+    };
+  }
+
+  let parsedArgs: unknown = {};
+  try {
+    parsedArgs = call.argumentsText.trim() ? JSON.parse(call.argumentsText) : {};
+  } catch (error) {
+    const errorPayload = `Invalid JSON arguments for "${call.name}": ${error instanceof Error ? error.message : String(error)}`;
+    return {
+      toolEvent: {
+        name: call.name,
+        status: 'completed' as const,
+        result: errorPayload,
+      },
+      outputItem: {
+        type: 'function_call_output',
+        call_id: call.callId,
+        output: errorPayload,
+      },
+    };
+  }
+
+  let toolOutput: unknown;
+  try {
+    toolOutput = await tool.invoke(parsedArgs);
+  } catch (error) {
+    toolOutput = `Tool "${call.name}" failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+
+  const outputText = typeof toolOutput === 'string' ? toolOutput : JSON.stringify(toolOutput, null, 2);
+  return {
+    toolEvent: {
+      name: call.name,
+      status: 'completed' as const,
+      result: outputText.slice(0, 1200),
+    },
+    outputItem: {
+      type: 'function_call_output',
+      call_id: call.callId,
+      output: outputText,
+    },
+  };
 }
 
 export function buildChatModelKwargs(options: {
@@ -399,6 +513,8 @@ async function* streamResponsesRuntime(options: {
   signal?: AbortSignal;
   enableTools: boolean;
   enableThinking: boolean;
+  enableWebSearch: boolean;
+  searchProviderId?: string;
   responsesTools?: AgentRuntimeOptions['responsesTools'];
 }): AsyncGenerator<AgentRuntimeStreamEvent, void, void> {
   const baseUrl = normalizeBaseUrl(options.provider.baseUrl);
@@ -409,97 +525,152 @@ async function* streamResponsesRuntime(options: {
     throw new Error(`${options.provider.name} API key is missing. Please configure it in Settings.`);
   }
 
-  const response = await fetch(`${baseUrl}/responses`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${options.provider.apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: options.model,
-      input: buildResponseInput(options.input.messages, options.systemPrompt),
-      stream: true,
-      stream_options: {
-        include_usage: true,
-      },
-      enable_thinking: options.enableThinking,
-      tools: buildResponseTools(options.config, {
-        enableTools: options.enableTools,
-        enableWebSearch: Boolean(options.responsesTools?.webSearch),
-        enableWebSearchImage: Boolean(options.responsesTools?.webSearchImage),
-        enableWebExtractor: Boolean(options.responsesTools?.webExtractor),
-        enableCodeInterpreter: Boolean(options.responsesTools?.codeInterpreter),
-        enableImageSearch: Boolean(options.responsesTools?.imageSearch),
-        enableMcp: Boolean(options.responsesTools?.mcp),
-      }),
-    }),
-    signal: options.signal,
-  });
-
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    const message =
-      (payload as any)?.error?.message ||
-      (payload as any)?.message ||
-      `HTTP ${response.status} ${response.statusText}`;
-    throw new Error(message);
-  }
-
-  if (!response.body) {
-    throw new Error('Responses API did not return a readable stream.');
-  }
-
+  const customTools =
+    options.enableTools && options.responsesTools?.customFunctionCalling
+      ? createAgentTools(options.config, {
+          webSearchEnabled: options.enableWebSearch,
+          searchProviderId: options.searchProviderId,
+        })
+      : [];
+  const customToolMap = new Map(customTools.map((tool) => [tool.name, tool]));
   const messageId = `response_${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`;
-  let finalContent = '';
   const tools: AgentToolResult[] = [];
+  const baseRequest = {
+    model: options.model,
+    stream: true,
+    stream_options: {
+      include_usage: true,
+    },
+    enable_thinking: options.enableThinking,
+    tools: buildResponseTools(options.config, {
+      enableTools: options.enableTools,
+      enableWebSearch: Boolean(options.responsesTools?.webSearch),
+      enableWebSearchImage: Boolean(options.responsesTools?.webSearchImage),
+      enableWebExtractor: Boolean(options.responsesTools?.webExtractor),
+      enableCodeInterpreter: Boolean(options.responsesTools?.codeInterpreter),
+      enableImageSearch: Boolean(options.responsesTools?.imageSearch),
+      enableMcp: Boolean(options.responsesTools?.mcp),
+      customTools: customTools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        schema: tool.schema,
+      })),
+    }),
+  };
 
-  for await (const event of parseResponseSse(response.body)) {
-    const type = typeof event.type === 'string' ? event.type : '';
-    if (type === 'response.output_text.delta') {
-      const delta = String(event.delta ?? '');
-      finalContent += delta;
-      if (delta) {
-        yield {
-          type: 'assistant_delta',
-          messageId,
-          delta,
-        };
-      }
-      continue;
+  let nextInput: unknown = buildResponseInput(options.input.messages, options.systemPrompt);
+  let previousResponseId: string | undefined;
+  let finalContent = '';
+
+  for (let step = 0; step < 6; step += 1) {
+    const response = await fetch(`${baseUrl}/responses`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${options.provider.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ...baseRequest,
+        input: nextInput,
+        ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
+      }),
+      signal: options.signal,
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      const message =
+        (payload as any)?.error?.message ||
+        (payload as any)?.message ||
+        `HTTP ${response.status} ${response.statusText}`;
+      throw new Error(message);
     }
 
-    if (type === 'response.reasoning_text.delta' || type === 'response.reasoning_summary_text.delta') {
-      const delta = String(event.delta ?? '');
-      if (delta) {
-        yield { type: 'reasoning_delta', delta };
-      }
-      continue;
+    if (!response.body) {
+      throw new Error('Responses API did not return a readable stream.');
     }
 
-    if (type === 'response.output_item.done' && event.item && typeof event.item === 'object') {
-      const item = event.item as Record<string, any>;
-      if (typeof item.type === 'string' && item.type.endsWith('_call')) {
-        const tool = summarizeResponseToolEvent(item);
-        tools.push(tool);
-        yield { type: 'tool_event', tool };
+    const pendingFunctionCalls: PendingResponseFunctionCall[] = [];
+    let currentResponseId = previousResponseId;
+    finalContent = '';
+
+    for await (const event of parseResponseSse(response.body)) {
+      const type = typeof event.type === 'string' ? event.type : '';
+      if (type === 'response.output_text.delta') {
+        const delta = String(event.delta ?? '');
+        finalContent += delta;
+        if (delta) {
+          yield {
+            type: 'assistant_delta',
+            messageId,
+            delta,
+          };
+        }
+        continue;
       }
-      continue;
+
+      if (type === 'response.reasoning_text.delta' || type === 'response.reasoning_summary_text.delta') {
+        const delta = String(event.delta ?? '');
+        if (delta) {
+          yield { type: 'reasoning_delta', delta };
+        }
+        continue;
+      }
+
+      if (type === 'response.output_item.done' && event.item && typeof event.item === 'object') {
+        const item = event.item as Record<string, any>;
+        const functionCall = parsePendingFunctionCall(item);
+        if (functionCall) {
+          pendingFunctionCalls.push(functionCall);
+          continue;
+        }
+        if (typeof item.type === 'string' && item.type.endsWith('_call')) {
+          const tool = summarizeResponseToolEvent(item);
+          tools.push(tool);
+          yield { type: 'tool_event', tool };
+        }
+        continue;
+      }
+
+      if (type === 'response.completed') {
+        currentResponseId =
+          typeof event.response?.id === 'string' && event.response.id.trim()
+            ? event.response.id.trim()
+            : currentResponseId;
+        const outputText = String(event.response?.output_text ?? '').trim();
+        if (outputText) {
+          finalContent = outputText;
+        }
+      }
     }
 
-    if (type === 'response.completed') {
-      const outputText = String(event.response?.output_text ?? '').trim();
-      if (outputText) {
-        finalContent = outputText;
-      }
+    if (!pendingFunctionCalls.length) {
+      yield {
+        type: 'assistant_message',
+        messageId,
+        content: finalContent,
+        tools,
+      };
+      return;
     }
+
+    if (!currentResponseId) {
+      throw new Error('Responses API returned function calls without a response id.');
+    }
+
+    const toolOutputs = [];
+    for (const call of pendingFunctionCalls) {
+      const result = await executeResponseFunctionCall(customToolMap, call);
+      tools.push(result.toolEvent);
+      yield { type: 'tool_event', tool: result.toolEvent };
+      toolOutputs.push(result.outputItem);
+    }
+
+    previousResponseId = currentResponseId;
+    nextInput = toolOutputs;
   }
 
-  yield {
-    type: 'assistant_message',
-    messageId,
-    content: finalContent,
-    tools,
-  };
+  throw new Error('Responses function calling exceeded the maximum continuation depth.');
 }
 
 export function buildGroundedSystemPrompt(basePrompt: string, options?: { enableTools?: boolean }) {
@@ -546,6 +717,8 @@ export function createAgentRuntime(options: AgentRuntimeOptions): CompiledAgentR
           signal: streamOptions?.signal,
           enableTools,
           enableThinking: Boolean(enableThinking && structuredOutput?.mode === 'text'),
+          enableWebSearch,
+          searchProviderId,
           responsesTools,
         }),
     };

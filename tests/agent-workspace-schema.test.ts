@@ -138,6 +138,7 @@ test('ensureAgentWorkspaceSchema adds session runtime columns to topics', () => 
   assert.ok(runs.some((sql) => sql.includes('ALTER TABLE topics ADD COLUMN system_prompt_override TEXT')));
   assert.ok(runs.some((sql) => sql.includes('ALTER TABLE topics ADD COLUMN provider_id_override TEXT')));
   assert.ok(runs.some((sql) => sql.includes('ALTER TABLE topics ADD COLUMN model_override TEXT')));
+  assert.ok(runs.some((sql) => sql.includes('ALTER TABLE topics ADD COLUMN model_features_json TEXT')));
   assert.ok(runs.some((sql) => sql.includes("ALTER TABLE topics ADD COLUMN enable_memory INTEGER NOT NULL DEFAULT 1")));
   assert.ok(runs.some((sql) => sql.includes("ALTER TABLE topics ADD COLUMN enable_skills INTEGER NOT NULL DEFAULT 1")));
   assert.ok(runs.some((sql) => sql.includes("ALTER TABLE topics ADD COLUMN enable_tools INTEGER NOT NULL DEFAULT 1")));
@@ -190,6 +191,7 @@ test('ensureAgentWorkspaceSchema adds persisted message attachments to topic mes
               ['system_prompt_override'],
               ['provider_id_override'],
               ['model_override'],
+              ['model_features_json'],
               ['enable_memory'],
               ['enable_skills'],
               ['enable_tools'],

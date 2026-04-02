@@ -68,6 +68,7 @@ export interface TopicSummary {
   systemPromptOverride?: string;
   providerIdOverride?: string;
   modelOverride?: string;
+  modelFeatures: TopicModelFeatures;
   enableMemory: boolean;
   enableSkills: boolean;
   enableTools: boolean;
@@ -130,12 +131,30 @@ export interface AgentMemoryDocument {
 
 export type TopicSessionMode = 'agent' | 'quick';
 
+export interface TopicModelFeatures {
+  enableThinking: boolean;
+  enableCustomFunctionCalling: boolean;
+  responsesTools: {
+    webSearch: boolean;
+    webSearchImage: boolean;
+    webExtractor: boolean;
+    codeInterpreter: boolean;
+    imageSearch: boolean;
+    mcp: boolean;
+  };
+  structuredOutput: {
+    mode: 'text' | 'json_object' | 'json_schema';
+    schema: string;
+  };
+}
+
 export interface TopicRuntimeProfile {
   sessionMode: TopicSessionMode;
   displayName: string;
   systemPrompt: string;
   providerId?: string;
   model?: string;
+  modelFeatures: TopicModelFeatures;
   enableMemory: boolean;
   enableSkills: boolean;
   enableTools: boolean;
@@ -169,6 +188,65 @@ function nowIso(): string {
 function createId(prefix: string): string {
   const uuid = globalThis.crypto?.randomUUID?.();
   return `${prefix}_${uuid ?? `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
+}
+
+export function getDefaultTopicModelFeatures(): TopicModelFeatures {
+  return {
+    enableThinking: false,
+    enableCustomFunctionCalling: false,
+    responsesTools: {
+      webSearch: false,
+      webSearchImage: false,
+      webExtractor: false,
+      codeInterpreter: false,
+      imageSearch: false,
+      mcp: false,
+    },
+    structuredOutput: {
+      mode: 'text',
+      schema:
+        '{\n  "name": "answer_payload",\n  "schema": {\n    "type": "object",\n    "properties": {\n      "answer": { "type": "string" }\n    },\n    "required": ["answer"]\n  }\n}',
+    },
+  };
+}
+
+function normalizeTopicModelFeatures(value?: Partial<TopicModelFeatures> | null): TopicModelFeatures {
+  const defaults = getDefaultTopicModelFeatures();
+  return {
+    enableThinking: Boolean(value?.enableThinking),
+    enableCustomFunctionCalling: Boolean(value?.enableCustomFunctionCalling),
+    responsesTools: {
+      webSearch: Boolean(value?.responsesTools?.webSearch),
+      webSearchImage: Boolean(value?.responsesTools?.webSearchImage),
+      webExtractor: Boolean(value?.responsesTools?.webExtractor),
+      codeInterpreter: Boolean(value?.responsesTools?.codeInterpreter),
+      imageSearch: Boolean(value?.responsesTools?.imageSearch),
+      mcp: Boolean(value?.responsesTools?.mcp),
+    },
+    structuredOutput: {
+      mode:
+        value?.structuredOutput?.mode === 'json_object' || value?.structuredOutput?.mode === 'json_schema'
+          ? value.structuredOutput.mode
+          : defaults.structuredOutput.mode,
+      schema:
+        typeof value?.structuredOutput?.schema === 'string' && value.structuredOutput.schema.trim()
+          ? value.structuredOutput.schema
+          : defaults.structuredOutput.schema,
+    },
+  };
+}
+
+function parseTopicModelFeatures(raw: unknown): TopicModelFeatures {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return getDefaultTopicModelFeatures();
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<TopicModelFeatures>;
+    return normalizeTopicModelFeatures(parsed);
+  } catch {
+    return getDefaultTopicModelFeatures();
+  }
 }
 
 function mapRows<T = SqlRow>(result: QueryExecResult[]): T[] {
@@ -373,6 +451,7 @@ function toTopicSummary(row: {
   system_prompt_override: string | null;
   provider_id_override: string | null;
   model_override: string | null;
+  model_features_json: string | null;
   enable_memory: number | null;
   enable_skills: number | null;
   enable_tools: number | null;
@@ -394,6 +473,7 @@ function toTopicSummary(row: {
     systemPromptOverride: row.system_prompt_override ?? undefined,
     providerIdOverride: row.provider_id_override ?? undefined,
     modelOverride: row.model_override ?? undefined,
+    modelFeatures: parseTopicModelFeatures(row.model_features_json),
     enableMemory: row.enable_memory == null ? true : toBoolean(row.enable_memory),
     enableSkills: row.enable_skills == null ? true : toBoolean(row.enable_skills),
     enableTools: row.enable_tools == null ? true : toBoolean(row.enable_tools),
@@ -423,6 +503,7 @@ function resolveTopicRuntimeProfile(topic: TopicSummary, agent: AgentProfile): T
     systemPrompt,
     providerId: topic.providerIdOverride ?? agent.providerId,
     model: topic.modelOverride ?? agent.model,
+    modelFeatures: normalizeTopicModelFeatures(topic.modelFeatures),
     enableMemory: topic.enableMemory,
     enableSkills: topic.enableSkills,
     enableTools: topic.enableTools,
@@ -501,6 +582,7 @@ function fetchTopicSummaryById(database: Database, topicId: string): TopicSummar
     system_prompt_override: string | null;
     provider_id_override: string | null;
     model_override: string | null;
+    model_features_json: string | null;
     enable_memory: number | null;
     enable_skills: number | null;
     enable_tools: number | null;
@@ -524,6 +606,7 @@ function fetchTopicSummaryById(database: Database, topicId: string): TopicSummar
           t.system_prompt_override,
           t.provider_id_override,
           t.model_override,
+          t.model_features_json,
           t.enable_memory,
           t.enable_skills,
           t.enable_tools,
@@ -1360,6 +1443,7 @@ export async function listTopics(agentId: string): Promise<TopicSummary[]> {
     system_prompt_override: string | null;
     provider_id_override: string | null;
     model_override: string | null;
+    model_features_json: string | null;
     enable_memory: number | null;
     enable_skills: number | null;
     enable_tools: number | null;
@@ -1383,6 +1467,7 @@ export async function listTopics(agentId: string): Promise<TopicSummary[]> {
           t.system_prompt_override,
           t.provider_id_override,
           t.model_override,
+          t.model_features_json,
           t.enable_memory,
           t.enable_skills,
           t.enable_tools,
@@ -1424,6 +1509,7 @@ export async function createTopic(options: {
   systemPromptOverride?: string;
   providerIdOverride?: string;
   modelOverride?: string;
+  modelFeatures?: TopicModelFeatures;
   enableMemory?: boolean;
   enableSkills?: boolean;
   enableTools?: boolean;
@@ -1453,6 +1539,7 @@ export async function createTopic(options: {
         system_prompt_override,
         provider_id_override,
         model_override,
+        model_features_json,
         enable_memory,
         enable_skills,
         enable_tools,
@@ -1463,7 +1550,7 @@ export async function createTopic(options: {
         updated_at,
         last_message_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       topicId,
@@ -1474,6 +1561,7 @@ export async function createTopic(options: {
       options.systemPromptOverride?.trim() || null,
       options.providerIdOverride?.trim() || null,
       options.modelOverride?.trim() || null,
+      JSON.stringify(normalizeTopicModelFeatures(options.modelFeatures)),
       enableMemory ? 1 : 0,
       enableSkills ? 1 : 0,
       enableTools ? 1 : 0,
@@ -1496,6 +1584,7 @@ export async function createTopic(options: {
     system_prompt_override: string | null;
     provider_id_override: string | null;
     model_override: string | null;
+    model_features_json: string | null;
     enable_memory: number | null;
     enable_skills: number | null;
     enable_tools: number | null;
@@ -1519,6 +1608,7 @@ export async function createTopic(options: {
           system_prompt_override,
           provider_id_override,
           model_override,
+          model_features_json,
           enable_memory,
           enable_skills,
           enable_tools,
@@ -1552,6 +1642,7 @@ export async function createQuickTopic(options: {
   systemPromptOverride?: string;
   providerIdOverride?: string;
   modelOverride?: string;
+  modelFeatures?: TopicModelFeatures;
 }) {
   const config = await getAgentConfig();
   return createTopic({
@@ -1562,6 +1653,7 @@ export async function createQuickTopic(options: {
     systemPromptOverride: options.systemPromptOverride,
     providerIdOverride: options.providerIdOverride ?? config.activeProviderId,
     modelOverride: options.modelOverride ?? config.activeModel,
+    modelFeatures: options.modelFeatures,
     enableMemory: false,
     enableSkills: false,
     enableTools: false,
@@ -1589,6 +1681,7 @@ export async function createBranchTopicFromTopic(options: {
     systemPromptOverride: sourceWorkspace.runtime.systemPrompt,
     providerIdOverride: sourceWorkspace.runtime.providerId,
     modelOverride: sourceWorkspace.runtime.model,
+    modelFeatures: sourceWorkspace.runtime.modelFeatures,
     enableMemory: sourceWorkspace.runtime.enableMemory,
     enableSkills: sourceWorkspace.runtime.enableSkills,
     enableTools: sourceWorkspace.runtime.enableTools,
@@ -1754,6 +1847,36 @@ export async function updateTopicSessionSettings(
   return updated;
 }
 
+export async function updateTopicModelFeatures(
+  topicId: string,
+  updates: Partial<TopicModelFeatures>,
+): Promise<TopicSummary> {
+  const database = await ensureAgentSchema();
+  const current = fetchTopicSummaryById(database, topicId);
+  if (!current) {
+    throw new Error('Topic not found.');
+  }
+
+  database.run(
+    `
+      UPDATE topics
+      SET
+        model_features_json = ?,
+        updated_at = ?
+      WHERE id = ?
+    `,
+    [JSON.stringify(normalizeTopicModelFeatures({ ...current.modelFeatures, ...updates })), nowIso(), topicId],
+  );
+  await persistAndMaybeRebuildFts(database);
+
+  const updated = fetchTopicSummaryById(database, topicId);
+  if (!updated) {
+    throw new Error('Failed to reload topic model features.');
+  }
+
+  return updated;
+}
+
 export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace | null> {
   const database = await ensureAgentSchema();
   const topicRow = mapRows<{
@@ -1765,6 +1888,7 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
     system_prompt_override: string | null;
     provider_id_override: string | null;
     model_override: string | null;
+    model_features_json: string | null;
     enable_memory: number | null;
     enable_skills: number | null;
     enable_tools: number | null;
@@ -1788,6 +1912,7 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
           t.system_prompt_override,
           t.provider_id_override,
           t.model_override,
+          t.model_features_json,
           t.enable_memory,
           t.enable_skills,
           t.enable_tools,

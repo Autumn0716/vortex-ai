@@ -49,12 +49,15 @@ import {
   searchWorkspace,
   type AgentMemoryDocument,
   type AgentProfile,
+  type TopicModelFeatures,
   type TopicMessage,
   type TopicMessageAttachment,
   type TopicMessageInput,
   type TopicSummary,
   type TopicWorkspace,
   type WorkspaceSearchResult,
+  getDefaultTopicModelFeatures,
+  updateTopicModelFeatures,
   updateTopicSessionSettings,
   updateTopicTitle,
 } from '../lib/agent-workspace';
@@ -234,18 +237,6 @@ interface TopicRunState {
   reasoningPreview?: string;
 }
 
-interface ComposerResponsesState {
-  enableThinking: boolean;
-  enableWebSearch: boolean;
-  enableWebSearchImage: boolean;
-  enableWebExtractor: boolean;
-  enableCodeInterpreter: boolean;
-  enableImageSearch: boolean;
-  enableMcp: boolean;
-  structuredOutputMode: 'text' | 'json_object' | 'json_schema';
-  structuredOutputSchema: string;
-}
-
 interface SessionSettingsDraft {
   displayName: string;
   systemPromptOverride: string;
@@ -274,6 +265,8 @@ interface BranchHandoffDraft {
   note: string;
 }
 
+interface ModelFeaturesDraft extends TopicModelFeatures {}
+
 type ModelPickerTarget = 'global' | 'topic' | 'quick';
 type TopicModeFilter = 'all' | 'agent' | 'quick';
 
@@ -288,14 +281,17 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [showQuickTopicDialog, setShowQuickTopicDialog] = useState(false);
   const [showBranchTopicDialog, setShowBranchTopicDialog] = useState(false);
   const [showBranchHandoffDialog, setShowBranchHandoffDialog] = useState(false);
+  const [showModelFeaturesDialog, setShowModelFeaturesDialog] = useState(false);
   const [sessionSettingsDraft, setSessionSettingsDraft] = useState<SessionSettingsDraft | null>(null);
   const [quickTopicDraft, setQuickTopicDraft] = useState<QuickTopicDraft | null>(null);
   const [branchTopicDraft, setBranchTopicDraft] = useState<BranchTopicDraft | null>(null);
   const [branchHandoffDraft, setBranchHandoffDraft] = useState<BranchHandoffDraft | null>(null);
+  const [modelFeaturesDraft, setModelFeaturesDraft] = useState<ModelFeaturesDraft | null>(null);
   const [sessionSettingsSaving, setSessionSettingsSaving] = useState(false);
   const [quickTopicSaving, setQuickTopicSaving] = useState(false);
   const [branchTopicSaving, setBranchTopicSaving] = useState(false);
   const [branchHandoffSaving, setBranchHandoffSaving] = useState(false);
+  const [modelFeaturesSaving, setModelFeaturesSaving] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelPickerTarget, setModelPickerTarget] = useState<ModelPickerTarget>('global');
   const [settingsInitialCategory, setSettingsInitialCategory] =
@@ -325,18 +321,6 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [showWebSearchMenu, setShowWebSearchMenu] = useState(false);
   const [composerWebSearchEnabled, setComposerWebSearchEnabled] = useState(false);
   const [composerSearchProviderId, setComposerSearchProviderId] = useState('');
-  const [composerResponses, setComposerResponses] = useState<ComposerResponsesState>({
-    enableThinking: false,
-    enableWebSearch: false,
-    enableWebSearchImage: false,
-    enableWebExtractor: false,
-    enableCodeInterpreter: false,
-    enableImageSearch: false,
-    enableMcp: false,
-    structuredOutputMode: 'text',
-    structuredOutputSchema:
-      '{\n  "name": "answer_payload",\n  "schema": {\n    "type": "object",\n    "properties": {\n      "answer": { "type": "string" }\n    },\n    "required": ["answer"]\n  }\n}',
-  });
   const [composerImageAttachments, setComposerImageAttachments] = useState<TopicMessageAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -366,6 +350,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const activeProviderName =
     activeProvider?.name ?? 'Model';
   const activeModel = workspace?.runtime.model ?? workspace?.agent.model ?? config.activeModel;
+  const activeModelFeatures = workspace?.runtime.modelFeatures ?? getDefaultTopicModelFeatures();
   const isResponsesProvider = activeProvider?.protocol === 'openai_responses_compatible';
   const isQwenCompatible =
     Boolean(activeProvider?.baseUrl?.toLowerCase().includes('dashscope')) ||
@@ -952,6 +937,40 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }
   };
 
+  const handleOpenModelFeaturesDialog = () => {
+    if (!workspace) {
+      return;
+    }
+
+    setModelFeaturesDraft({
+      ...workspace.runtime.modelFeatures,
+      responsesTools: {
+        ...workspace.runtime.modelFeatures.responsesTools,
+      },
+      structuredOutput: {
+        ...workspace.runtime.modelFeatures.structuredOutput,
+      },
+    });
+    setShowModelFeaturesDialog(true);
+  };
+
+  const handleSaveModelFeatures = async () => {
+    if (!workspace || !modelFeaturesDraft) {
+      return;
+    }
+
+    setModelFeaturesSaving(true);
+    try {
+      await updateTopicModelFeatures(workspace.topic.id, modelFeaturesDraft);
+      await hydrateTopic(workspace.topic.id);
+      setShellNotice(`Updated model features for "${workspace.topic.title}".`);
+      setShowModelFeaturesDialog(false);
+      setModelFeaturesDraft(null);
+    } finally {
+      setModelFeaturesSaving(false);
+    }
+  };
+
   const handleModelChange = async (value: string) => {
     const [providerId, model] = value.split('::');
     const nextConfig: AgentConfig = {
@@ -1238,6 +1257,25 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             })
           ).slice(0, 2400)
         : '';
+      const runtimeProviderId =
+        workspaceSnapshot.runtime.providerId ?? workspaceSnapshot.agent.providerId ?? configSnapshot.activeProviderId;
+      const runtimeProvider =
+        configSnapshot.providers.find((provider) => provider.id === runtimeProviderId) ?? null;
+      const runtimeRequestMode = runtimeProvider?.protocol === 'openai_responses_compatible' ? 'responses' : 'chat';
+      const runtimeModel = workspaceSnapshot.runtime.model ?? workspaceSnapshot.agent.model ?? configSnapshot.activeModel;
+      const runtimeIsQwenCompatible =
+        Boolean(runtimeProvider?.baseUrl?.toLowerCase().includes('dashscope')) ||
+        runtimeProvider?.name.toLowerCase().includes('qwen') ||
+        runtimeModel.toLowerCase().includes('qwen');
+      const modelFeatures = workspaceSnapshot.runtime.modelFeatures ?? getDefaultTopicModelFeatures();
+      const effectiveStructuredOutput =
+        runtimeRequestMode === 'chat' && runtimeIsQwenCompatible
+          ? modelFeatures.structuredOutput
+          : { mode: 'text' as const, schema: modelFeatures.structuredOutput.schema };
+      const effectiveThinking =
+        runtimeIsQwenCompatible && effectiveStructuredOutput.mode === 'text'
+          ? modelFeatures.enableThinking
+          : false;
 
       const runtime = createAgentRuntime({
         config: configSnapshot,
@@ -1246,32 +1284,33 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         enableTools: workspaceSnapshot.runtime.enableTools,
         enableWebSearch: composerWebSearchEnabled,
         searchProviderId: composerSearchProvider?.id,
-        enableThinking: composerResponses.enableThinking,
+        enableThinking: effectiveThinking,
         responsesTools: {
-          webSearch: composerResponses.enableWebSearch,
-          webSearchImage: composerResponses.enableWebSearchImage,
-          webExtractor: composerResponses.enableWebExtractor,
-          codeInterpreter: composerResponses.enableCodeInterpreter,
-          imageSearch: composerResponses.enableImageSearch,
-          mcp: composerResponses.enableMcp,
+          webSearch: modelFeatures.responsesTools.webSearch,
+          webSearchImage: modelFeatures.responsesTools.webSearchImage,
+          webExtractor: modelFeatures.responsesTools.webExtractor,
+          codeInterpreter: modelFeatures.responsesTools.codeInterpreter,
+          imageSearch: modelFeatures.responsesTools.imageSearch,
+          mcp: modelFeatures.responsesTools.mcp,
+          customFunctionCalling: modelFeatures.enableCustomFunctionCalling,
         },
         structuredOutput:
-          composerResponses.structuredOutputMode === 'text'
+          effectiveStructuredOutput.mode === 'text'
             ? { mode: 'text' }
             : {
-                mode: composerResponses.structuredOutputMode,
+                mode: effectiveStructuredOutput.mode,
                 schema:
-                  composerResponses.structuredOutputMode === 'json_schema'
-                    ? composerResponses.structuredOutputSchema
+                  effectiveStructuredOutput.mode === 'json_schema'
+                    ? effectiveStructuredOutput.schema
                     : undefined,
               },
         systemPrompt: [
           configSnapshot.systemPrompt,
           memoryContext ? `Agent memory:\n${memoryContext}` : '',
           skillContext ? skillContext : '',
-          composerResponses.structuredOutputMode === 'json_object'
+          effectiveStructuredOutput.mode === 'json_object'
             ? 'Please output valid JSON only.'
-            : composerResponses.structuredOutputMode === 'json_schema'
+            : effectiveStructuredOutput.mode === 'json_schema'
               ? 'Please output valid JSON that matches the requested schema exactly.'
               : '',
           `Session identity:\n${workspaceSnapshot.runtime.systemPrompt}`,
@@ -1870,10 +1909,21 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   <ChevronDown size={14} className="text-white/45" />
                 </button>
                 <button
-                  onClick={() => setActiveTab('prompts')}
-                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75 hover:bg-white/10 hover:text-white"
+                  onClick={handleOpenModelFeaturesDialog}
+                  disabled={!workspace}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Agent Library
+                  <span className="flex items-center gap-2">
+                    模型功能
+                    {activeModelFeatures.enableThinking ||
+                    activeModelFeatures.enableCustomFunctionCalling ||
+                    activeModelFeatures.structuredOutput.mode !== 'text' ||
+                    Object.values(activeModelFeatures.responsesTools).some(Boolean) ? (
+                      <span className="rounded-full border border-sky-400/25 bg-sky-400/12 px-1.5 py-0.5 text-[10px] text-sky-100">
+                        ON
+                      </span>
+                    ) : null}
+                  </span>
                 </button>
               </div>
             </header>
@@ -2111,262 +2161,93 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       <div className="relative">
                         {showWebSearchMenu ? (
                           <div className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-[320px] rounded-2xl border border-white/10 bg-[#0F1118]/95 p-3 shadow-[0_20px_45px_rgba(0,0,0,0.4)] backdrop-blur-xl">
-                            {isResponsesProvider ? (
-                              <>
-                                <div className="flex items-center justify-between gap-3">
-                                  <div>
-                                    <div className="text-xs font-semibold text-white">Qwen Responses 工具</div>
-                                    <div className="mt-1 text-[11px] leading-5 text-white/45">
-                                      按官方 Responses API 挂载内置工具与思考模式。
-                                    </div>
-                                  </div>
-                                  <span className="rounded-full border border-emerald-400/25 bg-emerald-400/12 px-2.5 py-1 text-[11px] text-emerald-100">
-                                    responses
-                                  </span>
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="text-xs font-semibold text-white">基础联网搜索</div>
+                                <div className="mt-1 text-[11px] leading-5 text-white/45">
+                                  这里只控制外部搜索 provider。模型专属能力请到右上角“模型功能”里设置。
                                 </div>
-                                <div className="mt-3 grid gap-2">
-                                  {[
-                                    ['enableThinking', '思考模式', '为当前回复开启 `enable_thinking`。'],
-                                    ['enableWebSearch', '联网搜索', '挂载官方 `web_search` 工具。'],
-                                    ['enableWebSearchImage', '文搜图', '挂载官方 `web_search_image` 工具。'],
-                                    ['enableWebExtractor', '网页抓取', '挂载官方 `web_extractor` 工具。'],
-                                    ['enableCodeInterpreter', '代码解释器', '挂载官方 `code_interpreter` 工具。'],
-                                    ['enableImageSearch', '图搜图', '挂载官方 `image_search` 工具，需随消息附图。'],
-                                    ['enableMcp', 'MCP', '挂载当前已启用的 SSE MCP server。'],
-                                  ].map(([key, label, description]) => {
-                                    const checked = composerResponses[key as keyof ComposerResponsesState] as boolean;
-                                    return (
-                                      <button
-                                        key={key}
-                                        onClick={() =>
-                                          setComposerResponses((current) => ({
-                                            ...current,
-                                            [key]: !checked,
-                                          }))
+                              </div>
+                              <button
+                                onClick={() => setComposerWebSearchEnabled((previous) => !previous)}
+                                className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                                  composerWebSearchEnabled
+                                    ? 'border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
+                                    : 'border-white/10 bg-white/5 text-white/55 hover:bg-white/10 hover:text-white'
+                                }`}
+                              >
+                                {composerWebSearchEnabled ? '搜索已启用' : '搜索已关闭'}
+                              </button>
+                            </div>
+                            <div className="mt-3 grid gap-2">
+                              {enabledSearchProviders.length > 0 ? (
+                                enabledSearchProviders.map((provider) => {
+                                  const isSelected = composerSearchProvider?.id === provider.id;
+                                  const isReady =
+                                    provider.category === 'local' || provider.apiKey.trim().length > 0;
+                                  return (
+                                    <button
+                                      key={provider.id}
+                                      onClick={() => {
+                                        setComposerSearchProviderId(provider.id);
+                                        if (!composerWebSearchEnabled) {
+                                          setComposerWebSearchEnabled(true);
                                         }
-                                        className={`rounded-2xl border px-3 py-3 text-left transition-all ${
-                                          checked
-                                            ? 'border-sky-400/25 bg-sky-400/12 text-white shadow-[0_14px_28px_rgba(0,0,0,0.2)]'
-                                            : 'border-white/10 bg-white/[0.03] text-white/72 hover:bg-white/8 hover:text-white'
-                                        }`}
-                                      >
-                                        <div className="flex items-center justify-between gap-3">
-                                          <div className="min-w-0">
-                                            <div className="truncate text-sm font-medium">{label}</div>
-                                            <div className="mt-1 text-[11px] leading-5 text-white/45">{description}</div>
-                                          </div>
-                                          <span
-                                            className={`rounded-full px-2 py-0.5 text-[10px] ${
-                                              checked
-                                                ? 'border border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
-                                                : 'border border-white/10 bg-black/20 text-white/45'
-                                            }`}
-                                          >
-                                            {checked ? 'ON' : 'OFF'}
-                                          </span>
-                                        </div>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                                <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3">
-                                  <div className="flex items-center justify-between gap-3">
-                                    <div>
-                                      <div className="text-xs font-semibold text-white">结构化输出</div>
-                                      <div className="mt-1 text-[11px] leading-5 text-white/45">
-                                        当前先按官方文档保留在 chat-completions 通道，Responses 通道不在这里直接启用。
-                                      </div>
-                                    </div>
-                                    <span className="rounded-full border border-amber-400/25 bg-amber-400/12 px-2 py-0.5 text-[10px] text-amber-100">
-                                      chat only
-                                    </span>
-                                  </div>
-                                </div>
-                                {composerResponses.enableImageSearch ? (
-                                  <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-3 text-[11px] leading-5 text-white/55">
-                                    {composerImageAttachments.length
-                                      ? `当前已附加 ${composerImageAttachments.length} 张图片，可直接用于图搜图。`
-                                      : '图搜图需要先在聊天框附加图片。当前还没有图片输入。'}
-                                  </div>
-                                ) : null}
-                              </>
-                            ) : (
-                              <>
-                                <div className="flex items-center justify-between gap-3">
-                                  <div>
-                                    <div className="text-xs font-semibold text-white">联网搜索与高级模式</div>
-                                    <div className="mt-1 text-[11px] leading-5 text-white/45">
-                                      本地搜索工具继续走 chat-completions；Qwen 兼容模型可额外开启思考和结构化输出。
-                                    </div>
-                                  </div>
-                                  <button
-                                    onClick={() => setComposerWebSearchEnabled((previous) => !previous)}
-                                    className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
-                                      composerWebSearchEnabled
-                                        ? 'border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
-                                        : 'border-white/10 bg-white/5 text-white/55 hover:bg-white/10 hover:text-white'
-                                    }`}
-                                  >
-                                    {composerWebSearchEnabled ? '搜索已启用' : '搜索已关闭'}
-                                  </button>
-                                </div>
-                                <div className="mt-3 grid gap-2">
-                                  {enabledSearchProviders.length > 0 ? (
-                                    enabledSearchProviders.map((provider) => {
-                                      const isSelected = composerSearchProvider?.id === provider.id;
-                                      const isReady =
-                                        provider.category === 'local' || provider.apiKey.trim().length > 0;
-                                      return (
-                                        <button
-                                          key={provider.id}
-                                          onClick={() => {
-                                            setComposerSearchProviderId(provider.id);
-                                            if (!composerWebSearchEnabled) {
-                                              setComposerWebSearchEnabled(true);
-                                            }
-                                          }}
-                                          className={`rounded-2xl border px-3 py-3 text-left transition-all ${
-                                            isSelected
-                                              ? 'border-sky-400/25 bg-sky-400/12 text-white shadow-[0_14px_28px_rgba(0,0,0,0.2)]'
-                                              : 'border-white/10 bg-white/[0.03] text-white/72 hover:bg-white/8 hover:text-white'
-                                          }`}
-                                        >
-                                          <div className="flex items-center justify-between gap-3">
-                                            <div className="min-w-0">
-                                              <div className="flex items-center gap-2">
-                                                <span className="truncate text-sm font-medium">{provider.name}</span>
-                                                <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] text-white/45">
-                                                  {provider.type}
-                                                </span>
-                                              </div>
-                                              <div className="mt-1 line-clamp-2 text-[11px] leading-5 text-white/45">
-                                                {provider.description}
-                                              </div>
-                                            </div>
-                                            <span
-                                              className={`rounded-full px-2 py-0.5 text-[10px] ${
-                                                isReady
-                                                  ? 'border border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
-                                                  : 'border border-amber-400/25 bg-amber-400/12 text-amber-100'
-                                              }`}
-                                            >
-                                              {isReady ? 'Ready' : '未配置'}
+                                      }}
+                                      className={`rounded-2xl border px-3 py-3 text-left transition-all ${
+                                        isSelected
+                                          ? 'border-sky-400/25 bg-sky-400/12 text-white shadow-[0_14px_28px_rgba(0,0,0,0.2)]'
+                                          : 'border-white/10 bg-white/[0.03] text-white/72 hover:bg-white/8 hover:text-white'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <span className="truncate text-sm font-medium">{provider.name}</span>
+                                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] text-white/45">
+                                              {provider.type}
                                             </span>
                                           </div>
-                                        </button>
-                                      );
-                                    })
-                                  ) : (
-                                    <div className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-xs leading-6 text-white/45">
-                                      当前没有已启用的搜索 provider。先去 Settings - Search 打开一个 provider。
-                                    </div>
-                                  )}
-                                </div>
-                                {isQwenCompatible ? (
-                                  <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-                                    <div className="text-xs font-semibold text-white">Qwen Chat 高级能力</div>
-                                    <div className="mt-2 grid gap-2">
-                                      <button
-                                        onClick={() =>
-                                          setComposerResponses((current) => ({
-                                            ...current,
-                                            enableThinking: !current.enableThinking,
-                                            structuredOutputMode:
-                                              !current.enableThinking && current.structuredOutputMode !== 'text'
-                                                ? 'text'
-                                                : current.structuredOutputMode,
-                                          }))
-                                        }
-                                        className={`rounded-2xl border px-3 py-3 text-left transition-all ${
-                                          composerResponses.enableThinking
-                                            ? 'border-sky-400/25 bg-sky-400/12 text-white'
-                                            : 'border-white/10 bg-white/[0.03] text-white/72 hover:bg-white/8 hover:text-white'
-                                        }`}
-                                      >
-                                        <div className="flex items-center justify-between gap-3">
-                                          <div>
-                                            <div className="text-sm font-medium">思考模式</div>
-                                            <div className="mt-1 text-[11px] leading-5 text-white/45">
-                                              走 `extra_body.enable_thinking = true`。
-                                            </div>
+                                          <div className="mt-1 line-clamp-2 text-[11px] leading-5 text-white/45">
+                                            {provider.description}
                                           </div>
-                                          <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] text-white/60">
-                                            {composerResponses.enableThinking ? 'ON' : 'OFF'}
-                                          </span>
                                         </div>
-                                      </button>
-                                      <div className="rounded-2xl border border-white/10 bg-black/20 px-3 py-3">
-                                        <div className="flex items-center justify-between gap-3">
-                                          <div>
-                                            <div className="text-sm font-medium text-white/90">结构化输出</div>
-                                            <div className="mt-1 text-[11px] leading-5 text-white/45">
-                                              官方文档优先建议在 chat-completions 中通过 `response_format` 使用。
-                                            </div>
-                                          </div>
-                                          <select
-                                            value={composerResponses.structuredOutputMode}
-                                            onChange={(event) =>
-                                              setComposerResponses((current) => ({
-                                                ...current,
-                                                structuredOutputMode: event.target.value as ComposerResponsesState['structuredOutputMode'],
-                                                enableThinking:
-                                                  event.target.value === 'text' ? current.enableThinking : false,
-                                              }))
-                                            }
-                                            className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white outline-none"
-                                          >
-                                            <option value="text">纯文本</option>
-                                            <option value="json_object">JSON Object</option>
-                                            <option value="json_schema">JSON Schema</option>
-                                          </select>
-                                        </div>
-                                        {composerResponses.structuredOutputMode === 'json_schema' ? (
-                                          <textarea
-                                            value={composerResponses.structuredOutputSchema}
-                                            onChange={(event) =>
-                                              setComposerResponses((current) => ({
-                                                ...current,
-                                                structuredOutputSchema: event.target.value,
-                                              }))
-                                            }
-                                            className="mt-3 min-h-[132px] w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-3 font-mono text-[11px] leading-6 text-white outline-none"
-                                          />
-                                        ) : null}
+                                        <span
+                                          className={`rounded-full px-2 py-0.5 text-[10px] ${
+                                            isReady
+                                              ? 'border border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
+                                              : 'border border-amber-400/25 bg-amber-400/12 text-amber-100'
+                                          }`}
+                                        >
+                                          {isReady ? 'Ready' : '未配置'}
+                                        </span>
                                       </div>
-                                    </div>
-                                  </div>
-                                ) : null}
-                              </>
-                            )}
+                                    </button>
+                                  );
+                                })
+                              ) : (
+                                <div className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-xs leading-6 text-white/45">
+                                  当前没有已启用的搜索 provider。先去 Settings - Search 打开一个 provider。
+                                </div>
+                              )}
+                            </div>
                             <div className="mt-3 text-[11px] leading-5 text-white/38">
-                              {isResponsesProvider
-                                ? `当前 ${activeProviderName} 将走官方 Responses API。Thinking 与内置工具会按上面的开关拼进请求。`
-                                : composerSearchProvider
-                                  ? composerWebSearchReady
-                                    ? `当前将使用 ${composerSearchProvider.name} 作为实时搜索工具。`
-                                    : `${composerSearchProvider.name} 尚未配置 API Key，启用后会在调用时直接报出缺失原因。`
-                                  : '未选择搜索 provider。'}
+                              {composerSearchProvider
+                                ? composerWebSearchReady
+                                  ? `当前将使用 ${composerSearchProvider.name} 作为实时搜索工具。`
+                                  : `${composerSearchProvider.name} 尚未配置 API Key，启用后会在调用时直接报出缺失原因。`
+                                : '未选择搜索 provider。'}
                             </div>
                           </div>
                         ) : null}
                         <button
                           onClick={() => setShowWebSearchMenu((previous) => !previous)}
                           className={`rounded-xl border p-2 transition-all ${
-                            (isResponsesProvider
-                              ? composerResponses.enableThinking ||
-                                composerResponses.enableWebSearch ||
-                                composerResponses.enableWebSearchImage ||
-                                composerResponses.enableWebExtractor ||
-                                composerResponses.enableCodeInterpreter ||
-                                composerResponses.enableImageSearch ||
-                                composerResponses.enableMcp
-                              : composerWebSearchEnabled ||
-                                composerResponses.enableThinking ||
-                                composerResponses.structuredOutputMode !== 'text')
+                            composerWebSearchEnabled
                               ? 'border-sky-400/25 bg-sky-400/12 text-sky-100 shadow-[0_12px_28px_rgba(14,165,233,0.16)]'
                               : 'border-transparent text-white/40 hover:border-white/10 hover:bg-white/10 hover:text-white'
                           }`}
-                          title={isResponsesProvider ? 'Responses 工具' : '联网搜索'}
+                          title="联网搜索"
                         >
                           <Search size={18} />
                         </button>
@@ -2847,6 +2728,312 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     className="rounded-xl border border-emerald-500/20 bg-emerald-500/15 px-4 py-2 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {branchHandoffSaving ? '发送中...' : 'Send to Parent'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showModelFeaturesDialog && workspace && modelFeaturesDraft ? (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+          <div className="flex h-[78vh] min-h-[620px] w-full max-w-[1080px] overflow-hidden rounded-[30px] border border-white/10 bg-[#171717] shadow-2xl">
+            <div className="flex w-[320px] flex-col border-r border-white/5 bg-[#141414] px-5 py-6">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Model Features</div>
+              <div className="mt-3 text-2xl font-semibold text-white">{activeProviderName}</div>
+              <div className="mt-2 text-sm text-white/55">{activeModel}</div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/55">
+                  {isResponsesProvider ? 'Responses API' : 'Chat Completions'}
+                </span>
+                {isQwenCompatible ? (
+                  <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] text-emerald-200/80">
+                    Qwen Compatible
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-5 rounded-[24px] border border-white/8 bg-black/20 p-4 text-sm leading-6 text-white/70">
+                这里配置当前 topic 的模型能力开关。聊天框只保留基础联网搜索，厂商专属能力统一收口到这里。
+              </div>
+              <div className="mt-4 rounded-[24px] border border-amber-500/15 bg-amber-500/8 p-4 text-sm leading-6 text-amber-100/75">
+                {isResponsesProvider
+                  ? 'Responses 模式适合官方内置工具和 Function Calling 多轮回路。'
+                  : 'Chat 模式适合普通对话、思考模式和结构化输出。'}
+              </div>
+            </div>
+
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
+                <div>
+                  <div className="text-lg font-semibold text-white">模型功能设置</div>
+                  <div className="mt-1 text-sm text-white/50">这些开关会绑定到当前会话，不会改写全局模型列表。</div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowModelFeaturesDialog(false);
+                    setModelFeaturesDraft(null);
+                  }}
+                  className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 custom-scrollbar">
+                <div className="space-y-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-white/10 bg-black/20 px-4 py-4">
+                    <div>
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-white/35">当前模型</div>
+                      <div className="mt-2 text-sm text-white/85">
+                        {activeProviderName} · {activeModel}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowModelFeaturesDialog(false);
+                        handleOpenSessionSettings();
+                      }}
+                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/85 transition-colors hover:bg-white/10"
+                    >
+                      去会话设置切换模型
+                    </button>
+                  </div>
+
+                  {isResponsesProvider ? (
+                    <>
+                      <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
+                        <div className="mb-3 text-[11px] uppercase tracking-[0.16em] text-white/35">Responses Core</div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {[
+                            {
+                              key: 'enableThinking',
+                              label: '思考模式',
+                              description: '开启 `enable_thinking`，流式返回 reasoning content。',
+                            },
+                            {
+                              key: 'enableCustomFunctionCalling',
+                              label: 'Function Calling',
+                              description: '将本地工具 schema 按官方 `type:function` 注入 Responses API。',
+                            },
+                          ].map((item) => {
+                            const checked = modelFeaturesDraft[item.key as keyof ModelFeaturesDraft] as boolean;
+                            return (
+                              <button
+                                key={item.key}
+                                onClick={() =>
+                                  setModelFeaturesDraft((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          [item.key]: !checked,
+                                        }
+                                      : current,
+                                  )
+                                }
+                                className={`rounded-[20px] border p-4 text-left transition-all ${
+                                  checked
+                                    ? 'border-emerald-500/25 bg-emerald-500/10 shadow-[0_10px_28px_rgba(16,185,129,0.12)]'
+                                    : 'border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.05]'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="text-sm font-medium text-white/90">{item.label}</div>
+                                  <div
+                                    className={`h-2.5 w-2.5 rounded-full ${
+                                      checked ? 'bg-emerald-300 shadow-[0_0_16px_rgba(52,211,153,0.6)]' : 'bg-white/20'
+                                    }`}
+                                  />
+                                </div>
+                                <div className="mt-2 text-xs leading-6 text-white/45">{item.description}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
+                        <div className="mb-3 text-[11px] uppercase tracking-[0.16em] text-white/35">Responses Built-in Tools</div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {[
+                            ['webSearch', '联网搜索', '官方 `web_search`。'],
+                            ['webSearchImage', '文搜图', '官方 `web_search_image`。'],
+                            ['webExtractor', '网页抓取', '官方 `web_extractor`。'],
+                            ['codeInterpreter', '代码解释器', '官方 `code_interpreter`。'],
+                            ['imageSearch', '图搜图', '官方 `image_search`，需随消息附图。'],
+                            ['mcp', 'MCP', '挂载当前已启用的 SSE MCP server。'],
+                          ].map(([key, label, description]) => {
+                            const checked = modelFeaturesDraft.responsesTools[key as keyof TopicModelFeatures['responsesTools']];
+                            return (
+                              <button
+                                key={key}
+                                onClick={() =>
+                                  setModelFeaturesDraft((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          responsesTools: {
+                                            ...current.responsesTools,
+                                            [key]: !checked,
+                                          },
+                                        }
+                                      : current,
+                                  )
+                                }
+                                className={`rounded-[20px] border p-4 text-left transition-all ${
+                                  checked
+                                    ? 'border-sky-400/25 bg-sky-400/10 shadow-[0_10px_28px_rgba(56,189,248,0.12)]'
+                                    : 'border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.05]'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="text-sm font-medium text-white/90">{label}</div>
+                                  <div
+                                    className={`h-2.5 w-2.5 rounded-full ${
+                                      checked ? 'bg-sky-300 shadow-[0_0_16px_rgba(125,211,252,0.6)]' : 'bg-white/20'
+                                    }`}
+                                  />
+                                </div>
+                                <div className="mt-2 text-xs leading-6 text-white/45">{description}</div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {modelFeaturesDraft.responsesTools.imageSearch ? (
+                          <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-3 text-[11px] leading-5 text-white/55">
+                            {composerImageAttachments.length
+                              ? `当前输入框里已附加 ${composerImageAttachments.length} 张图片，可直接用于图搜图。`
+                              : '图搜图需要先在聊天框附加图片。'}
+                          </div>
+                        ) : null}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
+                      <div className="mb-3 text-[11px] uppercase tracking-[0.16em] text-white/35">Chat Advanced</div>
+                      {isQwenCompatible ? (
+                        <div className="space-y-3">
+                          <button
+                            onClick={() =>
+                              setModelFeaturesDraft((current) =>
+                                current
+                                  ? {
+                                      ...current,
+                                      enableThinking: !current.enableThinking,
+                                      structuredOutput: {
+                                        ...current.structuredOutput,
+                                        mode:
+                                          !current.enableThinking && current.structuredOutput.mode !== 'text'
+                                            ? 'text'
+                                            : current.structuredOutput.mode,
+                                      },
+                                    }
+                                  : current,
+                              )
+                            }
+                            className={`w-full rounded-[20px] border p-4 text-left transition-all ${
+                              modelFeaturesDraft.enableThinking
+                                ? 'border-emerald-500/25 bg-emerald-500/10 shadow-[0_10px_28px_rgba(16,185,129,0.12)]'
+                                : 'border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.05]'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-sm font-medium text-white/90">思考模式</div>
+                              <div
+                                className={`h-2.5 w-2.5 rounded-full ${
+                                  modelFeaturesDraft.enableThinking
+                                    ? 'bg-emerald-300 shadow-[0_0_16px_rgba(52,211,153,0.6)]'
+                                    : 'bg-white/20'
+                                }`}
+                              />
+                            </div>
+                            <div className="mt-2 text-xs leading-6 text-white/45">
+                              走 `extra_body.enable_thinking = true`，适用于 Qwen Chat 通道。
+                            </div>
+                          </button>
+
+                          <div className="rounded-[20px] border border-white/10 bg-black/20 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-medium text-white/90">结构化输出</div>
+                                <div className="mt-1 text-[11px] leading-5 text-white/45">
+                                  按官方文档通过 `response_format` 使用；开启结构化输出时会禁用 thinking。
+                                </div>
+                              </div>
+                              <select
+                                value={modelFeaturesDraft.structuredOutput.mode}
+                                onChange={(event) =>
+                                  setModelFeaturesDraft((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          structuredOutput: {
+                                            ...current.structuredOutput,
+                                            mode: event.target.value as TopicModelFeatures['structuredOutput']['mode'],
+                                          },
+                                          enableThinking: event.target.value === 'text' ? current.enableThinking : false,
+                                        }
+                                      : current,
+                                  )
+                                }
+                                className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white outline-none"
+                              >
+                                <option value="text">纯文本</option>
+                                <option value="json_object">JSON Object</option>
+                                <option value="json_schema">JSON Schema</option>
+                              </select>
+                            </div>
+                            {modelFeaturesDraft.structuredOutput.mode === 'json_schema' ? (
+                              <textarea
+                                value={modelFeaturesDraft.structuredOutput.schema}
+                                onChange={(event) =>
+                                  setModelFeaturesDraft((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          structuredOutput: {
+                                            ...current.structuredOutput,
+                                            schema: event.target.value,
+                                          },
+                                        }
+                                      : current,
+                                  )
+                                }
+                                className="mt-3 min-h-[132px] w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-3 font-mono text-[11px] leading-6 text-white outline-none"
+                              />
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="rounded-[20px] border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm leading-6 text-white/45">
+                          当前厂商未配置专属高级能力面板。普通 chat 模式会继续使用基础工具调用链。
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-white/5 px-6 py-4">
+                <div className="text-xs text-white/35">
+                  Responses 模式会使用官方内置工具与 Function Calling 循环；基础联网搜索仍由聊天框单独控制。
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      setShowModelFeaturesDialog(false);
+                      setModelFeaturesDraft(null);
+                    }}
+                    className="rounded-xl border border-white/10 bg-black/20 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={() => handleSaveModelFeatures().catch(console.error)}
+                    disabled={modelFeaturesSaving}
+                    className="rounded-xl border border-emerald-500/20 bg-emerald-500/15 px-4 py-2 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {modelFeaturesSaving ? '保存中...' : '保存模型功能'}
                   </button>
                 </div>
               </div>
