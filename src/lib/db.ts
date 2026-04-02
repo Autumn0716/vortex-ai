@@ -10,6 +10,7 @@ import {
   compressRetrievedContext,
   decomposeTaskQuery,
   expandKnowledgeSearchQueries,
+  scoreRetrievedContextSupport,
 } from './local-rag-helpers';
 import {
   classifyKnowledgeDocument,
@@ -211,7 +212,21 @@ export interface KnowledgeDocumentRecord {
   updatedAt?: string;
 }
 
-export interface KnowledgeDocumentSearchResult extends KnowledgeDocumentRecord {}
+export interface KnowledgeDocumentSupportMetadata {
+  supportScore?: number;
+  supportLabel?: 'low' | 'medium' | 'high' | 'unknown';
+  matchedTerms?: string[];
+}
+
+export interface KnowledgeDocumentSearchResult
+  extends KnowledgeDocumentRecord,
+    KnowledgeDocumentSupportMetadata {}
+
+interface RetrievedDocumentResult extends KnowledgeDocumentSupportMetadata {
+  id: string;
+  title: string;
+  content: string;
+}
 
 export interface KnowledgeDocumentSearchOptions {
   embeddingConfig?: EmbeddingProviderConfig | null;
@@ -1073,7 +1088,7 @@ function buildFtsMatchQuery(query: string): string {
     .join(' OR ');
 }
 
-function readDocumentSearchCache(database: Database, cacheKey: string) {
+function readDocumentSearchCache(database: Database, cacheKey: string): RetrievedDocumentResult[] | null {
   const row = mapRows<{ results_json: string }>(
     database.exec(
       `
@@ -1091,7 +1106,7 @@ function readDocumentSearchCache(database: Database, cacheKey: string) {
   }
 
   try {
-    return JSON.parse(row.results_json) as { id: string; title: string; content: string }[];
+    return JSON.parse(row.results_json) as RetrievedDocumentResult[];
   } catch {
     return null;
   }
@@ -1148,6 +1163,24 @@ function getDocumentMetadataRecord(database: Database, documentId: string): Know
     tags,
     syncedAt: row.synced_at ?? undefined,
     updatedAt: row.updated_at,
+  };
+}
+
+function mergeSearchResultWithMetadata(
+  record: KnowledgeDocumentRecord | null,
+  result: RetrievedDocumentResult,
+): KnowledgeDocumentSearchResult | null {
+  if (!record) {
+    return null;
+  }
+
+  return {
+    ...record,
+    title: result.title || record.title,
+    content: result.content || record.content,
+    supportScore: result.supportScore,
+    supportLabel: result.supportLabel,
+    matchedTerms: result.matchedTerms,
   };
 }
 
@@ -2681,7 +2714,7 @@ export async function searchDocumentsInDatabase(
   database: Database,
   query: string,
   options?: KnowledgeDocumentSearchOptions,
-) {
+): Promise<RetrievedDocumentResult[]> {
   try {
     const normalizedQuery = query.trim();
     if (!normalizedQuery) {
@@ -2826,11 +2859,18 @@ export async function searchDocumentsInDatabase(
 
     const results = rerankHybridDocuments(hybridScoreDocuments([...seen.values()]), normalizedQuery)
       .slice(0, options?.maxResults ?? 5)
-      .map((row) => ({
-        id: row.id,
-        title: row.title,
-        content: compressRetrievedContext(normalizedQuery, row.content),
-      }));
+      .map((row) => {
+        const compressedContent = compressRetrievedContext(normalizedQuery, row.content);
+        const support = scoreRetrievedContextSupport(normalizedQuery, row.title, compressedContent);
+        return {
+          id: row.id,
+          title: row.title,
+          content: compressedContent,
+          supportScore: support.score,
+          supportLabel: support.label,
+          matchedTerms: support.matchedTerms,
+        };
+      });
 
     writeDocumentSearchCache(database, scopedCacheKey, normalizedQuery, results);
     return results;
@@ -2863,7 +2903,9 @@ export async function searchKnowledgeDocuments(
   });
 
   const results = rows
-    .map((row) => getDocumentMetadataRecord(database, row.id))
+    .map((row) =>
+      mergeSearchResultWithMetadata(getDocumentMetadataRecord(database, row.id), row),
+    )
     .filter((row): row is KnowledgeDocumentSearchResult => Boolean(row));
   await saveDB();
   return results;

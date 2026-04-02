@@ -203,6 +203,48 @@ export function compressRetrievedContext(
   return `${compressed.slice(0, maxChars - 1).trim()}…`;
 }
 
+export function scoreRetrievedContextSupport(
+  query: string,
+  title: string,
+  content: string,
+): {
+  score: number;
+  label: 'low' | 'medium' | 'high' | 'unknown';
+  matchedTerms: string[];
+} {
+  const queryTokens = buildSemanticCacheKey(query)
+    .split(/\s+/)
+    .filter((token) => token.length > 1 && !ENGLISH_QUERY_STOPWORDS.has(token));
+  const normalizedQuery = buildSemanticCacheKey(query);
+  const normalizedTitle = buildSemanticCacheKey(title);
+  const normalizedContent = buildSemanticCacheKey(content);
+
+  if (!normalizedQuery || queryTokens.length === 0) {
+    return {
+      score: 0,
+      label: 'unknown' as const,
+      matchedTerms: [] as string[],
+    };
+  }
+
+  const matchedTerms = queryTokens.filter(
+    (token) => normalizedTitle.includes(token) || normalizedContent.includes(token),
+  );
+  const exactPhrase =
+    normalizedTitle.includes(normalizedQuery) || normalizedContent.includes(normalizedQuery) ? 1 : 0;
+  const score = Math.min(
+    1,
+    matchedTerms.length / queryTokens.length + exactPhrase * 0.2,
+  );
+  const label = score >= 0.85 ? 'high' : score >= 0.5 ? 'medium' : 'low';
+
+  return {
+    score: Number(score.toFixed(3)),
+    label,
+    matchedTerms,
+  };
+}
+
 export function chunkDocumentContent(
   content: string,
   options: ChunkDocumentOptions = {},

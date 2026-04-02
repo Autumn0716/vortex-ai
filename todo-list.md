@@ -207,5 +207,10 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - 当前压缩发生在检索返回阶段，不会改动原始文档存储，只减少下游 prompt / tool 的上下文占用
 - RAG 第二阶段现在已经有 `query rewrite + rerank + context compression` 三段基础链路
 
+进度汇报（2026-04-02，第十二次更新）:
+- 已补上第一版 deterministic faithfulness check：每条知识库检索结果现在都会带 `supportScore / supportLabel / matchedTerms`
+- `searchKnowledgeDocuments()` 已改成保留压缩后的 excerpt，不再映射回完整正文覆盖掉检索结果
+- 这样本地 `search_knowledge_base` 工具已经具备“召回 -> 重排 -> 压缩 -> 支持度标记”的完整基础链路
+
 当前仍待继续：
 - 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开

@@ -6,6 +6,7 @@ import {
   clearDocumentSearchCache,
   getDocumentFtsEnabled,
   indexDocumentChunks,
+  searchKnowledgeDocuments,
   searchDocumentsInDatabase,
 } from '../src/lib/db';
 
@@ -226,6 +227,39 @@ test('searchDocumentsInDatabase returns compressed excerpts instead of full docu
     assert.equal(results.length, 1);
     assert.ok((results[0]?.content.length ?? 0) < content.length);
     assert.match(results[0]?.content ?? '', /branch handoff summary to parent topic/i);
+  } finally {
+    database.close();
+  }
+});
+
+test('searchDocumentsInDatabase attaches deterministic support metadata', async () => {
+  const database = await createSearchDatabase();
+
+  try {
+    database.run(`
+      CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        document_id UNINDEXED,
+        title,
+        content
+      );
+    `);
+
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      ['doc_support', 'Branch Handoff Summary', 'branch handoff summary to parent topic and rollout steps'],
+    );
+    indexDocumentChunks(database, {
+      id: 'doc_support',
+      title: 'Branch Handoff Summary',
+      content: 'branch handoff summary to parent topic and rollout steps',
+    });
+
+    const results = await searchDocumentsInDatabase(database, 'branch handoff summary');
+
+    assert.equal(results[0]?.supportLabel, 'high');
+    assert.ok((results[0]?.supportScore ?? 0) >= 0.85);
+    assert.ok((results[0]?.matchedTerms?.length ?? 0) > 0);
   } finally {
     database.close();
   }

@@ -41,3 +41,4 @@
 - Added deterministic RAG query rewrite / expansion before knowledge-base recall, including conversational filler stripping, bounded synonym expansion, and cross-lingual alias bridging for local knowledge search.
 - Added a deterministic second-pass RAG reranker after hybrid recall so title coverage, content coverage, and exact-phrase matches can refine candidate ordering before truncation.
 - Added deterministic context compression for retrieved knowledge snippets so search results now return focused excerpts around query hits instead of always passing full document bodies downstream.
+- Added deterministic faithfulness/support metadata for retrieved knowledge snippets and preserved compressed excerpts through `searchKnowledgeDocuments()` so downstream tool output can judge result support without reverting to full documents.

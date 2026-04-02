@@ -10,7 +10,21 @@ export const searchKnowledgeBaseTool = tool(
       if (results.length === 0) {
         return 'No relevant documents found in the local SQLite knowledge base.';
       }
-      return JSON.stringify(results, null, 2);
+      return JSON.stringify(
+        results.map((result) => ({
+          ...result,
+          support:
+            result.supportLabel && typeof result.supportScore === 'number'
+              ? {
+                  label: result.supportLabel,
+                  score: result.supportScore,
+                  matchedTerms: result.matchedTerms ?? [],
+                }
+              : undefined,
+        })),
+        null,
+        2,
+      );
     } catch (error: any) {
       return `Error searching database: ${error.message}`;
     }
