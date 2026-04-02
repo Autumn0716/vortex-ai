@@ -5,6 +5,7 @@
 ### Fixed
 
 - Fixed browser-side SQLite initialization in Vite builds by wiring `@sqlite.org/sqlite-wasm/sqlite3.wasm` through an explicit asset URL instead of relying on the package's default wasm path inference.
+- Fixed the Node/tsx regression caused by the browser-only SQLite wasm asset import by limiting explicit `?url` resolution to browser initialization only.
 - Fixed local workspace bootstrap failures caused by legacy `agent_memory_documents` rows missing the new memory lifecycle columns.
 - Reordered agent workspace schema migration so missing columns are added before indexes that depend on them are created.
 - Added bootstrap error detail surfacing in the chat shell so local initialization failures now show the concrete error chain instead of only a generic retry message.
@@ -47,3 +48,5 @@
 - Added a bounded corrective retrieval pass for weak or sparse knowledge-base queries so the local RAG pipeline can derive focused follow-up queries from support gaps and graph hints, then merge the extra recall path back into final ranking with `retrievalStage` metadata.
 - Added bounded graph-neighborhood expansion on top of direct graph overlap so second-order entities from `document_graph_edges` can surface related documents, with separate `graphExpansionHints` for observability.
 - Upgraded `search_knowledge_base` to return an explicit evidence summary plus stable per-result support, retrieval-stage, and graph metadata, and added a compact runtime grounding instruction so agent answers treat weak evidence more cautiously.
+- Added in-chat message actions for copying user/assistant text, regenerating the latest assistant turn in place, and grouping regenerated assistant variants with visible `<current/total>` counters.
+- Added a composer-level web-search picker button with provider selection, active/highlighted state, and runtime wiring for a first-pass `search_web` tool backed by the selected provider.

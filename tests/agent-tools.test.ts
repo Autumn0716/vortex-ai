@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatKnowledgeBaseToolPayload } from '../src/lib/agent/tools';
+import { createAgentTools, formatKnowledgeBaseToolPayload } from '../src/lib/agent/tools';
 import { buildGroundedSystemPrompt } from '../src/lib/agent/runtime';
 import type { KnowledgeDocumentSearchResult } from '../src/lib/db';
+import { DEFAULT_CONFIG } from '../src/lib/agent/config';
 
 test('formatKnowledgeBaseToolPayload returns evidence summary and stable result metadata', () => {
   const payload = formatKnowledgeBaseToolPayload([
@@ -59,4 +60,28 @@ test('buildGroundedSystemPrompt leaves the base prompt untouched when tools are 
   });
 
   assert.equal(prompt, 'You are a focused engineering agent.');
+});
+
+test('createAgentTools includes search_web when web search is enabled', () => {
+  const tools = createAgentTools(
+    {
+      ...DEFAULT_CONFIG,
+      search: {
+        ...DEFAULT_CONFIG.search,
+        enableWebSearch: true,
+        defaultProviderId: 'search_tavily',
+        providers: DEFAULT_CONFIG.search.providers.map((provider) =>
+          provider.id === 'search_tavily'
+            ? { ...provider, enabled: true, apiKey: 'test-key' }
+            : provider,
+        ),
+      },
+    },
+    {
+      webSearchEnabled: true,
+      searchProviderId: 'search_tavily',
+    },
+  );
+
+  assert.ok(tools.map((tool) => String(tool.name)).includes('search_web'));
 });

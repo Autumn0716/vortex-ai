@@ -3,7 +3,7 @@ import { ChatOpenAI } from '@langchain/openai';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { ToolNode } from '@langchain/langgraph/prebuilt';
 import { AIMessage, SystemMessage } from '@langchain/core/messages';
-import { agentTools } from './tools';
+import { createAgentTools } from './tools';
 import { AgentConfig, resolveModelSelection } from './config';
 
 export interface AgentRuntimeOptions {
@@ -12,6 +12,8 @@ export interface AgentRuntimeOptions {
   model?: string;
   systemPrompt?: string;
   enableTools?: boolean;
+  enableWebSearch?: boolean;
+  searchProviderId?: string;
 }
 
 export function buildGroundedSystemPrompt(basePrompt: string, options?: { enableTools?: boolean }) {
@@ -31,8 +33,20 @@ export function buildGroundedSystemPrompt(basePrompt: string, options?: { enable
 }
 
 export function createAgentRuntime(options: AgentRuntimeOptions) {
-  const { config, providerId, model, systemPrompt, enableTools = true } = options;
+  const {
+    config,
+    providerId,
+    model,
+    systemPrompt,
+    enableTools = true,
+    enableWebSearch = false,
+    searchProviderId,
+  } = options;
   const { provider, model: resolvedModel } = resolveModelSelection(config, providerId, model);
+  const agentTools = createAgentTools(config, {
+    webSearchEnabled: enableWebSearch,
+    searchProviderId,
+  });
 
   let llm;
   if (provider.type === 'openai' || provider.type === 'custom_openai') {

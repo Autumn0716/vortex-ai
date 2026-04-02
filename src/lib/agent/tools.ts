@@ -1,6 +1,10 @@
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { searchKnowledgeDocuments, type KnowledgeDocumentSearchResult } from '../db';
+import {
+  searchKnowledgeDocuments,
+  type KnowledgeDocumentSearchResult,
+} from '../db';
+import type { AgentConfig, SearchProviderConfig } from './config';
 import { runSnippetInSandbox } from '../webcontainer';
 
 export function formatKnowledgeBaseToolPayload(results: KnowledgeDocumentSearchResult[]) {
@@ -77,6 +81,155 @@ export const searchKnowledgeBaseTool = tool(
   },
 );
 
+function resolveSearchProvider(config: AgentConfig, providerId?: string) {
+  const candidates = config.search.providers;
+  const selected =
+    candidates.find((provider) => provider.id === providerId) ??
+    candidates.find((provider) => provider.id === config.search.defaultProviderId) ??
+    null;
+
+  return selected?.enabled ? selected : null;
+}
+
+async function performTavilySearch(provider: SearchProviderConfig, query: string) {
+  if (!provider.apiKey.trim()) {
+    throw new Error(`${provider.name} API Key 缺失。请先在 Settings -> Search 中配置。`);
+  }
+
+  const response = await fetch(`${provider.baseUrl?.replace(/\/+$/, '') ?? 'https://api.tavily.com'}/search`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      api_key: provider.apiKey.trim(),
+      query,
+      max_results: 5,
+      search_depth: 'advanced',
+      include_answer: true,
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === 'object' && 'detail' in payload
+        ? String(payload.detail)
+        : `Tavily request failed with HTTP ${response.status}.`;
+    throw new Error(message);
+  }
+
+  return {
+    provider: provider.name,
+    answer:
+      payload && typeof payload === 'object' && 'answer' in payload ? String(payload.answer ?? '') : '',
+    results:
+      payload && typeof payload === 'object' && Array.isArray(payload.results)
+        ? payload.results.map((entry: any) => ({
+            title: String(entry?.title ?? ''),
+            url: String(entry?.url ?? ''),
+            content: String(entry?.content ?? ''),
+            score: typeof entry?.score === 'number' ? entry.score : undefined,
+          }))
+        : [],
+  };
+}
+
+async function performExaSearch(provider: SearchProviderConfig, query: string) {
+  if (!provider.apiKey.trim()) {
+    throw new Error(`${provider.name} API Key 缺失。请先在 Settings -> Search 中配置。`);
+  }
+
+  const response = await fetch(`${provider.baseUrl?.replace(/\/+$/, '') ?? 'https://api.exa.ai'}/search`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': provider.apiKey.trim(),
+    },
+    body: JSON.stringify({
+      query,
+      numResults: 5,
+      type: 'auto',
+      contents: {
+        text: true,
+      },
+    }),
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message =
+      payload && typeof payload === 'object' && 'error' in payload
+        ? String(payload.error)
+        : `Exa request failed with HTTP ${response.status}.`;
+    throw new Error(message);
+  }
+
+  return {
+    provider: provider.name,
+    answer: '',
+    results:
+      payload && typeof payload === 'object' && Array.isArray(payload.results)
+        ? payload.results.map((entry: any) => ({
+            title: String(entry?.title ?? ''),
+            url: String(entry?.url ?? ''),
+            content: String(entry?.text ?? entry?.highlights?.join(' ') ?? ''),
+            score: typeof entry?.score === 'number' ? entry.score : undefined,
+          }))
+        : [],
+  };
+}
+
+export function createWebSearchTool(config: AgentConfig, providerId?: string) {
+  const provider = resolveSearchProvider(config, providerId);
+  if (!provider) {
+    return null;
+  }
+
+  return tool(
+    async ({ query }) => {
+      try {
+        if (provider.type === 'tavily') {
+          return JSON.stringify(await performTavilySearch(provider, query), null, 2);
+        }
+        if (provider.type === 'exa') {
+          return JSON.stringify(await performExaSearch(provider, query), null, 2);
+        }
+
+        if (provider.category === 'local') {
+          return JSON.stringify(
+            {
+              provider: provider.name,
+              error: `${provider.name} 当前仅预留为本地搜索入口，尚未接入自动抓取。`,
+              homepage: provider.homepage ?? provider.baseUrl ?? '',
+            },
+            null,
+            2,
+          );
+        }
+
+        return JSON.stringify(
+          {
+            provider: provider.name,
+            error: `${provider.name} 尚未实现自动联网搜索适配。`,
+          },
+          null,
+          2,
+        );
+      } catch (error: any) {
+        return `Error searching the web with ${provider.name}: ${error.message}`;
+      }
+    },
+    {
+      name: 'search_web',
+      description: `Search the live web with ${provider.name}. Use this when the user needs up-to-date information beyond the local knowledge base.`,
+      schema: z.object({
+        query: z.string().describe('The live web search query.'),
+      }),
+    },
+  );
+}
+
 export const executeCodeTool = tool(
   async ({ code, language }) => {
     try {
@@ -107,4 +260,14 @@ export const executeCodeTool = tool(
   },
 );
 
-export const agentTools = [searchKnowledgeBaseTool, executeCodeTool];
+export function createAgentTools(config: AgentConfig, options?: { webSearchEnabled?: boolean; searchProviderId?: string }) {
+  const tools: any[] = [searchKnowledgeBaseTool];
+  if (options?.webSearchEnabled) {
+    const webSearchTool = createWebSearchTool(config, options.searchProviderId);
+    if (webSearchTool) {
+      tools.push(webSearchTool);
+    }
+  }
+  tools.push(executeCodeTool);
+  return tools;
+}

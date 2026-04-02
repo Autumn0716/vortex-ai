@@ -205,6 +205,12 @@ function extractToolUsage(messages: any[], initialCount: number) {
   return tools;
 }
 
+function buildMessageHistoryForGeneration(messages: TopicMessage[], historyWindow: number) {
+  return messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .slice(-historyWindow);
+}
+
 function isAbortError(error: unknown) {
   if (!error || typeof error !== 'object') {
     return false;
@@ -295,6 +301,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [collapsedPickerGroups, setCollapsedPickerGroups] = useState<Record<string, boolean>>({});
   const [collapsedPickerSeries, setCollapsedPickerSeries] = useState<Record<string, boolean>>({});
   const [topicRunStates, setTopicRunStates] = useState<Record<string, TopicRunState>>({});
+  const [showWebSearchMenu, setShowWebSearchMenu] = useState(false);
+  const [composerWebSearchEnabled, setComposerWebSearchEnabled] = useState(false);
+  const [composerSearchProviderId, setComposerSearchProviderId] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const projectKnowledgeVersionRef = useRef('');
   const topicAbortControllersRef = useRef<Record<string, AbortController>>({});
@@ -319,6 +328,26 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     config.providers.find((provider) => provider.id === activeProviderId)?.name ?? 'Model';
   const activeModel = workspace?.runtime.model ?? workspace?.agent.model ?? config.activeModel;
   const activeMemoryEnabled = workspace?.runtime.enableMemory ?? config.memory.enableAgentLongTerm;
+  const latestAssistantMessageId = useMemo(
+    () =>
+      [...(workspace?.messages ?? [])]
+        .reverse()
+        .find((message) => message.role === 'assistant')?.id,
+    [workspace?.messages],
+  );
+  const enabledSearchProviders = useMemo(
+    () => config.search.providers.filter((provider) => provider.enabled),
+    [config.search.providers],
+  );
+  const composerSearchProvider =
+    enabledSearchProviders.find((provider) => provider.id === composerSearchProviderId) ??
+    enabledSearchProviders.find((provider) => provider.id === config.search.defaultProviderId) ??
+    enabledSearchProviders[0] ??
+    null;
+  const composerWebSearchReady = Boolean(
+    composerSearchProvider &&
+      (composerSearchProvider.category === 'local' || composerSearchProvider.apiKey.trim()),
+  );
   const pickerEffectiveProviderId =
     modelPickerTarget === 'topic'
       ? sessionSettingsDraft?.providerIdOverride.trim() ||
@@ -1065,6 +1094,28 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }));
     await addTopicMessages([userMessage]);
     await maybeAutoTitleTopic(workspaceSnapshot.topic.id, userContent);
+    await executeAssistantTurn({
+      workspaceSnapshot,
+      configSnapshot,
+      userContent,
+      messageHistory: buildMessageHistoryForGeneration(
+        [...workspaceSnapshot.messages, optimisticUserMessage],
+        configSnapshot.memory.historyWindow,
+      ),
+    });
+  };
+
+  const executeAssistantTurn = async ({
+    workspaceSnapshot,
+    configSnapshot,
+    userContent,
+    messageHistory,
+  }: {
+    workspaceSnapshot: TopicWorkspace;
+    configSnapshot: AgentConfig;
+    userContent: string;
+    messageHistory: TopicMessage[];
+  }) => {
     const abortController = new AbortController();
     topicAbortControllersRef.current[workspaceSnapshot.topic.id] = abortController;
     let lcMessages: any[] = [];
@@ -1078,27 +1129,24 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         import('../lib/agent/runtime'),
       ]);
 
-      const messageHistory = [...workspaceSnapshot.messages, optimisticUserMessage]
-        .filter((message) => message.role === 'user' || message.role === 'assistant')
-        .slice(-configSnapshot.memory.historyWindow);
-
       lcMessages = messageHistory.map((message) =>
         message.role === 'user' ? new HumanMessage(message.content) : new AIMessage(message.content),
       );
 
       const includeAgentSharedShortTerm =
         workspaceSnapshot.runtime.enableAgentSharedShortTerm || configSnapshot.memory.enableAgentSharedShortTerm;
-      const memoryContext = workspaceSnapshot.runtime.enableMemory && configSnapshot.memory.enableAgentLongTerm
-        ? (
-            await getAgentMemoryContext(workspaceSnapshot.agent.id, {
-              includeRecentMemorySnapshot: configSnapshot.memory.includeRecentMemorySnapshot,
-              query: userContent,
-              topicId: workspaceSnapshot.topic.id,
-              includeSessionMemory: configSnapshot.memory.enableSessionMemory,
-              includeAgentSharedShortTerm,
-            })
-          ).slice(0, 4000)
-        : '';
+      const memoryContext =
+        workspaceSnapshot.runtime.enableMemory && configSnapshot.memory.enableAgentLongTerm
+          ? (
+              await getAgentMemoryContext(workspaceSnapshot.agent.id, {
+                includeRecentMemorySnapshot: configSnapshot.memory.includeRecentMemorySnapshot,
+                query: userContent,
+                topicId: workspaceSnapshot.topic.id,
+                includeSessionMemory: configSnapshot.memory.enableSessionMemory,
+                includeAgentSharedShortTerm,
+              })
+            ).slice(0, 4000)
+          : '';
       if (workspaceSnapshot.runtime.enableSkills && configSnapshot.apiServer.enabled) {
         await syncAgentSkillDocuments(workspaceSnapshot.agent.id, configSnapshot.apiServer).catch((error) => {
           console.warn('Agent skill sync failed before send:', error);
@@ -1118,6 +1166,8 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         providerId: workspaceSnapshot.runtime.providerId,
         model: workspaceSnapshot.runtime.model,
         enableTools: workspaceSnapshot.runtime.enableTools,
+        enableWebSearch: composerWebSearchEnabled,
+        searchProviderId: composerSearchProvider?.id,
         systemPrompt: [
           configSnapshot.systemPrompt,
           memoryContext ? `Agent memory:\n${memoryContext}` : '',
@@ -1226,9 +1276,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           await addTopicMessages([partialMessage]);
         }
         finalizeTopicRunState(workspaceSnapshot.topic.id, {
-          composerNotice: partialContent
-            ? 'Generation stopped. Partial response kept.'
-            : 'Generation stopped.',
+          composerNotice: partialContent ? 'Generation stopped. Partial response kept.' : 'Generation stopped.',
         });
         return;
       }
@@ -1250,6 +1298,73 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     } finally {
       delete topicAbortControllersRef.current[workspaceSnapshot.topic.id];
       void refreshTopicList(workspaceSnapshot.agent.id).catch(console.error);
+    }
+  };
+
+  const handleRegenerateAssistantMessage = async (message: TopicMessage) => {
+    if (!workspace || isGenerating || message.role !== 'assistant') {
+      return;
+    }
+
+    const targetIndex = workspace.messages.findIndex((entry) => entry.id === message.id);
+    if (targetIndex < 0) {
+      return;
+    }
+
+    const anchorUserIndex = [...workspace.messages.slice(0, targetIndex)]
+      .map((entry, index) => ({ entry, index }))
+      .reverse()
+      .find(({ entry }) => entry.role === 'user')?.index;
+    if (anchorUserIndex === undefined) {
+      return;
+    }
+
+    const anchorUserMessage = workspace.messages[anchorUserIndex];
+    if (!anchorUserMessage) {
+      return;
+    }
+
+    const workspaceSnapshot = workspace;
+    const configSnapshot = config;
+    setTopicRunState(workspaceSnapshot.topic.id, () => ({
+      isGenerating: true,
+      composerNotice: 'Regenerating response…',
+    }));
+
+    await executeAssistantTurn({
+      workspaceSnapshot,
+      configSnapshot,
+      userContent: anchorUserMessage.content,
+      messageHistory: buildMessageHistoryForGeneration(
+        workspaceSnapshot.messages.slice(0, anchorUserIndex + 1),
+        configSnapshot.memory.historyWindow,
+      ),
+    });
+  };
+
+  const handleCopyMessage = async (message: TopicMessage) => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      if (activeTopicId) {
+        finalizeTopicRunState(activeTopicId, {
+          isGenerating: topicRunStates[activeTopicId]?.isGenerating ?? false,
+          draftAssistantMessage: topicRunStates[activeTopicId]?.draftAssistantMessage,
+          composerNotice: `${message.role === 'user' ? 'User' : 'Assistant'} message copied.`,
+        });
+      } else {
+        setShellNotice(`${message.role === 'user' ? 'User' : 'Assistant'} message copied.`);
+      }
+    } catch (error) {
+      console.error('Failed to copy message:', error);
+      if (activeTopicId) {
+        finalizeTopicRunState(activeTopicId, {
+          isGenerating: topicRunStates[activeTopicId]?.isGenerating ?? false,
+          draftAssistantMessage: topicRunStates[activeTopicId]?.draftAssistantMessage,
+          composerNotice: 'Copy failed. Clipboard access may be blocked.',
+        });
+      } else {
+        setShellNotice('Copy failed. Clipboard access may be blocked.');
+      }
     }
   };
 
@@ -1287,6 +1402,19 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       setCollapsedPickerSeries({});
     }
   }, [showModelPicker]);
+
+  useEffect(() => {
+    setComposerWebSearchEnabled(config.search.enableWebSearch);
+  }, [config.search.enableWebSearch]);
+
+  useEffect(() => {
+    setComposerSearchProviderId((current) => {
+      if (enabledSearchProviders.some((provider) => provider.id === current)) {
+        return current;
+      }
+      return config.search.defaultProviderId;
+    });
+  }, [config.search.defaultProviderId, enabledSearchProviders]);
 
   return (
     <div className="app-shell relative z-10 flex h-screen w-full overflow-hidden font-sans text-white">
@@ -1755,6 +1883,15 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       autoScroll={config.ui.autoScroll}
                       compact={config.ui.compactLanes}
                       scrollKey={workspace.topic.id}
+                      latestAssistantMessageId={latestAssistantMessageId}
+                      onCopyMessage={handleCopyMessage}
+                      onRegenerateAssistantMessage={(messageId) => {
+                        const targetMessage = workspace.messages.find((entry) => entry.id === messageId);
+                        if (!targetMessage) {
+                          return;
+                        }
+                        handleRegenerateAssistantMessage(targetMessage).catch(console.error);
+                      }}
                     />
                   </div>
                 </div>
@@ -1827,6 +1964,100 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       >
                         <Globe size={18} />
                       </button>
+                      <div className="relative">
+                        {showWebSearchMenu ? (
+                          <div className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-[320px] rounded-2xl border border-white/10 bg-[#0F1118]/95 p-3 shadow-[0_20px_45px_rgba(0,0,0,0.4)] backdrop-blur-xl">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="text-xs font-semibold text-white">联网搜索</div>
+                                <div className="mt-1 text-[11px] leading-5 text-white/45">
+                                  选择当前对话要挂载的实时搜索工具。
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => setComposerWebSearchEnabled((previous) => !previous)}
+                                className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                                  composerWebSearchEnabled
+                                    ? 'border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
+                                    : 'border-white/10 bg-white/5 text-white/55 hover:bg-white/10 hover:text-white'
+                                }`}
+                              >
+                                {composerWebSearchEnabled ? '已启用' : '已关闭'}
+                              </button>
+                            </div>
+                            <div className="mt-3 grid gap-2">
+                              {enabledSearchProviders.length > 0 ? (
+                                enabledSearchProviders.map((provider) => {
+                                  const isSelected = composerSearchProvider?.id === provider.id;
+                                  const isReady =
+                                    provider.category === 'local' || provider.apiKey.trim().length > 0;
+                                  return (
+                                    <button
+                                      key={provider.id}
+                                      onClick={() => {
+                                        setComposerSearchProviderId(provider.id);
+                                        if (!composerWebSearchEnabled) {
+                                          setComposerWebSearchEnabled(true);
+                                        }
+                                      }}
+                                      className={`rounded-2xl border px-3 py-3 text-left transition-all ${
+                                        isSelected
+                                          ? 'border-sky-400/25 bg-sky-400/12 text-white shadow-[0_14px_28px_rgba(0,0,0,0.2)]'
+                                          : 'border-white/10 bg-white/[0.03] text-white/72 hover:bg-white/8 hover:text-white'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <span className="truncate text-sm font-medium">{provider.name}</span>
+                                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] text-white/45">
+                                              {provider.type}
+                                            </span>
+                                          </div>
+                                          <div className="mt-1 line-clamp-2 text-[11px] leading-5 text-white/45">
+                                            {provider.description}
+                                          </div>
+                                        </div>
+                                        <span
+                                          className={`rounded-full px-2 py-0.5 text-[10px] ${
+                                            isReady
+                                              ? 'border border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
+                                              : 'border border-amber-400/25 bg-amber-400/12 text-amber-100'
+                                          }`}
+                                        >
+                                          {isReady ? 'Ready' : '未配置'}
+                                        </span>
+                                      </div>
+                                    </button>
+                                  );
+                                })
+                              ) : (
+                                <div className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-xs leading-6 text-white/45">
+                                  当前没有已启用的搜索 provider。先去 Settings - Search 打开一个 provider。
+                                </div>
+                              )}
+                            </div>
+                            <div className="mt-3 text-[11px] leading-5 text-white/38">
+                              {composerSearchProvider
+                                ? composerWebSearchReady
+                                  ? `当前将使用 ${composerSearchProvider.name} 作为实时搜索工具。`
+                                  : `${composerSearchProvider.name} 尚未配置 API Key，启用后会在调用时直接报出缺失原因。`
+                                : '未选择搜索 provider。'}
+                            </div>
+                          </div>
+                        ) : null}
+                        <button
+                          onClick={() => setShowWebSearchMenu((previous) => !previous)}
+                          className={`rounded-xl border p-2 transition-all ${
+                            composerWebSearchEnabled
+                              ? 'border-sky-400/25 bg-sky-400/12 text-sky-100 shadow-[0_12px_28px_rgba(14,165,233,0.16)]'
+                              : 'border-transparent text-white/40 hover:border-white/10 hover:bg-white/10 hover:text-white'
+                          }`}
+                          title="联网搜索"
+                        >
+                          <Search size={18} />
+                        </button>
+                      </div>
                       <button
                         onClick={() => setActiveTab('prompts')}
                         className="rounded-xl border border-transparent p-2 text-white/40 transition-colors hover:border-white/10 hover:bg-white/10 hover:text-white"

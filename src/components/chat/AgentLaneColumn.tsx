@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, User, Zap } from 'lucide-react';
+import { Bot, ChevronLeft, ChevronRight, Copy, RefreshCcw, User, Zap } from 'lucide-react';
 import type { StoredToolRun } from '../../lib/db';
 import { estimateMessageCardHeight } from '../../lib/pretext';
 
@@ -56,6 +56,68 @@ export interface AgentLaneColumnProps {
   autoScroll: boolean;
   compact: boolean;
   scrollKey?: string;
+  latestAssistantMessageId?: string;
+  onCopyMessage?: (message: MessageLike) => void;
+  onRegenerateAssistantMessage?: (messageId: string) => void;
+}
+
+interface AssistantMessageGroup {
+  kind: 'assistant_group';
+  key: string;
+  anchorUserId?: string;
+  variants: MessageLike[];
+}
+
+interface StandaloneMessageItem {
+  kind: 'message';
+  key: string;
+  message: MessageLike;
+}
+
+type LaneDisplayItem = AssistantMessageGroup | StandaloneMessageItem;
+
+function buildDisplayItems(messages: MessageLike[]): LaneDisplayItem[] {
+  const items: LaneDisplayItem[] = [];
+  let activeUserAnchorId: string | undefined;
+
+  messages.forEach((message) => {
+    if (message.role === 'user') {
+      activeUserAnchorId = message.id;
+      items.push({
+        kind: 'message',
+        key: message.id,
+        message,
+      });
+      return;
+    }
+
+    if (message.role === 'assistant' && activeUserAnchorId) {
+      const lastItem = items[items.length - 1];
+      if (
+        lastItem?.kind === 'assistant_group' &&
+        lastItem.anchorUserId === activeUserAnchorId
+      ) {
+        lastItem.variants.push(message);
+        return;
+      }
+
+      items.push({
+        kind: 'assistant_group',
+        key: `assistant_group_${activeUserAnchorId}`,
+        anchorUserId: activeUserAnchorId,
+        variants: [message],
+      });
+      return;
+    }
+
+    items.push({
+      kind: 'message',
+      key: message.id,
+      message,
+    });
+  });
+
+  return items;
 }
 
 export function AgentLaneColumn({
@@ -67,11 +129,16 @@ export function AgentLaneColumn({
   autoScroll,
   compact,
   scrollKey,
+  latestAssistantMessageId,
+  onCopyMessage,
+  onRegenerateAssistantMessage,
 }: AgentLaneColumnProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const widthRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [contentWidth, setContentWidth] = useState(280);
+  const [selectedVariantByGroup, setSelectedVariantByGroup] = useState<Record<string, number>>({});
+  const displayItems = buildDisplayItems(messages);
 
   useEffect(() => {
     if (!widthRef.current) {
@@ -86,6 +153,39 @@ export function AgentLaneColumn({
     setContentWidth(element.clientWidth);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    setSelectedVariantByGroup((previous) => {
+      let changed = false;
+      const next: Record<string, number> = {};
+
+      displayItems.forEach((item) => {
+        if (item.kind !== 'assistant_group') {
+          return;
+        }
+
+        const priorIndex = previous[item.key];
+        const previousVariantCount = Number.isInteger(priorIndex) ? priorIndex + 1 : 0;
+        const shouldSnapToLatest =
+          !Number.isInteger(priorIndex) || priorIndex >= item.variants.length - 2 || item.variants.length > previousVariantCount;
+        next[item.key] = shouldSnapToLatest
+          ? item.variants.length - 1
+          : Math.min(priorIndex as number, item.variants.length - 1);
+
+        if (next[item.key] !== previous[item.key]) {
+          changed = true;
+        }
+      });
+
+      Object.keys(previous).forEach((key) => {
+        if (!(key in next)) {
+          changed = true;
+        }
+      });
+
+      return changed ? next : previous;
+    });
+  }, [displayItems]);
 
   const lastMessageSignature = `${messages[messages.length - 1]?.id ?? 'empty'}::${
     messages[messages.length - 1]?.content.length ?? 0
@@ -153,7 +253,16 @@ export function AgentLaneColumn({
       <div ref={widthRef} className="min-h-0 flex-1">
         <div ref={bodyRef} className="h-full overflow-y-auto p-4 custom-scrollbar">
           <div className="flex min-h-full flex-col gap-4">
-            {messages.map((message) => {
+            {displayItems.map((item) => {
+              const message =
+                item.kind === 'assistant_group'
+                  ? item.variants[
+                      Math.min(
+                        selectedVariantByGroup[item.key] ?? item.variants.length - 1,
+                        item.variants.length - 1,
+                      )
+                    ]!
+                  : item.message;
               const estimatedHeight = estimateMessageCardHeight({
                 content: message.content,
                 width: cardContentWidth,
@@ -161,10 +270,23 @@ export function AgentLaneColumn({
                 chromeOffset: compact ? 70 : 86,
               });
               const isUser = message.role === 'user';
+              const isAssistantGroup = item.kind === 'assistant_group';
+              const currentVariantIndex = isAssistantGroup
+                ? Math.min(
+                    selectedVariantByGroup[item.key] ?? item.variants.length - 1,
+                    item.variants.length - 1,
+                  )
+                : 0;
+              const totalVariants = isAssistantGroup ? item.variants.length : 1;
+              const canRegenerate =
+                isAssistantGroup &&
+                message.id === latestAssistantMessageId &&
+                typeof onRegenerateAssistantMessage === 'function';
+              const canCopy = typeof onCopyMessage === 'function';
 
               return (
                 <div
-                  key={message.id}
+                  key={item.key}
                   className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
                   style={{
                     contentVisibility: 'auto',
@@ -182,10 +304,8 @@ export function AgentLaneColumn({
                     </div>
 
                     <div className={`flex min-w-0 flex-col gap-2 ${isUser ? 'items-end' : 'items-start'}`}>
-                      <div className="flex items-center gap-2 px-1 text-[11px] text-white/45">
-                        <span className="font-medium text-white/60">
-                          {isUser ? 'You' : message.authorName}
-                        </span>
+                      <div className="flex flex-wrap items-center gap-2 px-1 text-[11px] text-white/45">
+                        <span className="font-medium text-white/60">{isUser ? 'You' : message.authorName}</span>
                         {showTimestamps ? (
                           <span>
                             {new Date(message.createdAt).toLocaleTimeString([], {
@@ -193,6 +313,59 @@ export function AgentLaneColumn({
                               minute: '2-digit',
                             })}
                           </span>
+                        ) : null}
+                        {!isUser ? (
+                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/50">
+                            {`<${currentVariantIndex + 1}/${totalVariants}>`}
+                          </span>
+                        ) : null}
+                        {isAssistantGroup && totalVariants > 1 ? (
+                          <div className="ml-1 inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-1 py-0.5">
+                            <button
+                              onClick={() =>
+                                setSelectedVariantByGroup((previous) => ({
+                                  ...previous,
+                                  [item.key]: Math.max(0, currentVariantIndex - 1),
+                                }))
+                              }
+                              disabled={currentVariantIndex === 0}
+                              className="rounded-full p-0.5 text-white/45 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                              title="Previous output"
+                            >
+                              <ChevronLeft size={12} />
+                            </button>
+                            <button
+                              onClick={() =>
+                                setSelectedVariantByGroup((previous) => ({
+                                  ...previous,
+                                  [item.key]: Math.min(totalVariants - 1, currentVariantIndex + 1),
+                                }))
+                              }
+                              disabled={currentVariantIndex >= totalVariants - 1}
+                              className="rounded-full p-0.5 text-white/45 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                              title="Next output"
+                            >
+                              <ChevronRight size={12} />
+                            </button>
+                          </div>
+                        ) : null}
+                        {canCopy ? (
+                          <button
+                            onClick={() => onCopyMessage?.(message)}
+                            className="ml-1 rounded-full border border-transparent p-1 text-white/35 transition-all hover:border-white/10 hover:bg-white/10 hover:text-white"
+                            title="Copy message"
+                          >
+                            <Copy size={12} />
+                          </button>
+                        ) : null}
+                        {canRegenerate ? (
+                          <button
+                            onClick={() => onRegenerateAssistantMessage?.(message.id)}
+                            className="rounded-full border border-transparent p-1 text-white/35 transition-all hover:border-white/10 hover:bg-white/10 hover:text-white"
+                            title="Regenerate output"
+                          >
+                            <RefreshCcw size={12} />
+                          </button>
                         ) : null}
                       </div>
 
