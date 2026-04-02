@@ -342,6 +342,22 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const activeParentTopic = workspace?.topic.parentTopicId
     ? topics.find((topic) => topic.id === workspace.topic.parentTopicId) ?? null
     : null;
+  const activeChildBranches = useMemo(
+    () =>
+      workspace
+        ? topics.filter((topic) => topic.parentTopicId === workspace.topic.id)
+        : [],
+    [topics, workspace],
+  );
+  const activeSiblingBranches = useMemo(() => {
+    if (!workspace?.topic.parentTopicId) {
+      return [];
+    }
+    return topics.filter(
+      (topic) =>
+        topic.parentTopicId === workspace.topic.parentTopicId && topic.id !== workspace.topic.id,
+    );
+  }, [topics, workspace]);
   const topicCounts = useMemo(
     () => ({
       all: topics.length,
@@ -1626,6 +1642,60 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </button>
               </div>
             </header>
+
+            {workspace && (activeParentTopic || activeChildBranches.length > 0 || activeSiblingBranches.length > 0) ? (
+              <div className="border-b border-white/5 bg-white/[0.02] px-4 py-2.5">
+                <div className="mx-auto flex w-full max-w-[1180px] flex-wrap items-center gap-2">
+                  {activeParentTopic ? (
+                    <button
+                      onClick={() => activateTopic(activeParentTopic.id).catch(console.error)}
+                      className="inline-flex items-center gap-2 rounded-full border border-sky-400/15 bg-sky-400/10 px-3 py-1.5 text-[11px] text-sky-100/85 transition-colors hover:bg-sky-400/16"
+                    >
+                      <GitBranch size={12} />
+                      Parent · {activeParentTopic.title}
+                    </button>
+                  ) : null}
+                  {activeChildBranches.length > 0 ? (
+                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] text-white/55">
+                      Branches {activeChildBranches.length}
+                    </span>
+                  ) : null}
+                  {activeChildBranches.map((topic) => (
+                    <button
+                      key={topic.id}
+                      onClick={() => activateTopic(topic.id).catch(console.error)}
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] transition-colors ${
+                        topicRunStates[topic.id]?.isGenerating
+                          ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100/85'
+                          : 'border-white/10 bg-black/20 text-white/65 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      <span className="max-w-[180px] truncate">{topic.title}</span>
+                      {topicRunStates[topic.id]?.isGenerating ? <span>Running</span> : null}
+                    </button>
+                  ))}
+                  {activeSiblingBranches.length > 0 ? (
+                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] text-white/55">
+                      Siblings {activeSiblingBranches.length}
+                    </span>
+                  ) : null}
+                  {activeSiblingBranches.map((topic) => (
+                    <button
+                      key={topic.id}
+                      onClick={() => activateTopic(topic.id).catch(console.error)}
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] transition-colors ${
+                        topicRunStates[topic.id]?.isGenerating
+                          ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100/85'
+                          : 'border-white/10 bg-black/20 text-white/65 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      <span className="max-w-[180px] truncate">{topic.title}</span>
+                      {topicRunStates[topic.id]?.isGenerating ? <span>Running</span> : null}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="min-h-0 flex-1 overflow-hidden">
               {loadingWorkspace ? (

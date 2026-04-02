@@ -187,5 +187,10 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - 回传内容采用紧凑摘要，只携带 handoff note 和最近 branch 结论，不会把整段 branch 历史直接并回 parent
 - branch 自己也会记录一条 handoff system note，方便追溯该次回传是否已经完成
 
+进度汇报（2026-04-02，第八次更新）:
+- 已在聊天壳层加入 branch 导航条：父会话可直接看到自己的子分支列表
+- branch 会话现在也能直接跳回 parent，或横向切到 sibling branches
+- 这一层仍然只复用现有 topic 列表推导关系，没有额外引入新的存储模型
+
 当前仍待继续：
 - 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开
