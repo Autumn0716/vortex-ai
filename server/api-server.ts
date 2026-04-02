@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { readProjectConfig, writeProjectConfig } from './config-store';
 import { createNightlyMemoryArchiveScheduler } from './nightly-memory-archive';
 
 export interface FlowAgentApiServerOptions {
@@ -136,6 +137,26 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
           : null,
       },
     });
+  });
+
+  app.get('/api/config', async (_request, response) => {
+    try {
+      response.json(await readProjectConfig(rootDir));
+    } catch (error) {
+      response.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to read project config.',
+      });
+    }
+  });
+
+  app.put('/api/config', async (request, response) => {
+    try {
+      response.json(await writeProjectConfig(rootDir, request.body ?? {}));
+    } catch (error) {
+      response.status(400).json({
+        error: error instanceof Error ? error.message : 'Failed to write project config.',
+      });
+    }
   });
 
   app.get('/api/nightly-archive', async (_request, response) => {

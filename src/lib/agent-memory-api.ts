@@ -1,4 +1,4 @@
-import type { ApiServerSettings } from './agent/config';
+import type { AgentConfig, ApiServerSettings } from './agent/config';
 import {
   buildAgentMemoryPaths,
   detectMemoryFileKind,
@@ -202,6 +202,28 @@ export async function saveNightlyArchiveSettings(
   }
 
   return requestApi<NightlyArchiveStatus>(settings, '/api/nightly-archive', {
+    method: 'PUT',
+    body: JSON.stringify(value),
+  });
+}
+
+export async function getProjectConfig(settings: ApiServerSettings): Promise<AgentConfig | null> {
+  if (!settings.enabled) {
+    return null;
+  }
+
+  return requestApi<AgentConfig>(settings, '/api/config', {}, { allowNotFound: true });
+}
+
+export async function saveProjectConfig(
+  settings: ApiServerSettings,
+  value: Partial<AgentConfig> | AgentConfig,
+): Promise<AgentConfig | null> {
+  if (!settings.enabled) {
+    throw new Error('The local API server is disabled.');
+  }
+
+  return requestApi<AgentConfig>(settings, '/api/config', {
     method: 'PUT',
     body: JSON.stringify(value),
   });
