@@ -538,11 +538,29 @@ function mergeProvider(defaultProvider: ModelProvider, provider?: Partial<ModelP
   return {
     ...defaultProvider,
     ...provider,
-    protocol: provider?.protocol ?? defaultProvider.protocol,
+    protocol: provider?.protocol ?? inferProviderProtocol(provider, defaultProvider.protocol),
     models: normalizeStringArray(provider?.models).length
       ? normalizeStringArray(provider?.models)
       : defaultProvider.models,
   };
+}
+
+function inferProviderProtocol(
+  provider: Partial<Pick<ModelProvider, 'protocol' | 'baseUrl' | 'type'>> | undefined,
+  fallback: ProviderProtocol,
+): ProviderProtocol {
+  if (provider?.protocol) {
+    return provider.protocol;
+  }
+
+  const normalizedBaseUrl = provider?.baseUrl?.trim().replace(/\/+$/, '').toLowerCase() ?? '';
+  if (normalizedBaseUrl.includes('/api/v2/apps/protocols/compatible-mode/v1')) {
+    return 'openai_responses_compatible';
+  }
+  if ((provider?.type ?? 'custom_openai') === 'anthropic') {
+    return 'anthropic_native';
+  }
+  return fallback;
 }
 
 function normalizeProviders(rawProviders?: Partial<ModelProvider>[]): ModelProvider[] {
@@ -568,7 +586,10 @@ function normalizeProviders(rawProviders?: Partial<ModelProvider>[]): ModelProvi
       baseUrl: provider.baseUrl,
       models: normalizeStringArray(provider.models),
       type: provider.type ?? 'custom_openai',
-      protocol: provider.protocol ?? getDefaultProviderProtocol(provider.type ?? 'custom_openai'),
+      protocol: inferProviderProtocol(
+        provider,
+        getDefaultProviderProtocol(provider.type ?? 'custom_openai'),
+      ),
     });
   });
 

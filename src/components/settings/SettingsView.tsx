@@ -526,6 +526,7 @@ export const SettingsView = ({
   onMemoryFilesChanged,
 }: SettingsViewProps) => {
   const [draft, setDraft] = useState<AgentConfig>(() => normalizeAgentConfig(config));
+  const draftRef = useRef<AgentConfig>(normalizeAgentConfig(config));
   const [activeCategory, setActiveCategory] = useState<CategoryId>(initialCategory);
   const [activeProviderId, setActiveProviderId] = useState<string>(config.providers[0]?.id ?? '');
   const [activeSearchProviderId, setActiveSearchProviderId] = useState<string>(
@@ -627,6 +628,7 @@ export const SettingsView = ({
 
   useEffect(() => {
     setDraft(normalizeAgentConfig(config));
+    draftRef.current = normalizeAgentConfig(config);
     applyThemePreferences(config);
   }, [config]);
 
@@ -671,6 +673,7 @@ export const SettingsView = ({
   const commit = async (nextConfig: AgentConfig) => {
     const normalized = normalizeAgentConfig(nextConfig);
     setDraft(normalized);
+    draftRef.current = normalized;
     applyThemePreferences(normalized);
     try {
       await saveAgentConfig(normalized);
@@ -685,7 +688,7 @@ export const SettingsView = ({
   };
 
   const updateDraft = async (updater: (current: AgentConfig) => AgentConfig) => {
-    await commit(updater(draft));
+    await commit(updater(draftRef.current));
   };
 
   const updateProvider = async (id: string, updates: Partial<ModelProvider>) => {

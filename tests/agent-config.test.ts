@@ -183,7 +183,7 @@ test('resolveModelSelection prefers the model-matching provider when the explici
   assert.equal(resolved.model, 'qwen3.6plus');
 });
 
-test('normalizeAgentConfig backfills provider protocol for legacy custom providers', () => {
+test('normalizeAgentConfig infers responses protocol for legacy custom providers with responses-compatible base urls', () => {
   const config = normalizeAgentConfig({
     providers: [
       {
@@ -198,5 +198,30 @@ test('normalizeAgentConfig backfills provider protocol for legacy custom provide
     ],
   } as Partial<AgentConfig>);
 
-  assert.equal(config.providers[0]?.protocol, 'openai_chat_compatible');
+  assert.equal(
+    config.providers.find((provider) => provider.id === 'custom_qwen')?.protocol,
+    'openai_responses_compatible',
+  );
+});
+
+test('normalizeAgentConfig preserves explicitly saved provider protocol values', () => {
+  const config = normalizeAgentConfig({
+    providers: [
+      {
+        id: 'custom_qwen',
+        name: 'Qwen',
+        enabled: true,
+        apiKey: 'test',
+        baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        models: ['qwen-plus'],
+        type: 'custom_openai',
+        protocol: 'openai_responses_compatible',
+      },
+    ],
+  } as Partial<AgentConfig>);
+
+  assert.equal(
+    config.providers.find((provider) => provider.id === 'custom_qwen')?.protocol,
+    'openai_responses_compatible',
+  );
 });
