@@ -117,10 +117,18 @@ async function requestApi<T>(
   options: { allowNotFound?: boolean } = {},
 ): Promise<T | null> {
   const baseUrl = resolveApiServerBaseUrl(settings);
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: buildApiHeaders(settings, init.headers),
-  });
+  const requestUrl = `${baseUrl}${path}`;
+  let response: Response;
+
+  try {
+    response = await fetch(requestUrl, {
+      ...init,
+      headers: buildApiHeaders(settings, init.headers),
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to reach local API server at ${requestUrl}: ${detail}`);
+  }
 
   if (options.allowNotFound && response.status === 404) {
     return null;

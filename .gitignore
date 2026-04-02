@@ -9,3 +9,4 @@ coverage/
 config.json
 .superpowers/
 .vite/
+.vercel

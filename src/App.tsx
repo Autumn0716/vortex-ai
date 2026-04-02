@@ -19,6 +19,7 @@ import {
   Workflow
 } from 'lucide-react';
 import { FlowingPixels } from './components/FlowingPixels';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { ChatInterface } from './components/ChatInterface';
 import { cn } from './lib/utils';
 import { getAgentConfig, normalizeAgentConfig } from './lib/agent/config';
@@ -49,21 +50,18 @@ export default function App() {
       });
   }, []);
 
-  if (currentView === 'chat') {
-    return (
-      <div className="app-shell relative min-h-screen overflow-hidden">
-        {/* Keep the flowing pixels as a subtle background in the chat too */}
-        <div className="absolute inset-0 opacity-30 pointer-events-none">
-          <FlowingPixels />
-        </div>
-        <ChatInterface onBack={() => setCurrentView('landing')} />
-      </div>
-    );
-  }
-
   return (
-    <div className="relative min-h-screen overflow-x-hidden">
-      <FlowingPixels />
+    <AppErrorBoundary>
+      {currentView === 'chat' ? (
+        <div className="app-shell relative min-h-screen overflow-hidden">
+          <div className="absolute inset-0 pointer-events-none opacity-30">
+            <FlowingPixels />
+          </div>
+          <ChatInterface onBack={() => setCurrentView('landing')} />
+        </div>
+      ) : (
+        <div className="relative min-h-screen overflow-x-hidden">
+          <FlowingPixels />
       
       {/* Navigation */}
       <nav className="fixed top-0 w-full z-50 px-6 py-4 flex justify-between items-center glass border-b-0 bg-black/20">
@@ -290,6 +288,8 @@ export default function App() {
           <p className="text-xs text-white/20">© 2026 FlowAgent AI. All rights reserved.</p>
         </div>
       </footer>
-    </div>
+        </div>
+      )}
+    </AppErrorBoundary>
   );
 }

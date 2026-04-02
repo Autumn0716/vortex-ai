@@ -29,3 +29,5 @@
 - Added host-backed shared `SKILL.md` sync plus agent-scoped private skill sync so FlowAgent can index `skills/**/SKILL.md` and `memory/agents/<agent-slug>/skills/**/SKILL.md`, then inject the most relevant skills into the runtime prompt with agent-local skills preferred over shared ones.
 - Replaced the previous shared project knowledge polling loop with an `api-server` watcher plus event stream so root-level `docs/**/*.md` and `skills/**/SKILL.md` changes now trigger automatic re-sync without waiting for a timer.
 - Started the session-instance refactor by extending `topics` with session runtime fields, moving generation state to per-topic tracking, and adding an initial `Quick Topic` mode that disables memory, skills, and tools by default.
+- Added a frontend runtime error boundary plus null-safe topic runtime rendering so session-scoped chat views no longer white-screen when `workspace` is temporarily unavailable during bootstrap or topic switching.
+- Improved local API request diagnostics so host-backed config and memory failures now include the concrete local API URL in the surfaced error message.

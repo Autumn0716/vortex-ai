@@ -246,6 +246,10 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const activeRunState = activeTopicId ? topicRunStates[activeTopicId] : undefined;
   const isGenerating = activeRunState?.isGenerating ?? false;
   const composerNotice = activeRunState?.composerNotice ?? shellNotice;
+  const activeDisplayName =
+    workspace?.runtime.displayName ?? workspace?.agent.name ?? selectedAgent?.name ?? 'FlowAgent';
+  const activeModel = workspace?.runtime.model ?? workspace?.agent.model ?? config.activeModel;
+  const activeMemoryEnabled = workspace?.runtime.enableMemory ?? config.memory.enableAgentLongTerm;
 
   const setTopicRunState = (topicId: string, updater: (previous: TopicRunState | undefined) => TopicRunState) => {
     setTopicRunStates((previous) => ({
@@ -1249,9 +1253,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     <AgentLaneColumn
                       lane={{
                         id: workspace.agent.id,
-                        name: workspace.runtime.displayName,
+                        name: activeDisplayName,
                         description: workspace.agent.description,
-                        model: workspace.runtime.model,
+                        model: activeModel,
                         accentColor: workspace.agent.accentColor,
                         position: 0,
                       }}
@@ -1273,13 +1277,13 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 <div className="rounded-[26px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-2.5 shadow-[0_18px_50px_rgba(0,0,0,0.32)] transition-all focus-within:border-white/20 focus-within:bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))]">
                   <div className="mb-2 flex flex-wrap items-center gap-2 px-2 pb-2">
                     <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/65">
-                      {workspace.runtime.displayName}
+                      {activeDisplayName}
                     </span>
                     <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/50">
-                      {workspace.runtime.model ?? config.activeModel}
+                      {activeModel}
                     </span>
                     <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/50">
-                      {config.memory.includeGlobalMemory ? '记忆注入已开启' : '记忆注入已暂停'}
+                      {activeMemoryEnabled ? '记忆注入已开启' : '记忆注入已暂停'}
                     </span>
                   </div>
                   <textarea
@@ -1292,7 +1296,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       }
                     }}
                     placeholder={
-                      workspace ? `Message ${workspace.runtime.displayName}...` : 'Message FlowAgent...'
+                      workspace ? `Message ${activeDisplayName}...` : 'Message FlowAgent...'
                     }
                     className="min-h-[56px] max-h-[220px] w-full resize-none bg-transparent px-3 py-2 text-sm leading-7 text-white outline-none placeholder:text-white/40 custom-scrollbar"
                     rows={1}
