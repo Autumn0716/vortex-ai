@@ -42,6 +42,7 @@ import {
   listAgents,
   listTopics,
   maybeAutoTitleTopic,
+  handoffBranchTopicToParent,
   saveAgent,
   saveAgentMemoryDocument,
   searchWorkspace,
@@ -242,6 +243,10 @@ interface BranchTopicDraft {
   goal: string;
 }
 
+interface BranchHandoffDraft {
+  note: string;
+}
+
 type ModelPickerTarget = 'global' | 'topic' | 'quick';
 type TopicModeFilter = 'all' | 'agent' | 'quick';
 
@@ -255,12 +260,15 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [showSessionSettings, setShowSessionSettings] = useState(false);
   const [showQuickTopicDialog, setShowQuickTopicDialog] = useState(false);
   const [showBranchTopicDialog, setShowBranchTopicDialog] = useState(false);
+  const [showBranchHandoffDialog, setShowBranchHandoffDialog] = useState(false);
   const [sessionSettingsDraft, setSessionSettingsDraft] = useState<SessionSettingsDraft | null>(null);
   const [quickTopicDraft, setQuickTopicDraft] = useState<QuickTopicDraft | null>(null);
   const [branchTopicDraft, setBranchTopicDraft] = useState<BranchTopicDraft | null>(null);
+  const [branchHandoffDraft, setBranchHandoffDraft] = useState<BranchHandoffDraft | null>(null);
   const [sessionSettingsSaving, setSessionSettingsSaving] = useState(false);
   const [quickTopicSaving, setQuickTopicSaving] = useState(false);
   const [branchTopicSaving, setBranchTopicSaving] = useState(false);
+  const [branchHandoffSaving, setBranchHandoffSaving] = useState(false);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelPickerTarget, setModelPickerTarget] = useState<ModelPickerTarget>('global');
   const [settingsInitialCategory, setSettingsInitialCategory] =
@@ -788,6 +796,34 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       setShellNotice(`Created branch topic "${branchTopic.title}".`);
     } finally {
       setBranchTopicSaving(false);
+    }
+  };
+
+  const handleOpenBranchHandoffDialog = () => {
+    if (!workspace?.topic.parentTopicId) {
+      return;
+    }
+    setBranchHandoffDraft({ note: '' });
+    setShowBranchHandoffDialog(true);
+  };
+
+  const handleBranchHandoff = async () => {
+    if (!workspace?.topic.parentTopicId) {
+      return;
+    }
+
+    setBranchHandoffSaving(true);
+    try {
+      const result = await handoffBranchTopicToParent({
+        branchTopicId: workspace.topic.id,
+        note: branchHandoffDraft?.note?.trim(),
+      });
+      setShowBranchHandoffDialog(false);
+      setBranchHandoffDraft(null);
+      await activateTopic(result.parentTopic.id);
+      setShellNotice(`Sent branch handoff to "${result.parentTopic.title}".`);
+    } finally {
+      setBranchHandoffSaving(false);
     }
   };
 
@@ -1534,6 +1570,15 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                           Branch
                         </button>
                       ) : null}
+                      {workspace?.topic.parentTopicId ? (
+                        <button
+                          onClick={handleOpenBranchHandoffDialog}
+                          className="rounded-md px-2 py-1 text-[11px] text-emerald-200/55 transition-colors hover:bg-emerald-400/10 hover:text-emerald-100"
+                          title="Send branch findings to parent"
+                        >
+                          Send Up
+                        </button>
+                      ) : null}
                       {workspace ? (
                         <button
                           onClick={handleOpenSessionSettings}
@@ -2095,6 +2140,99 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     className="rounded-xl border border-sky-500/20 bg-sky-500/15 px-4 py-2 text-sm font-medium text-sky-100 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {branchTopicSaving ? '创建中...' : '创建 Branch Topic'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showBranchHandoffDialog && workspace?.topic.parentTopicId && branchHandoffDraft ? (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+          <div className="flex h-[58vh] min-h-[420px] w-full max-w-[820px] overflow-hidden rounded-[30px] border border-white/10 bg-[#171717] shadow-2xl">
+            <div className="flex w-[280px] flex-col border-r border-white/5 bg-[#141414] px-5 py-6">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Branch Handoff</div>
+              <div className="mt-3 text-2xl font-semibold text-white">Send to Parent</div>
+              <div className="mt-2 text-sm leading-6 text-white/50">
+                把当前 branch 的阶段性结果整理回父会话，避免手动复制粘贴。
+              </div>
+              <div className="mt-5 rounded-[24px] border border-white/8 bg-black/20 p-4">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Transfer Preview</div>
+                <div className="mt-3 space-y-3 text-sm text-white/75">
+                  <div>
+                    <div className="text-[11px] text-white/35">Branch</div>
+                    <div className="mt-1">{workspace.topic.title}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-white/35">Parent</div>
+                    <div className="mt-1">{activeParentTopic?.title ?? 'Parent topic'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-white/35">Payload</div>
+                    <div className="mt-1">紧凑摘要 + 最近分支结论，不会复制完整 branch 历史。</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
+                <div>
+                  <div className="text-lg font-semibold text-white">回传分支结果</div>
+                  <div className="mt-1 text-sm text-white/50">可选写一条 handoff note，帮助父会话快速理解这次回传重点。</div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowBranchHandoffDialog(false);
+                    setBranchHandoffDraft(null);
+                  }}
+                  className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 custom-scrollbar">
+                <label className="block">
+                  <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">Handoff Note</div>
+                  <textarea
+                    value={branchHandoffDraft.note}
+                    onChange={(event) =>
+                      setBranchHandoffDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              note: event.target.value,
+                            }
+                          : current,
+                      )
+                    }
+                    rows={10}
+                    placeholder="例如：这里只保留 rollout 结论，不需要把 branch 里的推导过程一起并回去。"
+                    className="w-full rounded-[22px] border border-white/10 bg-black/20 px-4 py-3 text-sm leading-7 text-white outline-none transition-colors focus:border-emerald-500/40 custom-scrollbar"
+                  />
+                </label>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-t border-white/5 px-6 py-4">
+                <div className="text-xs text-white/35">发送后会自动跳回父会话，方便你直接继续主线对话。</div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      setShowBranchHandoffDialog(false);
+                      setBranchHandoffDraft(null);
+                    }}
+                    className="rounded-xl border border-white/10 bg-black/20 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={() => handleBranchHandoff().catch(console.error)}
+                    disabled={branchHandoffSaving}
+                    className="rounded-xl border border-emerald-500/20 bg-emerald-500/15 px-4 py-2 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {branchHandoffSaving ? '发送中...' : 'Send to Parent'}
                   </button>
                 </div>
               </div>

@@ -1585,6 +1585,67 @@ export async function createBranchTopicFromTopic(options: {
   return hydratedBranch?.topic ?? branchTopic;
 }
 
+export async function handoffBranchTopicToParent(options: {
+  branchTopicId: string;
+  note?: string;
+  includeRecentMessages?: number;
+}) {
+  const branchWorkspace = await getTopicWorkspace(options.branchTopicId);
+  if (!branchWorkspace) {
+    throw new Error('Branch topic not found.');
+  }
+  if (!branchWorkspace.topic.parentTopicId) {
+    throw new Error('The selected topic is not a branch topic.');
+  }
+
+  const parentWorkspace = await getTopicWorkspace(branchWorkspace.topic.parentTopicId);
+  if (!parentWorkspace) {
+    throw new Error('Parent topic not found.');
+  }
+
+  const handoffContent = buildBranchHandoffContent(
+    branchWorkspace,
+    options.note,
+    options.includeRecentMessages ?? 6,
+  );
+  const timestamp = nowIso();
+
+  await addTopicMessages([
+    {
+      topicId: parentWorkspace.topic.id,
+      agentId: parentWorkspace.agent.id,
+      role: 'assistant',
+      authorName: `${branchWorkspace.runtime.displayName} · Branch`,
+      content: handoffContent,
+      createdAt: timestamp,
+    },
+    {
+      topicId: branchWorkspace.topic.id,
+      agentId: branchWorkspace.agent.id,
+      role: 'system',
+      authorName: 'Branch Handoff',
+      content: `Sent a branch handoff to parent topic "${parentWorkspace.topic.title}".${
+        options.note?.trim() ? ` Note: ${options.note.trim()}` : ''
+      }`,
+      createdAt: timestamp,
+    },
+  ]);
+
+  const [updatedParent, updatedBranch] = await Promise.all([
+    getTopicWorkspace(parentWorkspace.topic.id),
+    getTopicWorkspace(branchWorkspace.topic.id),
+  ]);
+
+  if (!updatedParent || !updatedBranch) {
+    throw new Error('Failed to reload topics after branch handoff.');
+  }
+
+  return {
+    parentTopic: updatedParent.topic,
+    branchTopic: updatedBranch.topic,
+  };
+}
+
 export async function updateTopicTitle(topicId: string, title: string): Promise<void> {
   const database = await ensureAgentSchema();
   const normalizedTitle = title.trim() || DEFAULT_TOPIC_TITLE;
@@ -1848,6 +1909,26 @@ function buildBranchBootstrapContent(
     'This is a child branch topic. Treat the parent topic and this branch as separate sessions after creation.',
     recentMessages.length ? `Recent parent context:\n${recentMessages.join('\n')}` : '',
     'Only rely on the snapshot above. Do not assume access to the full parent transcript unless it is explicitly included here.',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function buildBranchHandoffContent(
+  workspace: TopicWorkspace,
+  note: string | undefined,
+  includeRecentMessages: number,
+) {
+  const recentMessages = workspace.messages
+    .filter((message) => message.role === 'assistant' || message.role === 'user')
+    .slice(-Math.max(0, includeRecentMessages))
+    .map(formatBranchSnapshotLine);
+
+  return [
+    `Branch handoff from: ${workspace.topic.title}`,
+    note?.trim() ? `Handoff note: ${note.trim()}` : '',
+    recentMessages.length ? `Recent branch findings:\n${recentMessages.join('\n')}` : '',
+    'Review this handoff as a compact branch summary rather than a full transcript merge.',
   ]
     .filter(Boolean)
     .join('\n\n');

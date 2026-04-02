@@ -10,6 +10,7 @@ import {
   createTopic,
   getAgentMemoryContext,
   getTopicWorkspace,
+  handoffBranchTopicToParent,
   saveAgent,
   saveAgentMemoryDocument,
   updateTopicSessionSettings,
@@ -292,4 +293,66 @@ test('branch topics inherit runtime settings but keep isolated follow-up context
   assert.match(branchWorkspace?.messages[0]?.content ?? '', /pilot-to-paid recommendation/);
   assert.match(branchWorkspace?.messages[0]?.content ?? '', /pricing options summary/i);
   assert.equal(refreshedParent?.messages.length, 2);
+});
+
+test('branch topics can hand off findings back to the parent topic', async () => {
+  localforageState.clear();
+  const agentId = createAgentId('agent_branch_handoff');
+  await saveAgent({
+    id: agentId,
+    name: 'Handoff Agent',
+    description: 'Agent used to verify branch handoff',
+    systemPrompt: 'Template prompt.',
+    accentColor: 'from-cyan-500/20 to-blue-500/20',
+    workspaceRelpath: `agents/${agentId}`,
+  });
+
+  const parentTopic = await createTopic({ agentId, title: 'Main Thread' });
+  await addTopicMessages([
+    {
+      topicId: parentTopic.id,
+      agentId,
+      role: 'user',
+      authorName: 'You',
+      content: 'Work out the implementation plan.',
+    },
+  ]);
+
+  const branchTopic = await createBranchTopicFromTopic({
+    sourceTopicId: parentTopic.id,
+    title: 'Implementation branch',
+    branchGoal: 'Produce the rollout steps only.',
+  });
+
+  await addTopicMessages([
+    {
+      topicId: branchTopic.id,
+      agentId,
+      role: 'assistant',
+      authorName: 'Handoff Agent',
+      content: 'Step 1 is schema migration. Step 2 is UI wiring. Step 3 is regression testing.',
+    },
+  ]);
+
+  await handoffBranchTopicToParent({
+    branchTopicId: branchTopic.id,
+    note: 'Return only the rollout summary.',
+    includeRecentMessages: 4,
+  });
+
+  const parentWorkspace = await getTopicWorkspace(parentTopic.id);
+  const branchWorkspace = await getTopicWorkspace(branchTopic.id);
+
+  assert.ok(parentWorkspace);
+  assert.ok(branchWorkspace);
+  assert.equal(parentWorkspace?.messages.length, 2);
+  assert.equal(parentWorkspace?.messages[1]?.role, 'assistant');
+  assert.match(parentWorkspace?.messages[1]?.authorName ?? '', /Branch/);
+  assert.match(parentWorkspace?.messages[1]?.content ?? '', /Branch handoff from: Implementation branch/);
+  assert.match(parentWorkspace?.messages[1]?.content ?? '', /Return only the rollout summary/);
+  assert.match(parentWorkspace?.messages[1]?.content ?? '', /schema migration/i);
+
+  const lastBranchMessage = branchWorkspace?.messages[branchWorkspace.messages.length - 1];
+  assert.equal(lastBranchMessage?.role, 'system');
+  assert.match(lastBranchMessage?.content ?? '', /Sent a branch handoff to parent topic "Main Thread"/);
 });

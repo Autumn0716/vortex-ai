@@ -182,5 +182,10 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - branch topic 会继承父会话的 runtime 设置，同时只带一份精简的父会话上下文快照，不会静默复制整段历史
 - 聊天页头部和 topic 列表已标出 `Branch` 身份，并显示父会话来源，作为单 agent 子任务并行的第一版产品入口
 
+进度汇报（2026-04-02，第七次更新）:
+- branch topic 现在可以把结果一键回传到父会话，形成第一版子任务汇总链路
+- 回传内容采用紧凑摘要，只携带 handoff note 和最近 branch 结论，不会把整段 branch 历史直接并回 parent
+- branch 自己也会记录一条 handoff system note，方便追溯该次回传是否已经完成
+
 当前仍待继续：
 - 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开
