@@ -5,5 +5,17 @@
     "enabled": true,
     "baseUrl": "http://127.0.0.1:3850",
     "authToken": ""
+  },
+  "memory": {
+    "promotionScoreThreshold": 4,
+    "scoringWeights": {
+      "compression": 0.8,
+      "timeliness": 0.9,
+      "connectivity": 0.9,
+      "conflictResolution": 1,
+      "abstraction": 1.1,
+      "goldenLabel": 1.2,
+      "transferability": 1.1
+    }
   }
 }

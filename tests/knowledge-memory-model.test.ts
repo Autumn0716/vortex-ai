@@ -322,9 +322,30 @@ test('buildWarmMemorySurrogate includes summary key fragments open loops and key
     now: '2026-04-20T12:00:00.000Z',
     assessment: {
       importanceScore: 5,
+      promotionScore: 4.9,
+      dimensionScores: {
+        compression: 5,
+        timeliness: 4,
+        connectivity: 5,
+        conflictResolution: 5,
+        abstraction: 5,
+        goldenLabel: 5,
+        transferability: 5,
+      },
       reason: 'Contains a durable project decision.',
       suggestedRetention: 'warm',
       promoteSignals: ['decision'],
+      promotionDecision: {
+        shouldPromote: true,
+        category: 'workflow_improvements',
+        entry: 'Keep durable project decisions in shared memory.',
+      },
+      validityHint: 'stable',
+      conflictStatus: 'latest_consensus',
+      knowledgeLinks: ['decisions', 'nightly archive'],
+      abstractionLevel: 'principle',
+      transferability: 'high',
+      goldenLabel: 'validated',
       source: 'llm',
     },
   });
@@ -332,6 +353,10 @@ test('buildWarmMemorySurrogate includes summary key fragments open loops and key
   assert.match(markdown, /tier: "warm"/);
   assert.match(markdown, /importance: 5/);
   assert.match(markdown, /importanceSource: "llm"/);
+  assert.match(markdown, /promotionCategory: "workflow_improvements"/);
+  assert.match(markdown, /promotionScore: 4.9/);
+  assert.match(markdown, /shouldPromote: true/);
+  assert.match(markdown, /transferability: "high"/);
   assert.match(markdown, /retentionSuggestion: "warm"/);
   assert.match(markdown, /## Summary/);
   assert.match(markdown, /## Open Loops/);
@@ -352,9 +377,30 @@ test('buildColdMemorySurrogate aggressively compresses the source log', () => {
     now: '2026-04-20T12:00:00.000Z',
     assessment: {
       importanceScore: 4,
+      promotionScore: 3.4,
+      dimensionScores: {
+        compression: 4,
+        timeliness: 3,
+        connectivity: 3,
+        conflictResolution: 3,
+        abstraction: 2,
+        goldenLabel: 1,
+        transferability: 2,
+      },
       reason: 'Keeps a relevant archived task.',
       suggestedRetention: 'cold',
       promoteSignals: ['project state'],
+      promotionDecision: {
+        shouldPromote: false,
+        category: 'durable_facts',
+        entry: 'Legacy project background and cleanup status.',
+      },
+      validityHint: 'dated note',
+      conflictStatus: 'stable',
+      knowledgeLinks: ['legacy project'],
+      abstractionLevel: 'concrete',
+      transferability: 'low',
+      goldenLabel: '',
       source: 'llm',
     },
   });
@@ -362,6 +408,7 @@ test('buildColdMemorySurrogate aggressively compresses the source log', () => {
   assert.match(markdown, /tier: "cold"/);
   assert.match(markdown, /importance: 4/);
   assert.match(markdown, /importanceSource: "llm"/);
+  assert.match(markdown, /promotionEntry: "Legacy project background and cleanup status\."/);
   assert.match(markdown, /## Summary/);
   assert.match(markdown, /## Keywords/);
   assert.equal(markdown.length < warmMarkdown.length, true);

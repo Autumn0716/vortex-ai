@@ -122,7 +122,9 @@ npm run api-server
 - 当前第一版冷层向量归档会为有效的 `*.cold.md` 写入独立 memory embedding 索引，并只在 Query Router 需要冷层时触发语义召回
 - 本地 `api-server` 现在支持夜间自动归档调度，默认关闭，可在设置 -> `API 服务器` 中启用并配置每日执行时间
 - 若夜间服务未运行，`api-server` 下次启动时会自动补跑错过的归档，并把状态持久化到项目内 `.flowagent/nightly-memory-archive-*.json`
-- 夜间归档现支持可选的 LLM 重要性评分，复用当前活动模型为进入 warm/cold 的 daily 生成 `importance / reason / retentionSuggestion / promoteSignals` 元数据；失败时自动回退规则评分
+- 夜间归档现支持可选的 LLM 重要性评分，复用当前活动模型为进入 warm/cold 的 daily 生成 `importance / promotionScore / retentionSuggestion / promoteSignals` 元数据；失败时自动回退规则评分
+- 夜间归档现支持自动长期晋升：显式用户要求、重复出现的稳定结论、以及被模型判定为高抽象高可迁移的经验，会合并写入 `MEMORY.md` 的 auto-managed learned patterns 区块
+- 记忆评分权重已进入 `config.json`：可按需调整 `compression / timeliness / connectivity / conflictResolution / abstraction / goldenLabel / transferability`
 
 ## 技术架构
 
@@ -138,7 +140,9 @@ npm run api-server
 
 ### 重要性评分系统
 - LLM 自动为记忆内容打分（1-5分）
-- 高分信息（身份、偏好、重要决策）长期驻留
+- 按分项权重聚合 `promotionScore`，再决定是否晋升长期记忆
+- 评分维度包括：压缩率、时效性、关联度、冲突解决、经验抽象度、用户反馈黄金标签、多场景可迁移性
+- 显式用户要求、重复结论、被验证的高迁移经验会优先进入长期记忆
 - 低分信息（日常闲聊）执行自动压缩
 
 运行时仍然基于现有的 LangGraph 栈在 [`src/lib/agent/runtime.ts`](src/lib/agent/runtime.ts)；记忆变化通过基于文件的派生记录馈送到运行时，而不是使用第二个代理框架。
@@ -158,14 +162,16 @@ npm run api-server
 - ✅ 夜间自动归档（api-server 调度 + 启动补跑）
 - ✅ 配置迁移到项目级 `config.json`
 - ✅ 夜间 LLM 重要性评分（保留为 surrogate 元数据，不自动改写 `MEMORY.md`）
+- ✅ 加权长期晋升（显式要求 / 重复结论 / 高迁移经验 -> `MEMORY.md` auto block）
 
 ### 正在进行
-- 🔄 重要性评分驱动驻留
+- 🔄 统一 memory RAG 与长期驻留策略
 
 ### 计划中
 - 📋 知识图谱（GraphRAG）
 - 📋 高级 RAG 技术（Self-RAG、Corrective RAG）
 - 📋 重排序和上下文压缩
+- 📋 RAG 链路的可调权重体系（后续与 memory scoring 对齐）
 - 📋 完整的技能系统集成
 
 ## 贡献

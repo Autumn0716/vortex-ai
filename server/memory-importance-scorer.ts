@@ -2,14 +2,11 @@ import { ChatAnthropic } from '@langchain/anthropic';
 import { ChatOpenAI } from '@langchain/openai';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { type AgentConfig, resolveModelSelection } from '../src/lib/agent/config';
-
-export interface MemoryImportanceAssessment {
-  importanceScore: number;
-  reason: string;
-  suggestedRetention: 'warm' | 'cold';
-  promoteSignals: string[];
-  source: 'llm';
-}
+import {
+  buildRuleBasedPromotionDecision,
+  normalizePromotionCategory,
+} from '../src/lib/agent-memory-promotion';
+import type { MemoryImportanceAssessment } from '../src/lib/agent-memory-lifecycle';
 
 export interface ScoreMemoryImportanceInput {
   config: AgentConfig;
@@ -54,6 +51,75 @@ function normalizeRetentionSuggestion(value: unknown, fallback: 'warm' | 'cold')
   return fallback;
 }
 
+function normalizeConflictStatus(value: unknown) {
+  const normalized = coerceString(value).toLowerCase();
+  if (normalized === 'latest_consensus' || normalized === 'conflict_detected' || normalized === 'stable') {
+    return normalized;
+  }
+  return 'stable' as const;
+}
+
+function normalizeAbstractionLevel(value: unknown) {
+  const normalized = coerceString(value).toLowerCase();
+  if (normalized === 'principle' || normalized === 'pattern' || normalized === 'concrete') {
+    return normalized;
+  }
+  return 'concrete' as const;
+}
+
+function normalizeTransferability(value: unknown) {
+  const normalized = coerceString(value).toLowerCase();
+  if (normalized === 'high' || normalized === 'medium' || normalized === 'low') {
+    return normalized;
+  }
+  return 'medium' as const;
+}
+
+function normalizeDimensionScore(value: unknown, fallback: number) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) {
+    return clampImportanceScore(numeric);
+  }
+  return clampImportanceScore(fallback);
+}
+
+function computePromotionScore(input: {
+  config: AgentConfig;
+  dimensionScores: {
+    compression: number;
+    timeliness: number;
+    connectivity: number;
+    conflictResolution: number;
+    abstraction: number;
+    goldenLabel: number;
+    transferability: number;
+  };
+}) {
+  const weights = input.config.memory.scoringWeights;
+  const weightedTotal =
+    input.dimensionScores.compression * weights.compression +
+    input.dimensionScores.timeliness * weights.timeliness +
+    input.dimensionScores.connectivity * weights.connectivity +
+    input.dimensionScores.conflictResolution * weights.conflictResolution +
+    input.dimensionScores.abstraction * weights.abstraction +
+    input.dimensionScores.goldenLabel * weights.goldenLabel +
+    input.dimensionScores.transferability * weights.transferability;
+  const totalWeight =
+    weights.compression +
+    weights.timeliness +
+    weights.connectivity +
+    weights.conflictResolution +
+    weights.abstraction +
+    weights.goldenLabel +
+    weights.transferability;
+
+  if (totalWeight <= 0) {
+    return 3;
+  }
+
+  return Math.max(1, Math.min(5, Number((weightedTotal / totalWeight).toFixed(2))));
+}
+
 function extractJsonCandidate(raw: string) {
   const trimmed = raw.trim();
   const fenced = trimmed
@@ -82,7 +148,7 @@ function parseScorerJson(raw: string) {
   throw new Error(`Memory scorer returned invalid JSON: ${raw.trim().slice(0, 300)}`);
 }
 
-function normalizeAssessment(value: unknown, fallbackTier: 'warm' | 'cold'): MemoryImportanceAssessment {
+function normalizeAssessment(value: unknown, fallbackTier: 'warm' | 'cold', config: AgentConfig): MemoryImportanceAssessment {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Memory scorer returned a non-object JSON payload.');
   }
@@ -98,14 +164,50 @@ function normalizeAssessment(value: unknown, fallbackTier: 'warm' | 'cold'): Mem
     throw new Error('Memory scorer response is missing a reason.');
   }
 
+  const importanceScore = clampImportanceScore(rawScore);
+  const dimensionPayload = payload.dimensionScores as Record<string, unknown> | undefined;
+  const rulePromotionDecision = buildRuleBasedPromotionDecision({
+    sourceMarkdown: coerceString(payload.sourceMarkdown),
+    importanceScore,
+  });
+  const dimensionScores = {
+    compression: normalizeDimensionScore(dimensionPayload?.compression, importanceScore),
+    timeliness: normalizeDimensionScore(dimensionPayload?.timeliness, importanceScore),
+    connectivity: normalizeDimensionScore(dimensionPayload?.connectivity, importanceScore),
+    conflictResolution: normalizeDimensionScore(dimensionPayload?.conflictResolution, importanceScore),
+    abstraction: normalizeDimensionScore(dimensionPayload?.abstraction, importanceScore),
+    goldenLabel: normalizeDimensionScore(dimensionPayload?.goldenLabel, importanceScore),
+    transferability: normalizeDimensionScore(dimensionPayload?.transferability, importanceScore),
+  };
+
   return {
-    importanceScore: clampImportanceScore(rawScore),
+    importanceScore,
+    promotionScore: computePromotionScore({
+      config,
+      dimensionScores,
+    }),
+    dimensionScores,
     reason,
     suggestedRetention: normalizeRetentionSuggestion(
       payload.suggestedRetention ?? payload.retentionSuggestion,
       fallbackTier,
     ),
     promoteSignals: normalizePromoteSignals(payload.promoteSignals),
+    promotionDecision: {
+      shouldPromote:
+        typeof payload.shouldPromote === 'boolean' ? payload.shouldPromote : rulePromotionDecision.shouldPromote,
+      category:
+        normalizePromotionCategory(
+          coerceString(payload.promotionCategory ?? payload.category ?? payload.memoryCategory),
+        ) ?? rulePromotionDecision.category,
+      entry: coerceString(payload.promotionEntry ?? payload.memoryEntry) || rulePromotionDecision.entry,
+    },
+    validityHint: coerceString(payload.validityHint ?? payload.validityWindow ?? payload.expiryHint) || 'stable',
+    conflictStatus: normalizeConflictStatus(payload.conflictStatus),
+    knowledgeLinks: normalizePromoteSignals(payload.knowledgeLinks).slice(0, 8),
+    abstractionLevel: normalizeAbstractionLevel(payload.abstractionLevel),
+    transferability: normalizeTransferability(payload.transferability),
+    goldenLabel: coerceString(payload.goldenLabel ?? payload.userFeedbackLabel),
     source: 'llm',
   };
 }
@@ -152,21 +254,56 @@ function buildScoringPrompt(input: {
   sourceMarkdown: string;
   providerLabel: string;
   modelLabel: string;
+  weights: AgentConfig['memory']['scoringWeights'];
 }) {
   return [
     'Score the following daily memory candidate for archival importance.',
     'Return only a JSON object with these keys:',
     '{',
     '  "importanceScore": 1-5 integer,',
+    '  "dimensionScores": {',
+    '    "compression": 1-5,',
+    '    "timeliness": 1-5,',
+    '    "connectivity": 1-5,',
+    '    "conflictResolution": 1-5,',
+    '    "abstraction": 1-5,',
+    '    "goldenLabel": 1-5,',
+    '    "transferability": 1-5',
+    '  },',
     '  "reason": "short explanation",',
     '  "suggestedRetention": "warm" or "cold",',
-    '  "promoteSignals": ["string", "..."]',
+    '  "promoteSignals": ["string", "..."],',
+    '  "shouldPromote": true or false,',
+    '  "promotionCategory": "behavioral_patterns" | "workflow_improvements" | "tool_gotchas" | "durable_facts",',
+    '  "promotionEntry": "short reusable memory entry",',
+    '  "validityHint": "stable" | "time-sensitive" | "version-sensitive" | "dated note",',
+    '  "conflictStatus": "stable" | "latest_consensus" | "conflict_detected",',
+    '  "knowledgeLinks": ["related concept", "..."],',
+    '  "abstractionLevel": "concrete" | "pattern" | "principle",',
+    '  "transferability": "low" | "medium" | "high",',
+    '  "goldenLabel": "validated / rejected / preferred / deprecated / empty"',
     '}',
     'Do not wrap the JSON in markdown fences. Do not add commentary.',
+    'Score with these criteria in mind:',
+    '- Compression ratio: remove filler and repeated attempts, keep only reusable knowledge.',
+    '- Timeliness: note if this depends on versions, dates, or temporary state.',
+    '- Connectivity: prefer memories that can connect to multiple existing knowledge points.',
+    '- Conflict resolution: prefer the newest resolved consensus over stale conflicting notes.',
+    '- Abstraction: reward highly abstract experience that captures a durable pattern or principle.',
+    '- Golden labels: reward memories reinforced by explicit user feedback or validated outcomes.',
+    '- Transferability: reward knowledge that can apply across multiple future tasks or contexts.',
     `Archive date: ${input.date}`,
     `Current tier: ${input.tier}`,
     `Selected provider: ${input.providerLabel}`,
     `Selected model: ${input.modelLabel}`,
+    'Current weight profile:',
+    `- compression=${input.weights.compression}`,
+    `- timeliness=${input.weights.timeliness}`,
+    `- connectivity=${input.weights.connectivity}`,
+    `- conflictResolution=${input.weights.conflictResolution}`,
+    `- abstraction=${input.weights.abstraction}`,
+    `- goldenLabel=${input.weights.goldenLabel}`,
+    `- transferability=${input.weights.transferability}`,
     'Source markdown:',
     '<<<SOURCE',
     input.sourceMarkdown.trim(),
@@ -230,9 +367,14 @@ export async function scoreMemoryImportanceWithModel(
     sourceMarkdown: input.sourceMarkdown,
     providerLabel: `${provider.id} (${provider.type})`,
     modelLabel: resolvedModel,
+    weights: input.config.memory.scoringWeights,
   });
 
   const rawResponse = input.invokeModel ? await input.invokeModel(prompt) : await invokeMemoryScoringModel({ config: input.config, prompt });
-  const parsed = parseScorerJson(rawResponse);
-  return normalizeAssessment(parsed, input.tier);
+  const parsed =
+    parseScorerJson(
+      typeof rawResponse === 'string' ? rawResponse : JSON.stringify(rawResponse),
+    ) as Record<string, unknown>;
+  parsed.sourceMarkdown = input.sourceMarkdown;
+  return normalizeAssessment(parsed, input.tier, input.config);
 }

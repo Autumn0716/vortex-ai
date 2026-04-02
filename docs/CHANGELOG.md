@@ -25,3 +25,4 @@
 - Added nightly memory archive scheduling to the local `api-server`, including project-local `.flowagent` settings/state files, startup catch-up for missed runs, and a matching Settings UI card for enabling and inspecting the job.
 - Moved app configuration persistence toward a project-local `config.json` source, added `config.example.json`, exposed config read/write routes through the local `api-server`, and changed `npm run dev` to start both the frontend and host bridge together.
 - Added optional nightly LLM memory scoring that reuses the active model from `config.json`, writes scored metadata into warm/cold surrogate frontmatter, and falls back to deterministic rules when model calls fail.
+- Added weighted nightly promotion scoring with configurable memory weights in `config.json`, plus automatic promotion into an auto-managed `MEMORY.md` learned-patterns block for explicit user directives, repeated conclusions, and broadly reusable validated patterns.

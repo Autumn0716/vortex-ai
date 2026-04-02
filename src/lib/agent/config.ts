@@ -75,6 +75,16 @@ export interface MemorySettings {
   keepAssistantContext: boolean;
   includeGlobalMemory: boolean;
   includeRecentMemorySnapshot: boolean;
+  promotionScoreThreshold: number;
+  scoringWeights: {
+    compression: number;
+    timeliness: number;
+    connectivity: number;
+    conflictResolution: number;
+    abstraction: number;
+    goldenLabel: number;
+    transferability: number;
+  };
 }
 
 export interface SandboxSettings {
@@ -338,6 +348,16 @@ export const DEFAULT_CONFIG: AgentConfig = {
     keepAssistantContext: true,
     includeGlobalMemory: true,
     includeRecentMemorySnapshot: true,
+    promotionScoreThreshold: 4,
+    scoringWeights: {
+      compression: 0.8,
+      timeliness: 0.9,
+      connectivity: 0.9,
+      conflictResolution: 1,
+      abstraction: 1.1,
+      goldenLabel: 1.2,
+      transferability: 1.1,
+    },
   },
   sandbox: {
     autoBoot: false,
@@ -658,6 +678,10 @@ export function normalizeAgentConfig(value?: Partial<AgentConfig> | null): Agent
     memory: {
       ...DEFAULT_CONFIG.memory,
       ...(value?.memory ?? {}),
+      scoringWeights: {
+        ...DEFAULT_CONFIG.memory.scoringWeights,
+        ...(value?.memory?.scoringWeights ?? {}),
+      },
     },
     sandbox: {
       ...DEFAULT_CONFIG.sandbox,

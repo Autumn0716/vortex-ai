@@ -178,7 +178,7 @@ function formatNightlyArchiveRunSummary(status: NightlyArchiveStatus | null) {
       : '当前未启用夜间自动归档。';
   }
 
-  return `最近一次 ${lastRun.trigger === 'catchup' ? '补跑' : '定时'}：处理 ${lastRun.processedAgents} 个 agent，成功 ${lastRun.successfulAgents}，失败 ${lastRun.failedAgents}，LLM 评分 ${lastRun.llmScoredCount}，规则回退 ${lastRun.ruleFallbackCount}。`;
+  return `最近一次 ${lastRun.trigger === 'catchup' ? '补跑' : '定时'}：处理 ${lastRun.processedAgents} 个 agent，成功 ${lastRun.successfulAgents}，失败 ${lastRun.failedAgents}，晋升 ${lastRun.promotedCount}，LLM 评分 ${lastRun.llmScoredCount}，规则回退 ${lastRun.ruleFallbackCount}。`;
 }
 
 function formatLifecycleSyncStatus(input: {

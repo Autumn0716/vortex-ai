@@ -60,6 +60,8 @@ test('normalizeAgentConfig preserves the recent memory snapshot toggle', () => {
   } as Partial<AgentConfig>);
 
   assert.equal(config.memory.includeRecentMemorySnapshot, false);
+  assert.equal(config.memory.promotionScoreThreshold, 4);
+  assert.equal(config.memory.scoringWeights.goldenLabel, 1.2);
 });
 
 test('normalizeAgentConfig keeps the local api server defaults for file-backed memory', () => {

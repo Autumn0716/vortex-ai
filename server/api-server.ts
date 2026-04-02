@@ -134,6 +134,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
               successfulAgents: nightlyArchive.state.lastRunSummary.successfulAgents,
               failedAgents: nightlyArchive.state.lastRunSummary.failedAgents,
               failures: nightlyArchive.state.lastRunSummary.failures,
+              promotedCount: nightlyArchive.state.lastRunSummary.promotedCount,
               llmScoredCount: nightlyArchive.state.lastRunSummary.llmScoredCount,
               ruleFallbackCount: nightlyArchive.state.lastRunSummary.ruleFallbackCount,
             }

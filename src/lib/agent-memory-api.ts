@@ -40,6 +40,7 @@ export interface ApiHealthResponse {
       successfulAgents: number;
       failedAgents: number;
       failures: Array<{ agentSlug: string; message: string }>;
+      promotedCount: number;
       llmScoredCount: number;
       ruleFallbackCount: number;
     } | null;
@@ -51,6 +52,7 @@ export interface NightlyArchiveRunSummary {
   successfulAgents: number;
   failedAgents: number;
   failures: Array<{ agentSlug: string; message: string }>;
+  promotedCount: number;
   llmScoredCount: number;
   ruleFallbackCount: number;
   trigger: 'catchup' | 'scheduled' | 'manual';

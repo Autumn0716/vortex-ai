@@ -153,6 +153,8 @@ test('syncAgentMemoryLifecycleFromStore falls back to rules when scoring callbac
   });
   const warm = await fileStore.readText('memory/agents/core/daily/2026-04-10.warm.md');
   assert.match(warm ?? '', /importanceSource: "rules"/);
+  assert.match(warm ?? '', /validityHint: "stable"/);
+  assert.match(warm ?? '', /transferability: "medium"/);
 });
 
 test('syncAgentMemoryLifecycleFromStore is idempotent when source markdown is unchanged', async () => {

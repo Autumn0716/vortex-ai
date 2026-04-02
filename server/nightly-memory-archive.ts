@@ -10,6 +10,7 @@ import type { AgentConfig } from '../src/lib/agent/config';
 import type { MemoryImportanceAssessment } from '../src/lib/agent-memory-lifecycle';
 import { readProjectConfig } from './config-store';
 import { scoreMemoryImportanceWithModel } from './memory-importance-scorer';
+import { syncPromotedMemoryFromSurrogates, type MemoryPromotionSyncResult } from './memory-promotion';
 
 export interface NightlyArchiveSettings {
   enabled: boolean;
@@ -24,6 +25,7 @@ export interface NightlyArchiveRunSummary {
   failures: Array<{ agentSlug: string; message: string }>;
   llmScoredCount: number;
   ruleFallbackCount: number;
+  promotedCount: number;
   trigger: 'catchup' | 'scheduled' | 'manual';
   startedAt: string;
   completedAt: string;
@@ -63,6 +65,12 @@ export interface NightlyMemoryArchiveSchedulerOptions {
       sourceMarkdown: string;
     }) => Promise<MemoryImportanceAssessment>;
   }) => Promise<AgentMemoryLifecycleResult>;
+  runPromotionSync?: (input: {
+    agentSlug: string;
+    fileStore: AgentMemoryFileStore;
+    now: string;
+    promotionThreshold?: number;
+  }) => Promise<MemoryPromotionSyncResult>;
   scoreImportanceWithModel?: (input: {
     config: AgentConfig;
     date: string;
@@ -324,6 +332,7 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
   const listAgentSlugs = options.listAgentSlugs ?? listAgentSlugsFromMemoryRoot;
   const createFileStore = options.createFileStore ?? createFilesystemAgentMemoryFileStore;
   const scoreWithModel = options.scoreImportanceWithModel ?? scoreMemoryImportanceWithModel;
+  const runPromotionSync = options.runPromotionSync ?? syncPromotedMemoryFromSurrogates;
   const runLifecycleSync =
     options.runLifecycleSync ??
     (async (input: {
@@ -388,6 +397,7 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
     let successfulAgents = 0;
     let llmScoredCount = 0;
     let ruleFallbackCount = 0;
+    let promotedCount = 0;
     const settings = await readNightlyArchiveSettings(rootDir);
     const projectConfig = settings.useLlmScoring ? await readProjectConfig(rootDir) : null;
 
@@ -410,6 +420,13 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
         });
         llmScoredCount += result.scoring?.llmScoredCount ?? 0;
         ruleFallbackCount += result.scoring?.ruleFallbackCount ?? 0;
+        const promotionResult = await runPromotionSync({
+          agentSlug,
+          fileStore,
+          now: runStartedAt,
+          promotionThreshold: projectConfig?.memory.promotionScoreThreshold,
+        });
+        promotedCount += promotionResult.promotedCount;
         if (result.failures.length === 0) {
           successfulAgents += 1;
         } else {
@@ -435,6 +452,7 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
       failures,
       llmScoredCount,
       ruleFallbackCount,
+      promotedCount,
       trigger,
       startedAt: runStartedAt,
       completedAt: resolveNowDate().toISOString(),

@@ -82,6 +82,7 @@ test('API server health and file operations work through the registered memory f
     assert.equal(health?.nightlyArchive?.enabled, false);
     assert.equal(health?.nightlyArchive?.time, '03:00');
     assert.equal(health?.nightlyArchive?.useLlmScoring, false);
+    assert.equal(health?.nightlyArchive?.lastRunSummary?.promotedCount ?? 0, 0);
 
     registerConfiguredAgentMemoryFileStore(settings);
     const fileStore = getAgentMemoryFileStore();
@@ -140,6 +141,7 @@ test('API server exposes readable and writable nightly archive settings', async 
     assert.equal(health?.nightlyArchive?.enabled, true);
     assert.equal(health?.nightlyArchive?.time, '04:30');
     assert.equal(health?.nightlyArchive?.useLlmScoring, true);
+    assert.equal(health?.nightlyArchive?.lastRunSummary?.promotedCount ?? 0, 0);
   } finally {
     await server.close();
   }

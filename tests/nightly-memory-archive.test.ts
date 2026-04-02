@@ -175,6 +175,7 @@ test('nightly scheduler startup catch-up generates warm and cold surrogates from
   assert.match(betaCold, /tier: "cold"/);
   assert.equal(status.state.lastSuccessfulRunAt !== null, true);
   assert.equal(status.state.lastRunSummary?.failedAgents ?? 1, 0);
+  assert.equal(status.state.lastRunSummary?.promotedCount ?? 0, 0);
   assert.equal(status.state.lastRunSummary?.llmScoredCount ?? 0, 0);
   assert.equal(status.state.lastRunSummary?.ruleFallbackCount ?? 0, 0);
   assert.equal(status.catchUpDue, false);
@@ -219,4 +220,33 @@ test('nightly scheduler continues when one agent fails and still processes the o
   assert.ok(status.state.lastRunSummary?.failures.some((failure) => failure.agentSlug === 'bad'));
   assert.match((await badStore.readText('memory/agents/good/daily/2026-04-10.warm.md')) ?? '', /tier: "warm"/);
   assert.equal(await badStore.readText('memory/agents/bad/daily/2026-04-10.warm.md'), null);
+});
+
+test('nightly scheduler promotes reusable memory entries into MEMORY.md', async () => {
+  const rootDir = await createTempRoot();
+  await mkdir(path.join(rootDir, 'memory/agents/core/daily'), { recursive: true });
+  await writeFile(
+    path.join(rootDir, 'memory/agents/core/daily/2026-04-10.md'),
+    '# Core\n\n- 记住：言简意赅，避免免责声明。',
+    'utf8',
+  );
+  await writeNightlyArchiveSettings(rootDir, {
+    enabled: true,
+    time: '03:00',
+    useLlmScoring: false,
+  });
+
+  const scheduler = createNightlyMemoryArchiveScheduler({
+    rootDir,
+    now: () => '2026-04-20T12:00:00.000Z',
+  });
+  await scheduler.start();
+
+  const memoryMarkdown = await readFile(path.join(rootDir, 'memory/agents/core/MEMORY.md'), 'utf8');
+  const status = await scheduler.getStatus();
+
+  assert.match(memoryMarkdown, /## Learned Patterns/);
+  assert.match(memoryMarkdown, /### Behavioral Patterns/);
+  assert.match(memoryMarkdown, /- 言简意赅，避免免责声明。/);
+  assert.equal((status.state.lastRunSummary?.promotedCount ?? 0) >= 1, true);
 });

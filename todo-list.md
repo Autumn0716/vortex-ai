@@ -75,6 +75,12 @@ RAG策略:
 评分结果会写入 `*.warm.md` / `*.cold.md` frontmatter，包括 `importance`、`importanceReason`、`importanceSource`、`retentionSuggestion` 和 `promoteSignals`，并同步到派生 SQLite 的 `importance_score`；当前仍不会自动改写 `MEMORY.md`。
 若模型调用失败、配置缺失或返回格式异常，归档会自动回退到现有规则评分，不阻塞温冷层同步。设置页 `API 服务器 -> 夜间自动归档` 已新增“启用 LLM 重要性评分”开关。当前剩余的是把高分记忆的长期晋升策略正式闭环，以及将全局/热/温层逐步并入统一 memory RAG。
 
+进度汇报（2026-04-02，第十二次更新）:
+已把长期晋升闭环推进到第一版：夜间归档现在不只看 `importance`，还会基于加权 `promotionScore` 决定是否把记忆晋升到 `memory/agents/<agent-slug>/MEMORY.md` 的 auto-managed learned patterns 区块。
+当前晋升触发不再只依赖高分，还包括三类稳定信号：用户明确要求、重复出现的稳定结论、以及被模型判定为高抽象/高迁移/已验证的经验模式。自动分类目前按 `Behavioral Patterns / Workflow Improvements / Tool Gotchas / Durable Facts` 四类写入。
+LLM 评分 rubric 已补入这些维度：压缩率、时效性、关联度、冲突解决、经验高度抽象、用户反馈黄金标签、多场景可迁移性；并支持通过 `config.json -> memory.scoringWeights` 调整权重，通过 `memory.promotionScoreThreshold` 调整晋升阈值。
+后续还要把这套“可调权重”扩展到 RAG 链路，例如 rerank、上下文压缩和图谱连接权重，但这部分会在后续 RAG 优化阶段单独接入，避免和当前记忆晋升逻辑耦合过深。
+
 全局记忆每次更新，会建立 rag 索引，
 每日记忆改为实时增量索引,当天内容也能及时检索,夜间再做压缩;且 2 天内保留索引（热层），
 3-15天(温层)只留存摘要，元数据，关键词等替身,

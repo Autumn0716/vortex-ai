@@ -13,17 +13,56 @@ test('scoreMemoryImportanceWithModel parses a strict JSON response and normalize
     invokeModel: async () =>
       JSON.stringify({
         importanceScore: 5,
+        dimensionScores: {
+          compression: 5,
+          timeliness: 4,
+          connectivity: 5,
+          conflictResolution: 5,
+          abstraction: 5,
+          goldenLabel: 5,
+          transferability: 5,
+        },
         reason: 'Contains a durable project decision.',
         suggestedRetention: 'warm',
         promoteSignals: ['decision', 'project state'],
+        shouldPromote: true,
+        promotionCategory: 'workflow_improvements',
+        promotionEntry: 'Record durable project decisions in nightly memory.',
+        validityHint: 'stable',
+        conflictStatus: 'latest_consensus',
+        knowledgeLinks: ['nightly archive', 'project decisions'],
+        abstractionLevel: 'principle',
+        transferability: 'high',
+        goldenLabel: 'validated',
       }),
   });
 
   assert.deepEqual(assessment, {
     importanceScore: 5,
+    promotionScore: 4.87,
+    dimensionScores: {
+      compression: 5,
+      timeliness: 4,
+      connectivity: 5,
+      conflictResolution: 5,
+      abstraction: 5,
+      goldenLabel: 5,
+      transferability: 5,
+    },
     reason: 'Contains a durable project decision.',
     suggestedRetention: 'warm',
     promoteSignals: ['decision', 'project state'],
+    promotionDecision: {
+      shouldPromote: true,
+      category: 'workflow_improvements',
+      entry: 'Record durable project decisions in nightly memory.',
+    },
+    validityHint: 'stable',
+    conflictStatus: 'latest_consensus',
+    knowledgeLinks: ['nightly archive', 'project decisions'],
+    abstractionLevel: 'principle',
+    transferability: 'high',
+    goldenLabel: 'validated',
     source: 'llm',
   });
 });
@@ -36,6 +75,15 @@ test('scoreMemoryImportanceWithModel defensively parses fenced or noisy JSON and
     sourceMarkdown: '- TODO archive this later',
     invokeModel: async () => `Here is the result:\n\`\`\`json\n${JSON.stringify({
       importanceScore: 9,
+      dimensionScores: {
+        compression: 4,
+        timeliness: 3,
+        connectivity: 3,
+        conflictResolution: 3,
+        abstraction: 3,
+        goldenLabel: 2,
+        transferability: 3,
+      },
       reason: 'High signal despite the noisy wrapper.',
       retentionSuggestion: 'warm',
       promoteSignals: ['signal', 'signal', 'follow-up'],
@@ -43,8 +91,11 @@ test('scoreMemoryImportanceWithModel defensively parses fenced or noisy JSON and
   });
 
   assert.equal(assessment.importanceScore, 5);
+  assert.equal(typeof assessment.promotionScore, 'number');
   assert.equal(assessment.suggestedRetention, 'warm');
   assert.deepEqual(assessment.promoteSignals, ['signal', 'follow-up']);
+  assert.equal(assessment.promotionDecision.entry, 'TODO archive this later');
+  assert.equal(assessment.transferability, 'medium');
   assert.equal(assessment.source, 'llm');
 });
 
@@ -84,9 +135,27 @@ test('scoreMemoryImportanceWithModel reuses the active provider and model select
         observedPrompt = prompt;
         return JSON.stringify({
           importanceScore: 3,
+          dimensionScores: {
+            compression: 3,
+            timeliness: 3,
+            connectivity: 3,
+            conflictResolution: 3,
+            abstraction: 2,
+            goldenLabel: 1,
+            transferability: 2,
+          },
           reason: 'Selected provider was routed into the prompt.',
           suggestedRetention: 'warm',
           promoteSignals: [],
+          shouldPromote: false,
+          promotionCategory: 'durable_facts',
+          promotionEntry: 'Current provider selection matters for nightly scoring.',
+          validityHint: 'stable',
+          conflictStatus: 'stable',
+          knowledgeLinks: [],
+          abstractionLevel: 'concrete',
+          transferability: 'low',
+          goldenLabel: '',
         });
       },
     });
