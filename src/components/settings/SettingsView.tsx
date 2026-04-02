@@ -268,8 +268,8 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-[28px] border border-white/10 bg-white/[0.03] p-5">
-      <div className="mb-4 flex items-start justify-between gap-4">
+    <section className="rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.025))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div className="mb-3 flex items-start justify-between gap-4">
         <div>
           <h3 className="text-sm font-semibold text-white/90">{title}</h3>
           {description ? <p className="mt-1 text-xs text-white/45">{description}</p> : null}
@@ -293,7 +293,7 @@ function ToggleCard({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+    <label className="rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.02))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
       <div className="flex items-center justify-between gap-4">
         <div>
           <div className="text-sm font-medium text-white/90">{title}</div>
@@ -302,6 +302,45 @@ function ToggleCard({
         <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
       </div>
     </label>
+  );
+}
+
+function WeightInputCard({
+  label,
+  value,
+  description,
+  min = 0,
+  max = 2,
+  step = 0.1,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  description: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm font-medium text-white/88">{label}</div>
+        <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-white/60">
+          {value.toFixed(1)}
+        </div>
+      </div>
+      <p className="mt-1 text-[11px] leading-5 text-white/42">{description}</p>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-3 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+      />
+    </div>
   );
 }
 
@@ -2081,6 +2120,159 @@ export const SettingsView = ({
               </div>
             </div>
 
+            <SectionCard
+              title="记忆晋升评分"
+              description="调整夜间归档把 warm/cold 记忆提升为长期记忆时的加权标准。保持原主题，不改运行模型，只改评分汇总。"
+            >
+              <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
+                <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">Threshold</div>
+                  <div className="mt-3 text-3xl font-semibold text-white">{draft.memory.promotionScoreThreshold.toFixed(1)}</div>
+                  <p className="mt-2 text-xs leading-6 text-white/45">
+                    加权后的 `promotionScore` 达到这个阈值，就会优先进入 `MEMORY.md` 的自动 learned patterns 区块。
+                  </p>
+                  <input
+                    type="number"
+                    min={1}
+                    max={5}
+                    step={0.1}
+                    value={draft.memory.promotionScoreThreshold}
+                    onChange={(event) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        memory: {
+                          ...current.memory,
+                          promotionScoreThreshold: Number(event.target.value),
+                        },
+                      }))
+                    }
+                    className="mt-4 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                  />
+                </div>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  <WeightInputCard
+                    label="压缩率"
+                    value={draft.memory.scoringWeights.compression}
+                    description="去掉赘述和重复尝试，只保留核心知识。"
+                    onChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        memory: {
+                          ...current.memory,
+                          scoringWeights: {
+                            ...current.memory.scoringWeights,
+                            compression: value,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                  <WeightInputCard
+                    label="时效性"
+                    value={draft.memory.scoringWeights.timeliness}
+                    description="识别版本、日期和临时状态，避免过期知识干扰。"
+                    onChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        memory: {
+                          ...current.memory,
+                          scoringWeights: {
+                            ...current.memory.scoringWeights,
+                            timeliness: value,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                  <WeightInputCard
+                    label="关联度"
+                    value={draft.memory.scoringWeights.connectivity}
+                    description="越能连接已有知识点，越适合长期检索。"
+                    onChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        memory: {
+                          ...current.memory,
+                          scoringWeights: {
+                            ...current.memory.scoringWeights,
+                            connectivity: value,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                  <WeightInputCard
+                    label="冲突解决"
+                    value={draft.memory.scoringWeights.conflictResolution}
+                    description="优先保留最新共识，压低冲突未解的旧记忆。"
+                    onChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        memory: {
+                          ...current.memory,
+                          scoringWeights: {
+                            ...current.memory.scoringWeights,
+                            conflictResolution: value,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                  <WeightInputCard
+                    label="抽象程度"
+                    value={draft.memory.scoringWeights.abstraction}
+                    description="越接近模式和原则，越值得长期保留。"
+                    onChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        memory: {
+                          ...current.memory,
+                          scoringWeights: {
+                            ...current.memory.scoringWeights,
+                            abstraction: value,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                  <WeightInputCard
+                    label="黄金标签"
+                    value={draft.memory.scoringWeights.goldenLabel}
+                    description="用户明确认可、验证通过的经验可提高权重。"
+                    onChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        memory: {
+                          ...current.memory,
+                          scoringWeights: {
+                            ...current.memory.scoringWeights,
+                            goldenLabel: value,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                  <WeightInputCard
+                    label="可迁移性"
+                    value={draft.memory.scoringWeights.transferability}
+                    description="可跨任务复用的 workflow 和 tool gotchas 更值钱。"
+                    onChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        memory: {
+                          ...current.memory,
+                          scoringWeights: {
+                            ...current.memory.scoringWeights,
+                            transferability: value,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+            </SectionCard>
+
             <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
               <SectionCard
                 title="文件记忆源"
@@ -2135,7 +2327,7 @@ export const SettingsView = ({
               </SectionCard>
             </div>
 
-            <div className="grid min-h-[560px] gap-px overflow-hidden rounded-[28px] border border-white/10 bg-white/5 lg:grid-cols-[280px_1fr]">
+            <div className="grid min-h-[560px] gap-px overflow-hidden rounded-[28px] border border-white/10 bg-white/5 lg:grid-cols-[228px_minmax(0,1fr)]">
               <div className="min-h-0 overflow-y-auto bg-[#1E1E1E] p-4 custom-scrollbar">
                 <div className="mb-4 flex items-center justify-between">
                   <div>
@@ -2692,8 +2884,8 @@ export const SettingsView = ({
         onChange={importExternalData}
       />
 
-      <div className="flex h-[82vh] min-h-[640px] w-full max-w-[1320px] overflow-hidden rounded-[32px] border border-white/10 bg-[#1E1E1E] shadow-2xl">
-        <div className="flex w-56 flex-col border-r border-white/5 bg-[#181818]">
+      <div className="flex h-[86vh] min-h-[640px] w-full max-w-[1460px] overflow-hidden rounded-[32px] border border-white/10 bg-[#1E1E1E] shadow-2xl">
+        <div className="flex w-48 flex-col border-r border-white/5 bg-[#181818]">
           <div className="flex items-center gap-2 border-b border-white/5 p-4 font-semibold text-white/90">
             <SettingsIcon size={18} />
             <span>设置</span>
@@ -2703,10 +2895,10 @@ export const SettingsView = ({
               <button
                 key={category.id}
                 onClick={() => setActiveCategory(category.id)}
-                className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm transition-colors ${
-                  activeCategory === category.id
-                    ? 'bg-white/10 font-medium text-white'
-                    : 'text-white/60 hover:bg-white/5 hover:text-white/90'
+                  className={`flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-sm transition-colors ${
+                    activeCategory === category.id
+                      ? 'bg-white/10 font-medium text-white'
+                      : 'text-white/60 hover:bg-white/5 hover:text-white/90'
                 }`}
               >
                 <category.icon
@@ -2721,7 +2913,7 @@ export const SettingsView = ({
 
         {activeCategory === 'models' ? (
           <>
-            <div className="flex w-72 flex-col border-r border-white/5 bg-[#1E1E1E]">
+            <div className="flex w-64 flex-col border-r border-white/5 bg-[#1E1E1E]">
               <div className="border-b border-white/5 p-3">
                 <div className="relative">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
@@ -2783,7 +2975,7 @@ export const SettingsView = ({
               </button>
 
               {activeProvider ? (
-                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
                   <div className="mb-8 flex items-center justify-between">
                     <h2 className="flex items-center gap-3 text-xl font-semibold text-white">
                       {activeProvider.name}
@@ -2970,7 +3162,7 @@ export const SettingsView = ({
             </div>
           </>
         ) : (
-          <div className="relative flex flex-1 flex-col bg-[#1E1E1E]">
+          <div className="relative flex min-w-0 flex-1 flex-col bg-[#1E1E1E]">
             <button
               onClick={onClose}
               className="absolute right-4 top-4 z-10 rounded-full p-2 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
@@ -2978,7 +3170,7 @@ export const SettingsView = ({
               <X size={18} />
             </button>
 
-            <div className="flex-1 overflow-y-auto p-6 pr-14 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-5 pr-14 custom-scrollbar">
               <div className="space-y-4">
                 {configSaveStatus ? (
                   <div

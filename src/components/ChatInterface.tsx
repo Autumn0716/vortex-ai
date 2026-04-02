@@ -760,7 +760,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       {activeTab === 'chat' && sidebarOpen ? (
         <motion.div
           initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 320, opacity: 1 }}
+          animate={{ width: 272, opacity: 1 }}
           className="flex flex-shrink-0 flex-col border-r border-white/10 bg-[#0A0A0F]"
         >
           <div className="space-y-3 p-4">
@@ -970,7 +970,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </div>
               ) : (
                 <div className="h-full overflow-x-auto custom-scrollbar">
-                  <div className="mx-auto grid min-h-full max-w-6xl gap-4 p-4 md:p-6">
+                  <div className="mx-auto grid min-h-full w-full max-w-[1180px] gap-4 p-4 md:p-6">
                     <AgentLaneColumn
                       lane={{
                         id: workspace.agent.id,
@@ -993,8 +993,19 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             </div>
 
             <div className="bg-gradient-to-t from-[#05050A] via-[#05050A] to-transparent p-4">
-              <div className="mx-auto max-w-5xl">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-2 shadow-lg transition-all focus-within:border-white/30 focus-within:bg-white/10">
+              <div className="mx-auto w-full max-w-[1120px]">
+                <div className="rounded-[26px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-2.5 shadow-[0_18px_50px_rgba(0,0,0,0.32)] transition-all focus-within:border-white/20 focus-within:bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))]">
+                  <div className="mb-2 flex flex-wrap items-center gap-2 px-2 pb-2">
+                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/65">
+                      {selectedAgent?.name ?? 'Agent'}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/50">
+                      {config.activeModel}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/50">
+                      {config.memory.includeGlobalMemory ? '记忆注入已开启' : '记忆注入已暂停'}
+                    </span>
+                  </div>
                   <textarea
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
@@ -1007,15 +1018,15 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     placeholder={
                       selectedAgent ? `Message ${selectedAgent.name}...` : 'Message FlowAgent...'
                     }
-                    className="min-h-[44px] max-h-[200px] w-full resize-none bg-transparent px-3 py-2 text-sm text-white outline-none placeholder:text-white/40 custom-scrollbar"
+                    className="min-h-[56px] max-h-[220px] w-full resize-none bg-transparent px-3 py-2 text-sm leading-7 text-white outline-none placeholder:text-white/40 custom-scrollbar"
                     rows={1}
                   />
-                  <div className="flex flex-wrap items-center justify-between gap-2 px-2 pt-2">
-                    <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-2 pt-2.5">
+                    <div className="flex flex-wrap items-center gap-2.5">
                       <select
                         value={activeAgentId ?? ''}
                         onChange={(event) => activateAgent(event.target.value).catch(console.error)}
-                        className="rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-white outline-none"
+                        className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white outline-none"
                       >
                         {agents.map((agent) => (
                           <option key={agent.id} value={agent.id} className="bg-[#111111]">
@@ -1025,21 +1036,21 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       </select>
                       <button
                         onClick={() => fileInputRef.current?.click()}
-                        className="rounded-lg p-2 text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+                        className="rounded-xl border border-transparent p-2 text-white/40 transition-colors hover:border-white/10 hover:bg-white/10 hover:text-white"
                         title="Import files into shared knowledge base"
                       >
                         <Paperclip size={18} />
                       </button>
                       <button
                         onClick={() => openSettings('search')}
-                        className="rounded-lg p-2 text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+                        className="rounded-xl border border-transparent p-2 text-white/40 transition-colors hover:border-white/10 hover:bg-white/10 hover:text-white"
                         title="Search settings"
                       >
                         <Globe size={18} />
                       </button>
                       <button
                         onClick={() => setActiveTab('prompts')}
-                        className="rounded-lg p-2 text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+                        className="rounded-xl border border-transparent p-2 text-white/40 transition-colors hover:border-white/10 hover:bg-white/10 hover:text-white"
                         title="Manage agents"
                       >
                         <Plus size={18} />
@@ -1048,20 +1059,16 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     <button
                       onClick={() => handleSend().catch(console.error)}
                       disabled={!input.trim() || isGenerating || !workspace}
-                      className="rounded-xl bg-white p-2 text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Send size={18} className="ml-0.5" />
+                      发送
                     </button>
                   </div>
                 </div>
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-white/35">
-                  <span>
-                    {selectedAgent?.name ?? 'Agent'} ·{' '}
-                    {config.memory.includeGlobalMemory ? 'Agent memory injected' : 'Agent memory paused'} · Shared knowledge base
-                  </span>
-                  <span>
-                    {composerNotice || 'FlowAgent can make mistakes. Verify important output before shipping.'}
-                  </span>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 text-[11px] text-white/35">
+                  <span>{selectedAgent?.name ?? 'Agent'} · Shared knowledge base</span>
+                  <span className="max-w-[70ch] truncate">{composerNotice || 'FlowAgent can make mistakes. Verify important output before shipping.'}</span>
                 </div>
               </div>
             </div>

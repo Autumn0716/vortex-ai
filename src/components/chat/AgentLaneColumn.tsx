@@ -99,7 +99,7 @@ export function AgentLaneColumn({
 
   return (
     <section
-      className="flex min-w-[320px] max-w-[420px] flex-1 flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] shadow-[0_20px_60px_rgba(0,0,0,0.35)]"
+      className="flex min-w-0 w-full max-w-[980px] flex-1 flex-col overflow-hidden rounded-[26px] border border-white/10 bg-white/[0.03] shadow-[0_20px_60px_rgba(0,0,0,0.35)]"
       style={{
         boxShadow: `0 18px 45px color-mix(in srgb, ${accentColor} 18%, transparent)`,
       }}
