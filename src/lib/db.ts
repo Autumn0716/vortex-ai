@@ -8,6 +8,7 @@ import {
   buildSemanticCacheKey,
   chunkDocumentContent,
   decomposeTaskQuery,
+  expandKnowledgeSearchQueries,
 } from './local-rag-helpers';
 import {
   classifyKnowledgeDocument,
@@ -2686,7 +2687,8 @@ export async function searchDocumentsInDatabase(
       return [];
     }
 
-    const baseCacheKey = buildSemanticCacheKey(normalizedQuery);
+    const expandedQueries = expandKnowledgeSearchQueries(normalizedQuery);
+    const baseCacheKey = expandedQueries.join('::');
     if (!baseCacheKey) {
       return [];
     }
@@ -2706,7 +2708,7 @@ export async function searchDocumentsInDatabase(
       return cached;
     }
 
-    const subqueries = decomposeTaskQuery(normalizedQuery);
+    const subqueries = expandedQueries.length > 0 ? expandedQueries : decomposeTaskQuery(normalizedQuery);
     const seen = new Map<
       string,
       {

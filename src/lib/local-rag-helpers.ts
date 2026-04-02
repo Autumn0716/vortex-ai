@@ -10,6 +10,69 @@ export interface DocumentChunk {
 
 const DEFAULT_CHUNK_SIZE = 800;
 const DEFAULT_CHUNK_OVERLAP = 120;
+const ENGLISH_QUERY_STOPWORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'do',
+  'i',
+  'me',
+  'my',
+  'please',
+  'can',
+  'could',
+  'would',
+  'should',
+  'to',
+  'for',
+  'of',
+  'with',
+  'and',
+  'or',
+  'in',
+  'on',
+  'at',
+  'is',
+  'are',
+  'be',
+  'it',
+  'this',
+  'that',
+  'how',
+  'what',
+  'when',
+  'where',
+  'why',
+  'help',
+]);
+
+const CROSS_LINGUAL_ALIASES: Array<[RegExp, string]> = [
+  [/知识库/g, 'knowledge base retrieval'],
+  [/技能|skill\.?md/gi, 'skill skill md'],
+  [/分支/g, 'branch subtask'],
+  [/父会话|主会话/g, 'parent topic main thread'],
+  [/回传|回退|返回|同步回来/g, 'handoff send back return'],
+  [/报错|错误/g, 'error failure issue'],
+  [/配置/g, 'config configuration'],
+  [/部署/g, 'deploy deployment'],
+  [/数据库/g, 'database sqlite'],
+  [/调试/g, 'debug troubleshoot diagnose'],
+  [/文档/g, 'document docs'],
+];
+
+const TOKEN_SYNONYMS = new Map<string, string[]>([
+  ['debug', ['troubleshoot', 'diagnose']],
+  ['error', ['failure', 'issue']],
+  ['config', ['configuration']],
+  ['deploy', ['deployment']],
+  ['branch', ['subtask', 'child']],
+  ['parent', ['main']],
+  ['handoff', ['return', 'summary']],
+  ['skills', ['skill']],
+  ['docs', ['documentation', 'document']],
+  ['sqlite', ['database']],
+  ['search', ['retrieval']],
+]);
 
 export function buildSemanticCacheKey(query: string): string {
   return query
@@ -29,6 +92,68 @@ export function decomposeTaskQuery(query: string): string[] {
     .filter(Boolean);
 
   return normalized.length > 0 ? normalized : [query.trim()].filter(Boolean);
+}
+
+function injectCrossLingualAliases(query: string): string {
+  return CROSS_LINGUAL_ALIASES.reduce((current, [pattern, replacement]) => {
+    pattern.lastIndex = 0;
+    if (!pattern.test(current)) {
+      return current;
+    }
+    pattern.lastIndex = 0;
+    return `${current} ${replacement}`.trim();
+  }, query);
+}
+
+function stripConversationalFiller(query: string): string {
+  return query
+    .replace(/^(?:please|can you|could you|would you|help me|show me|tell me|i need to|i want to)\s+/i, '')
+    .replace(/^(?:怎么|如何|请|请问|帮我|麻烦|我想|我需要|能不能|可以)\s*/u, '')
+    .trim();
+}
+
+function buildKeywordFocusQuery(query: string): string {
+  return buildSemanticCacheKey(query)
+    .split(/\s+/)
+    .filter((token) => token.length > 1 && !ENGLISH_QUERY_STOPWORDS.has(token))
+    .join(' ');
+}
+
+function buildSynonymExpansionQuery(query: string): string {
+  const normalized = buildSemanticCacheKey(query);
+  if (!normalized) {
+    return '';
+  }
+
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  const expansions = new Set<string>(tokens);
+  tokens.forEach((token) => {
+    TOKEN_SYNONYMS.get(token)?.forEach((alias) => expansions.add(alias));
+  });
+  return [...expansions].join(' ');
+}
+
+export function expandKnowledgeSearchQueries(query: string, maxVariants = 8): string[] {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+
+  const pushCandidate = (value: string) => {
+    const normalized = buildSemanticCacheKey(value);
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    candidates.push(normalized);
+  };
+
+  const seeded = injectCrossLingualAliases(stripConversationalFiller(query));
+  [query, seeded, ...decomposeTaskQuery(seeded)].forEach((candidate) => {
+    pushCandidate(candidate);
+    pushCandidate(buildKeywordFocusQuery(candidate));
+    pushCandidate(buildSynonymExpansionQuery(candidate));
+  });
+
+  return candidates.slice(0, maxVariants);
 }
 
 export function chunkDocumentContent(

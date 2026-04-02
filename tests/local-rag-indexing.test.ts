@@ -154,3 +154,39 @@ test('searchDocumentsInDatabase uses decomposed FTS queries and persists cache e
     database.close();
   }
 });
+
+test('searchDocumentsInDatabase rewrites conversational and cross-lingual queries before recall', async () => {
+  const database = await createSearchDatabase();
+
+  try {
+    database.run(`
+      CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        document_id UNINDEXED,
+        title,
+        content
+      );
+    `);
+
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      [
+        'doc_branch_handoff',
+        'Branch Handoff Guide',
+        'branch handoff summary to parent topic with child subtask findings and audit notes',
+      ],
+    );
+    indexDocumentChunks(database, {
+      id: 'doc_branch_handoff',
+      title: 'Branch Handoff Guide',
+      content: 'branch handoff summary to parent topic with child subtask findings and audit notes',
+    });
+
+    const results = await searchDocumentsInDatabase(database, '怎么把分支结果回传给父会话');
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0]?.id, 'doc_branch_handoff');
+  } finally {
+    database.close();
+  }
+});
