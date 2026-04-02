@@ -179,6 +179,25 @@ interface ModelGroup {
   }>;
 }
 
+const MODEL_FAMILY_DEFINITIONS = [
+  { label: 'Qwen', patterns: ['qwen'] },
+  { label: 'GPT', patterns: ['gpt-', 'chatgpt-', 'o1', 'o3', 'o4', 'o-'] },
+  { label: 'Doubao', patterns: ['doubao'] },
+  { label: 'DeepSeek', patterns: ['deepseek'] },
+  { label: 'Kimi', patterns: ['kimi'] },
+  { label: 'Moonshot', patterns: ['moonshot'] },
+  { label: 'Gemini', patterns: ['gemini'] },
+  { label: 'Grok', patterns: ['grok'] },
+  { label: 'Claude', patterns: ['claude'] },
+  { label: 'Llama', patterns: ['llama'] },
+  { label: 'GLM', patterns: ['glm'] },
+  { label: 'MiniMax', patterns: ['minimax'] },
+] as const;
+
+const MODEL_FAMILY_ORDER: Map<string, number> = new Map(
+  MODEL_FAMILY_DEFINITIONS.map((family, index) => [family.label, index]),
+);
+
 function formatNightlyArchiveRunSummary(status: NightlyArchiveStatus | null) {
   if (!status) {
     return '当前未读取到夜间归档状态。';
@@ -250,42 +269,16 @@ function getModelSeriesDescriptor(model: string) {
 }
 
 function classifyModelFamily(provider: ModelProvider, model: string) {
-  const normalized = model.toLowerCase();
+  const normalized = getModelBasename(model).toLowerCase();
   const providerName = provider.name.toLowerCase();
 
-  if (normalized.startsWith('gpt-') || normalized.startsWith('chatgpt-')) {
-    return 'GPT';
+  const matchedFamily = MODEL_FAMILY_DEFINITIONS.find((family) =>
+    family.patterns.some((pattern) => normalized.startsWith(pattern) || normalized.includes(pattern)),
+  );
+  if (matchedFamily) {
+    return matchedFamily.label;
   }
-  if (normalized.startsWith('o1') || normalized.startsWith('o3') || normalized.startsWith('o4') || normalized.startsWith('o-')) {
-    return 'OpenAI Reasoning';
-  }
-  if (normalized.includes('claude')) {
-    return 'Claude';
-  }
-  if (normalized.includes('deepseek')) {
-    return 'DeepSeek';
-  }
-  if (normalized.includes('minimax')) {
-    return 'MiniMax';
-  }
-  if (normalized.includes('kimi')) {
-    return 'Kimi';
-  }
-  if (normalized.includes('qwen')) {
-    return 'Qwen';
-  }
-  if (normalized.includes('gemini')) {
-    return 'Gemini';
-  }
-  if (normalized.includes('glm')) {
-    return 'GLM';
-  }
-  if (normalized.includes('llama')) {
-    return 'Llama';
-  }
-  if (normalized.includes('mistral') || normalized.includes('mixtral')) {
-    return 'Mistral';
-  }
+
   if (normalized.includes('embedding')) {
     return 'Embeddings';
   }
@@ -295,11 +288,11 @@ function classifyModelFamily(provider: ModelProvider, model: string) {
   if (providerName.includes('anthropic')) {
     return 'Anthropic Other';
   }
-  if (providerName.includes('deepseek')) {
-    return 'DeepSeek Other';
-  }
-  if (providerName.includes('minimax')) {
-    return 'MiniMax Other';
+  const providerMatchedFamily = MODEL_FAMILY_DEFINITIONS.find((family) =>
+    family.patterns.some((pattern) => providerName.includes(pattern)),
+  );
+  if (providerMatchedFamily) {
+    return providerMatchedFamily.label;
   }
 
   return 'Other';
@@ -344,7 +337,11 @@ function buildModelGroups(provider: ModelProvider, query: string) {
         series,
       };
     })
-    .sort((left, right) => right.totalCount - left.totalCount || left.label.localeCompare(right.label));
+    .sort((left, right) => {
+      const leftRank = MODEL_FAMILY_ORDER.get(left.label) ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = MODEL_FAMILY_ORDER.get(right.label) ?? Number.MAX_SAFE_INTEGER;
+      return leftRank - rightRank || right.totalCount - left.totalCount || left.label.localeCompare(right.label);
+    });
 
   return {
     totalCount: filteredModels.length,
@@ -503,6 +500,7 @@ export const SettingsView = ({
   const [providerSearchQuery, setProviderSearchQuery] = useState('');
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [collapsedModelGroups, setCollapsedModelGroups] = useState<Record<string, boolean>>({});
+  const [collapsedModelSeries, setCollapsedModelSeries] = useState<Record<string, boolean>>({});
   const [stats, setStats] = useState<DataStats | null>(null);
   const [providerChecks, setProviderChecks] = useState<Record<string, string>>({});
   const [providerLoadingId, setProviderLoadingId] = useState<string | null>(null);
@@ -719,6 +717,7 @@ export const SettingsView = ({
   useEffect(() => {
     setModelSearchQuery('');
     setCollapsedModelGroups({});
+    setCollapsedModelSeries({});
   }, [activeProviderId]);
 
   const loadMemoryFiles = async (options: { preferredPath?: string | null; announce?: string } = {}) => {
@@ -3351,53 +3350,76 @@ export const SettingsView = ({
 
                                   {!collapsed ? (
                                     <div className="mt-2 space-y-3 px-1 pb-1">
-                                      {group.series.map((series) => (
-                                        <div
-                                          key={series.id}
-                                          className="rounded-[18px] border border-white/5 bg-black/10 p-3"
-                                        >
-                                          <div className="mb-2 flex items-center justify-between gap-3">
-                                            <div className="min-w-0">
-                                              <div className="truncate text-sm font-medium text-white/85">
-                                                {series.label}
-                                              </div>
-                                              <div className="text-[11px] text-white/35">系列分组</div>
-                                            </div>
-                                            <div className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/45">
-                                              {series.models.length}
-                                            </div>
-                                          </div>
+                                      {group.series.map((series) => {
+                                        const seriesCollapsed = collapsedModelSeries[series.id] ?? false;
 
-                                          <div className="space-y-2">
-                                            {series.models.map((model) => (
-                                              <div
-                                                key={model}
-                                                className="group flex items-center justify-between rounded-xl border border-white/5 bg-white/5 p-3 transition-colors hover:bg-white/10"
-                                              >
-                                                <div className="flex min-w-0 items-center gap-3">
-                                                  <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20">
-                                                    <Box size={10} className="text-orange-400" />
-                                                  </div>
-                                                  <span className="truncate text-sm text-white/90">{model}</span>
+                                        return (
+                                          <div
+                                            key={series.id}
+                                            className="rounded-[18px] border border-white/5 bg-black/10 p-3"
+                                          >
+                                            <button
+                                              onClick={() =>
+                                                setCollapsedModelSeries((current) => ({
+                                                  ...current,
+                                                  [series.id]: !seriesCollapsed,
+                                                }))
+                                              }
+                                              className="flex w-full items-center justify-between gap-3 rounded-[14px] px-1 py-1 text-left transition-colors hover:bg-white/5"
+                                            >
+                                              <div className="flex min-w-0 items-center gap-3">
+                                                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-2xl bg-white/5">
+                                                  {seriesCollapsed ? (
+                                                    <ChevronRight size={14} className="text-white/55" />
+                                                  ) : (
+                                                    <ChevronDown size={14} className="text-white/55" />
+                                                  )}
                                                 </div>
-                                                <button
-                                                  onClick={() =>
-                                                    updateProvider(activeProvider.id, {
-                                                      models: activeProvider.models.filter(
-                                                        (entry) => entry !== model,
-                                                      ),
-                                                    })
-                                                  }
-                                                  className="rounded-full px-2 py-1 text-xs text-white/35 opacity-0 transition-all hover:bg-red-500/10 hover:text-red-300 group-hover:opacity-100"
-                                                  title="从当前列表排除"
-                                                >
-                                                  排除
-                                                </button>
+                                                <div className="min-w-0">
+                                                  <div className="truncate text-sm font-medium text-white/85">
+                                                    {series.label}
+                                                  </div>
+                                                  <div className="text-[11px] text-white/35">系列分组</div>
+                                                </div>
                                               </div>
-                                            ))}
+                                              <div className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/45">
+                                                {series.models.length}
+                                              </div>
+                                            </button>
+
+                                            {!seriesCollapsed ? (
+                                              <div className="mt-2 space-y-2">
+                                                {series.models.map((model) => (
+                                                  <div
+                                                    key={model}
+                                                    className="group flex items-center justify-between rounded-xl border border-white/5 bg-white/5 p-3 transition-colors hover:bg-white/10"
+                                                  >
+                                                    <div className="flex min-w-0 items-center gap-3">
+                                                      <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20">
+                                                        <Box size={10} className="text-orange-400" />
+                                                      </div>
+                                                      <span className="truncate text-sm text-white/90">{model}</span>
+                                                    </div>
+                                                    <button
+                                                      onClick={() =>
+                                                        updateProvider(activeProvider.id, {
+                                                          models: activeProvider.models.filter(
+                                                            (entry) => entry !== model,
+                                                          ),
+                                                        })
+                                                      }
+                                                      className="rounded-full px-2 py-1 text-xs text-white/35 opacity-0 transition-all hover:bg-red-500/10 hover:text-red-300 group-hover:opacity-100"
+                                                      title="从当前列表排除"
+                                                    >
+                                                      排除
+                                                    </button>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            ) : null}
                                           </div>
-                                        </div>
-                                      ))}
+                                        );
+                                      })}
                                     </div>
                                   ) : null}
                                 </div>
