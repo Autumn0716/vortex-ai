@@ -89,7 +89,17 @@ export interface TopicMessage {
   authorName: string;
   content: string;
   createdAt: string;
+  attachments?: TopicMessageAttachment[];
   tools?: StoredToolRun[];
+}
+
+export interface TopicMessageAttachment {
+  id: string;
+  kind: 'image';
+  name: string;
+  mimeType: string;
+  dataUrl: string;
+  sizeBytes: number;
 }
 
 export interface TopicMessageInput {
@@ -100,6 +110,7 @@ export interface TopicMessageInput {
   authorName: string;
   content: string;
   createdAt?: string;
+  attachments?: TopicMessageAttachment[];
   tools?: StoredToolRun[];
 }
 
@@ -310,6 +321,19 @@ function parseTools(raw: unknown): StoredToolRun[] | undefined {
   }
 }
 
+function parseAttachments(raw: unknown): TopicMessageAttachment[] | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? (parsed as TopicMessageAttachment[]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function toAgentProfile(row: {
   id: string;
   slug: string;
@@ -413,6 +437,7 @@ function toTopicMessage(row: {
   role: TopicMessage['role'];
   author_name: string;
   content: string;
+  attachments_json: string | null;
   tools_json: string | null;
   created_at: string;
 }): TopicMessage {
@@ -424,6 +449,7 @@ function toTopicMessage(row: {
     authorName: row.author_name,
     content: row.content,
     createdAt: row.created_at,
+    attachments: parseAttachments(row.attachments_json),
     tools: parseTools(row.tools_json),
   };
 }
@@ -1040,10 +1066,11 @@ async function migrateLegacyWorkspace(database: Database): Promise<boolean> {
                 role,
                 author_name,
                 content,
+                attachments_json,
                 tools_json,
                 created_at
               )
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             `,
             [
               `topic_${message.id}`,
@@ -1052,6 +1079,7 @@ async function migrateLegacyWorkspace(database: Database): Promise<boolean> {
               message.role,
               message.author_name,
               message.content,
+              null,
               message.tools_json,
               message.created_at,
             ],
@@ -1811,12 +1839,13 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
     role: TopicMessage['role'];
     author_name: string;
     content: string;
+    attachments_json: string | null;
     tools_json: string | null;
     created_at: string;
   }>(
     database.exec(
       `
-        SELECT id, topic_id, agent_id, role, author_name, content, tools_json, created_at
+        SELECT id, topic_id, agent_id, role, author_name, content, attachments_json, tools_json, created_at
         FROM topic_messages
         WHERE topic_id = ?
         ORDER BY created_at ASC
@@ -2150,10 +2179,11 @@ export async function addTopicMessages(messages: TopicMessageInput[]): Promise<v
             role,
             author_name,
             content,
+            attachments_json,
             tools_json,
             created_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           message.id ?? createId('message'),
@@ -2162,6 +2192,7 @@ export async function addTopicMessages(messages: TopicMessageInput[]): Promise<v
           message.role,
           message.authorName,
           message.content,
+          message.attachments ? JSON.stringify(message.attachments) : null,
           message.tools ? JSON.stringify(message.tools) : null,
           createdAt,
         ],

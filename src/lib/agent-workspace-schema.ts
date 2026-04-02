@@ -77,6 +77,7 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
       role TEXT NOT NULL,
       author_name TEXT NOT NULL,
       content TEXT NOT NULL,
+      attachments_json TEXT,
       tools_json TEXT,
       created_at TEXT NOT NULL
     );
@@ -123,6 +124,7 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
   ensureColumn(database, 'topics', 'enable_memory', 'enable_memory INTEGER NOT NULL DEFAULT 1');
   ensureColumn(database, 'topics', 'enable_skills', 'enable_skills INTEGER NOT NULL DEFAULT 1');
   ensureColumn(database, 'topics', 'enable_tools', 'enable_tools INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(database, 'topic_messages', 'attachments_json', 'attachments_json TEXT');
   ensureColumn(
     database,
     'topics',

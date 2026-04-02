@@ -56,3 +56,5 @@
 - Added model-list endpoint fallback for response-compatible providers so `/models` probing can fall back from the Responses base path to the sibling Chat-compatible model catalog when necessary.
 - Added first-pass Qwen official runtime controls in the composer: chat-compatible Qwen providers can now enable `enable_thinking` and `response_format`, while responses-compatible providers can toggle official built-in `web_search`, `web_extractor`, `code_interpreter`, and SSE-backed `MCP` tools.
 - Added reasoning-preview plumbing so chat-compatible Qwen streams that emit `reasoning_content` can surface a compact “思考中” notice instead of silently discarding the reasoning delta.
+- Added image attachments to topic messages so local uploads are persisted with the conversation and can be reused by retries or future runtime calls instead of existing only in composer state.
+- Added first-pass Qwen image tool wiring for `web_search_image` and `image_search`, including composer-side image uploads, persisted message attachments, and Responses input conversion to `input_image` data URLs.

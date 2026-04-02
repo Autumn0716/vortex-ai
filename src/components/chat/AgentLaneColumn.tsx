@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Bot, ChevronLeft, ChevronRight, Copy, RefreshCcw, User, Zap } from 'lucide-react';
 import type { StoredToolRun } from '../../lib/db';
+import type { TopicMessageAttachment } from '../../lib/agent-workspace';
 import { estimateMessageCardHeight } from '../../lib/pretext';
 
 interface LaneLike {
@@ -20,6 +21,7 @@ interface MessageLike {
   authorName: string;
   content: string;
   createdAt: string;
+  attachments?: TopicMessageAttachment[];
   tools?: StoredToolRun[];
 }
 
@@ -387,6 +389,31 @@ export function AgentLaneColumn({
                                   {tool.result}
                                 </pre>
                               ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {message.attachments?.length ? (
+                        <div className="grid w-full gap-2 sm:grid-cols-2">
+                          {message.attachments.map((attachment) => (
+                            <div
+                              key={attachment.id}
+                              className={`overflow-hidden rounded-2xl border ${
+                                isUser
+                                  ? 'border-white/10 bg-white/5'
+                                  : 'border-white/10 bg-black/20'
+                              }`}
+                            >
+                              <img
+                                src={attachment.dataUrl}
+                                alt={attachment.name}
+                                className="h-40 w-full object-cover"
+                              />
+                              <div className="flex items-center justify-between gap-3 px-3 py-2 text-[11px] text-white/55">
+                                <span className="truncate">{attachment.name}</span>
+                                <span>{Math.max(1, Math.round(attachment.sizeBytes / 1024))} KB</span>
+                              </div>
                             </div>
                           ))}
                         </div>

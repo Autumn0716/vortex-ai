@@ -18,8 +18,10 @@ export interface AgentRuntimeOptions {
   enableThinking?: boolean;
   responsesTools?: {
     webSearch?: boolean;
+    webSearchImage?: boolean;
     webExtractor?: boolean;
     codeInterpreter?: boolean;
+    imageSearch?: boolean;
     mcp?: boolean;
   };
   structuredOutput?: {
@@ -92,16 +94,36 @@ function extractToolUsage(messages: any[], initialCount: number) {
 }
 
 function buildResponseInput(messages: any[], systemPrompt: string) {
-  const responseMessages: Array<{ role: string; content: string }> = [
+  const responseMessages: Array<{ role: string; content: unknown }> = [
     { role: 'system', content: systemPrompt },
   ];
 
   messages.forEach((message) => {
     const type = message?._getType?.();
     if (type === 'human') {
+      const content = Array.isArray(message.content)
+        ? message.content.map((entry: any) => {
+            if (entry?.type === 'text') {
+              return {
+                type: 'input_text',
+                text: String(entry.text ?? ''),
+              };
+            }
+            if (entry?.type === 'image_url') {
+              return {
+                type: 'input_image',
+                image_url: String(entry.image_url?.url ?? ''),
+              };
+            }
+            return {
+              type: 'input_text',
+              text: stringifyMessageContent(entry),
+            };
+          })
+        : [{ type: 'input_text', text: stringifyMessageContent(message.content) }];
       responseMessages.push({
         role: 'user',
-        content: stringifyMessageContent(message.content),
+        content,
       });
       return;
     }
@@ -121,8 +143,10 @@ export function buildResponseTools(
   options: {
     enableTools: boolean;
     enableWebSearch: boolean;
+    enableWebSearchImage?: boolean;
     enableWebExtractor?: boolean;
     enableCodeInterpreter?: boolean;
+    enableImageSearch?: boolean;
     enableMcp?: boolean;
   },
 ) {
@@ -135,11 +159,17 @@ export function buildResponseTools(
   if (options.enableWebSearch) {
     tools.push({ type: 'web_search' });
   }
+  if (options.enableWebSearchImage) {
+    tools.push({ type: 'web_search_image' });
+  }
   if (options.enableWebExtractor) {
     tools.push({ type: 'web_extractor' });
   }
   if (options.enableCodeInterpreter) {
     tools.push({ type: 'code_interpreter' });
+  }
+  if (options.enableImageSearch) {
+    tools.push({ type: 'image_search' });
   }
 
   if (options.enableMcp) {
@@ -396,8 +426,10 @@ async function* streamResponsesRuntime(options: {
       tools: buildResponseTools(options.config, {
         enableTools: options.enableTools,
         enableWebSearch: Boolean(options.responsesTools?.webSearch),
+        enableWebSearchImage: Boolean(options.responsesTools?.webSearchImage),
         enableWebExtractor: Boolean(options.responsesTools?.webExtractor),
         enableCodeInterpreter: Boolean(options.responsesTools?.codeInterpreter),
+        enableImageSearch: Boolean(options.responsesTools?.imageSearch),
         enableMcp: Boolean(options.responsesTools?.mcp),
       }),
     }),

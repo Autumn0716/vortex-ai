@@ -57,14 +57,18 @@ test('buildResponseTools includes official qwen responses tools and enabled SSE 
   const tools = buildResponseTools(config, {
     enableTools: true,
     enableWebSearch: true,
+    enableWebSearchImage: true,
     enableWebExtractor: true,
     enableCodeInterpreter: true,
+    enableImageSearch: true,
     enableMcp: true,
   });
 
   assert.deepEqual(tools[0], { type: 'web_search' });
-  assert.deepEqual(tools[1], { type: 'web_extractor' });
-  assert.deepEqual(tools[2], { type: 'code_interpreter' });
-  assert.equal(tools[3]?.type, 'mcp');
-  assert.equal((tools[3] as Record<string, unknown>).server_protocol, 'sse');
+  assert.deepEqual(tools[1], { type: 'web_search_image' });
+  assert.deepEqual(tools[2], { type: 'web_extractor' });
+  assert.deepEqual(tools[3], { type: 'code_interpreter' });
+  assert.deepEqual(tools[4], { type: 'image_search' });
+  assert.equal(tools[5]?.type, 'mcp');
+  assert.equal((tools[5] as Record<string, unknown>).server_protocol, 'sse');
 });

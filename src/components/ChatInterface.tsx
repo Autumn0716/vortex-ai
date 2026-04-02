@@ -6,6 +6,7 @@ import {
   Cloud,
   Globe,
   GitBranch,
+  ImagePlus,
   MessageSquare,
   Paperclip,
   PanelLeft,
@@ -49,6 +50,7 @@ import {
   type AgentMemoryDocument,
   type AgentProfile,
   type TopicMessage,
+  type TopicMessageAttachment,
   type TopicMessageInput,
   type TopicSummary,
   type TopicWorkspace,
@@ -114,6 +116,7 @@ function toTopicMessage(message: TopicMessageInput): TopicMessage {
     authorName: message.authorName,
     content: message.content,
     createdAt: message.createdAt ?? new Date().toISOString(),
+    attachments: message.attachments,
     tools: message.tools,
   };
 }
@@ -174,6 +177,48 @@ function buildMessageHistoryForGeneration(messages: TopicMessage[], historyWindo
     .slice(-historyWindow);
 }
 
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read image file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildUserMessagePrompt(content: string, attachments: TopicMessageAttachment[]) {
+  if (content.trim()) {
+    return content.trim();
+  }
+  if (!attachments.length) {
+    return '';
+  }
+  return `Please analyze the attached image${attachments.length > 1 ? 's' : ''}.`;
+}
+
+function buildLangChainMessageContent(message: TopicMessage) {
+  if (message.role !== 'user' || !message.attachments?.length) {
+    return message.content;
+  }
+
+  const blocks: Array<{ type: string; text?: string; image_url?: { url: string } }> = [];
+  if (message.content.trim()) {
+    blocks.push({
+      type: 'text',
+      text: message.content,
+    });
+  }
+  message.attachments.forEach((attachment) => {
+    blocks.push({
+      type: 'image_url',
+      image_url: {
+        url: attachment.dataUrl,
+      },
+    });
+  });
+  return blocks;
+}
+
 function isAbortError(error: unknown) {
   if (!error || typeof error !== 'object') {
     return false;
@@ -192,8 +237,10 @@ interface TopicRunState {
 interface ComposerResponsesState {
   enableThinking: boolean;
   enableWebSearch: boolean;
+  enableWebSearchImage: boolean;
   enableWebExtractor: boolean;
   enableCodeInterpreter: boolean;
+  enableImageSearch: boolean;
   enableMcp: boolean;
   structuredOutputMode: 'text' | 'json_object' | 'json_schema';
   structuredOutputSchema: string;
@@ -281,14 +328,18 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [composerResponses, setComposerResponses] = useState<ComposerResponsesState>({
     enableThinking: false,
     enableWebSearch: false,
+    enableWebSearchImage: false,
     enableWebExtractor: false,
     enableCodeInterpreter: false,
+    enableImageSearch: false,
     enableMcp: false,
     structuredOutputMode: 'text',
     structuredOutputSchema:
       '{\n  "name": "answer_payload",\n  "schema": {\n    "type": "object",\n    "properties": {\n      "answer": { "type": "string" }\n    },\n    "required": ["answer"]\n  }\n}',
   });
+  const [composerImageAttachments, setComposerImageAttachments] = useState<TopicMessageAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const projectKnowledgeVersionRef = useRef('');
   const topicAbortControllersRef = useRef<Record<string, AbortController>>({});
 
@@ -1045,6 +1096,32 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     event.target.value = '';
   };
 
+  const handleImageAttachmentImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith('image/'));
+    if (files.length === 0) {
+      return;
+    }
+
+    try {
+      const attachments = await Promise.all(
+        files.map(async (file) => ({
+          id: createLocalId('attachment'),
+          kind: 'image' as const,
+          name: file.name,
+          mimeType: file.type || 'image/png',
+          dataUrl: await readFileAsDataUrl(file),
+          sizeBytes: file.size,
+        })),
+      );
+      setComposerImageAttachments((previous) => [...previous, ...attachments].slice(0, 4));
+      setShellNotice(`Added ${attachments.length} image attachment${attachments.length > 1 ? 's' : ''}.`);
+    } catch (error: any) {
+      setShellNotice(error?.message || 'Failed to attach images.');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
   const handleRenameTopic = async () => {
     if (!workspace) {
       return;
@@ -1061,11 +1138,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   };
 
   const handleSend = async () => {
-    if (!workspace || !input.trim() || isGenerating) {
+    if (!workspace || isGenerating || (!input.trim() && composerImageAttachments.length === 0)) {
       return;
     }
 
-    const userContent = input.trim();
+    const userContent = buildUserMessagePrompt(input, composerImageAttachments);
     const workspaceSnapshot = workspace;
     const configSnapshot = config;
     const timestamp = new Date().toISOString();
@@ -1077,11 +1154,13 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       authorName: 'You',
       content: userContent,
       createdAt: timestamp,
+      attachments: composerImageAttachments,
     };
 
     const optimisticUserMessage = toTopicMessage(userMessage);
     setWorkspace((previous) => mergeWorkspaceMessages(previous, [optimisticUserMessage]));
     setInput('');
+    setComposerImageAttachments([]);
     setTopicRunState(workspaceSnapshot.topic.id, () => ({
       isGenerating: true,
       composerNotice: '',
@@ -1127,7 +1206,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       ]);
 
       lcMessages = messageHistory.map((message) =>
-        message.role === 'user' ? new HumanMessage(message.content) : new AIMessage(message.content),
+        message.role === 'user'
+          ? new HumanMessage(buildLangChainMessageContent(message))
+          : new AIMessage(message.content),
       );
 
       const includeAgentSharedShortTerm =
@@ -1168,8 +1249,10 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         enableThinking: composerResponses.enableThinking,
         responsesTools: {
           webSearch: composerResponses.enableWebSearch,
+          webSearchImage: composerResponses.enableWebSearchImage,
           webExtractor: composerResponses.enableWebExtractor,
           codeInterpreter: composerResponses.enableCodeInterpreter,
+          imageSearch: composerResponses.enableImageSearch,
           mcp: composerResponses.enableMcp,
         },
         structuredOutput:
@@ -1440,6 +1523,14 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         multiple
         className="hidden"
         onChange={handleFileImport}
+      />
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={handleImageAttachmentImport}
       />
 
       <div className="z-30 flex w-16 flex-shrink-0 flex-col items-center gap-4 border-r border-white/5 bg-[#0A0A0F] py-4">
@@ -1938,6 +2029,36 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       </span>
                     ) : null}
                   </div>
+                  {composerImageAttachments.length ? (
+                    <div className="mb-2 flex flex-wrap gap-2 border-b border-white/10 px-2 pb-3">
+                      {composerImageAttachments.map((attachment) => (
+                        <div
+                          key={attachment.id}
+                          className="group relative overflow-hidden rounded-2xl border border-white/10 bg-black/20"
+                        >
+                          <img
+                            src={attachment.dataUrl}
+                            alt={attachment.name}
+                            className="h-20 w-24 object-cover"
+                          />
+                          <button
+                            onClick={() =>
+                              setComposerImageAttachments((previous) =>
+                                previous.filter((entry) => entry.id !== attachment.id),
+                              )
+                            }
+                            className="absolute right-1 top-1 rounded-full border border-white/10 bg-black/55 p-1 text-white/65 transition-all hover:border-red-400/25 hover:bg-red-500/20 hover:text-red-100"
+                            title="移除图片"
+                          >
+                            <X size={12} />
+                          </button>
+                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2 py-1 text-[10px] text-white/80">
+                            <div className="truncate">{attachment.name}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   <textarea
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
@@ -1974,6 +2095,13 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                         <Paperclip size={18} />
                       </button>
                       <button
+                        onClick={() => imageInputRef.current?.click()}
+                        className="rounded-xl border border-transparent p-2 text-white/40 transition-colors hover:border-white/10 hover:bg-white/10 hover:text-white"
+                        title="Attach images"
+                      >
+                        <ImagePlus size={18} />
+                      </button>
+                      <button
                         onClick={() => openSettings('search')}
                         className="rounded-xl border border-transparent p-2 text-white/40 transition-colors hover:border-white/10 hover:bg-white/10 hover:text-white"
                         title="Search settings"
@@ -2000,8 +2128,10 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                                   {[
                                     ['enableThinking', '思考模式', '为当前回复开启 `enable_thinking`。'],
                                     ['enableWebSearch', '联网搜索', '挂载官方 `web_search` 工具。'],
+                                    ['enableWebSearchImage', '文搜图', '挂载官方 `web_search_image` 工具。'],
                                     ['enableWebExtractor', '网页抓取', '挂载官方 `web_extractor` 工具。'],
                                     ['enableCodeInterpreter', '代码解释器', '挂载官方 `code_interpreter` 工具。'],
+                                    ['enableImageSearch', '图搜图', '挂载官方 `image_search` 工具，需随消息附图。'],
                                     ['enableMcp', 'MCP', '挂载当前已启用的 SSE MCP server。'],
                                   ].map(([key, label, description]) => {
                                     const checked = composerResponses[key as keyof ComposerResponsesState] as boolean;
@@ -2052,6 +2182,13 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                                     </span>
                                   </div>
                                 </div>
+                                {composerResponses.enableImageSearch ? (
+                                  <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-3 text-[11px] leading-5 text-white/55">
+                                    {composerImageAttachments.length
+                                      ? `当前已附加 ${composerImageAttachments.length} 张图片，可直接用于图搜图。`
+                                      : '图搜图需要先在聊天框附加图片。当前还没有图片输入。'}
+                                  </div>
+                                ) : null}
                               </>
                             ) : (
                               <>
@@ -2218,8 +2355,10 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                             (isResponsesProvider
                               ? composerResponses.enableThinking ||
                                 composerResponses.enableWebSearch ||
+                                composerResponses.enableWebSearchImage ||
                                 composerResponses.enableWebExtractor ||
                                 composerResponses.enableCodeInterpreter ||
+                                composerResponses.enableImageSearch ||
                                 composerResponses.enableMcp
                               : composerWebSearchEnabled ||
                                 composerResponses.enableThinking ||

@@ -147,3 +147,86 @@ test('ensureAgentWorkspaceSchema adds session runtime columns to topics', () => 
     ),
   );
 });
+
+test('ensureAgentWorkspaceSchema adds persisted message attachments to topic messages', () => {
+  const runs: string[] = [];
+
+  const database = {
+    run(sql: string) {
+      runs.push(sql);
+    },
+    exec(sql: string) {
+      if (sql === 'PRAGMA table_info(agent_memory_documents)') {
+        return [
+          {
+            columns: ['name'],
+            values: [
+              ['id'],
+              ['agent_id'],
+              ['title'],
+              ['content'],
+              ['memory_scope'],
+              ['source_type'],
+              ['importance_score'],
+              ['topic_id'],
+              ['event_date'],
+              ['created_at'],
+              ['updated_at'],
+            ],
+          },
+        ];
+      }
+
+      if (sql === 'PRAGMA table_info(topics)') {
+        return [
+          {
+            columns: ['name'],
+            values: [
+              ['id'],
+              ['agent_id'],
+              ['parent_topic_id'],
+              ['session_mode'],
+              ['display_name'],
+              ['system_prompt_override'],
+              ['provider_id_override'],
+              ['model_override'],
+              ['enable_memory'],
+              ['enable_skills'],
+              ['enable_tools'],
+              ['enable_agent_shared_short_term'],
+              ['title'],
+              ['title_source'],
+              ['created_at'],
+              ['updated_at'],
+              ['last_message_at'],
+            ],
+          },
+        ];
+      }
+
+      if (sql === 'PRAGMA table_info(topic_messages)') {
+        return [
+          {
+            columns: ['name'],
+            values: [
+              ['id'],
+              ['topic_id'],
+              ['agent_id'],
+              ['role'],
+              ['author_name'],
+              ['content'],
+              ['tools_json'],
+              ['created_at'],
+            ],
+          },
+        ];
+      }
+
+      return [];
+    },
+  };
+
+  ensureAgentWorkspaceSchema(database);
+
+  assert.ok(runs.some((sql) => sql.includes('ALTER TABLE topic_messages ADD COLUMN attachments_json TEXT')));
+});
