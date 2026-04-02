@@ -80,6 +80,10 @@ import {
   type AgentMemoryFileEntry,
   type NightlyArchiveStatus,
 } from '../../lib/agent-memory-api';
+import {
+  buildModelGroups,
+  buildProviderGroups,
+} from '../../lib/model-groups';
 
 const CATEGORIES = [
   { id: 'models', label: '模型服务', icon: Cloud },
@@ -212,35 +216,20 @@ interface AddProviderDraft {
   baseUrl: string;
 }
 
-interface ModelGroup {
-  id: string;
-  label: string;
-  totalCount: number;
-  series: Array<{
-    id: string;
-    label: string;
-    models: string[];
-  }>;
+interface AddModelDraft {
+  providerId: string;
+  value: string;
 }
 
-const MODEL_FAMILY_DEFINITIONS = [
-  { label: 'Qwen', patterns: ['qwen'] },
-  { label: 'GPT', patterns: ['gpt-', 'chatgpt-', 'o1', 'o3', 'o4', 'o-'] },
-  { label: 'Doubao', patterns: ['doubao'] },
-  { label: 'DeepSeek', patterns: ['deepseek'] },
-  { label: 'Kimi', patterns: ['kimi'] },
-  { label: 'Moonshot', patterns: ['moonshot'] },
-  { label: 'Gemini', patterns: ['gemini'] },
-  { label: 'Grok', patterns: ['grok'] },
-  { label: 'Claude', patterns: ['claude'] },
-  { label: 'Llama', patterns: ['llama'] },
-  { label: 'GLM', patterns: ['glm'] },
-  { label: 'MiniMax', patterns: ['minimax'] },
-] as const;
+interface ConfirmProviderDeleteState {
+  providerId: string;
+  providerName: string;
+}
 
-const MODEL_FAMILY_ORDER: Map<string, number> = new Map(
-  MODEL_FAMILY_DEFINITIONS.map((family, index) => [family.label, index]),
-);
+interface ConfirmMemoryDeleteState {
+  path: string;
+  label: string;
+}
 
 function formatNightlyArchiveRunSummary(status: NightlyArchiveStatus | null) {
   if (!status) {
@@ -311,108 +300,6 @@ function createSearchProviderId() {
   return `search_custom_${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`;
 }
 
-function normalizeModelGroupKey(label: string) {
-  return label.toLowerCase().replace(/[^a-z0-9]+/g, '_');
-}
-
-function getModelBasename(model: string) {
-  const segments = model.split('/').filter(Boolean);
-  return segments[segments.length - 1] ?? model;
-}
-
-function getModelSeriesDescriptor(model: string) {
-  const basename = getModelBasename(model);
-  const tokens = basename.split(/[-_:]+/).filter(Boolean);
-  const normalizedTokens = tokens.map((token) => token.toLowerCase());
-  const seriesLength = tokens.length >= 3 ? tokens.length - 1 : tokens.length;
-  const seriesTokens = tokens.slice(0, Math.max(1, seriesLength));
-  const normalizedSeriesTokens = normalizedTokens.slice(0, Math.max(1, seriesLength));
-
-  return {
-    key: normalizedSeriesTokens.join('-'),
-    label: seriesTokens.join('-'),
-  };
-}
-
-function classifyModelFamily(provider: ModelProvider, model: string) {
-  const normalized = getModelBasename(model).toLowerCase();
-  const providerName = provider.name.toLowerCase();
-
-  const matchedFamily = MODEL_FAMILY_DEFINITIONS.find((family) =>
-    family.patterns.some((pattern) => normalized.startsWith(pattern) || normalized.includes(pattern)),
-  );
-  if (matchedFamily) {
-    return matchedFamily.label;
-  }
-
-  if (normalized.includes('embedding')) {
-    return 'Embeddings';
-  }
-  if (providerName.includes('openai')) {
-    return 'OpenAI Other';
-  }
-  if (providerName.includes('anthropic')) {
-    return 'Anthropic Other';
-  }
-  const providerMatchedFamily = MODEL_FAMILY_DEFINITIONS.find((family) =>
-    family.patterns.some((pattern) => providerName.includes(pattern)),
-  );
-  if (providerMatchedFamily) {
-    return providerMatchedFamily.label;
-  }
-
-  return 'Other';
-}
-
-function buildModelGroups(provider: ModelProvider, query: string) {
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredModels = provider.models.filter((model) =>
-    !normalizedQuery || model.toLowerCase().includes(normalizedQuery),
-  );
-  const grouped = new Map<string, string[]>();
-  filteredModels.forEach((model) => {
-    const family = classifyModelFamily(provider, model);
-    const bucket = grouped.get(family) ?? [];
-    bucket.push(model);
-    grouped.set(family, bucket);
-  });
-
-  const groups = [...grouped.entries()]
-    .map<ModelGroup>(([label, models]) => {
-      const bySeries = new Map<string, { label: string; models: string[] }>();
-
-      models.forEach((model) => {
-        const descriptor = getModelSeriesDescriptor(model);
-        const bucket = bySeries.get(descriptor.key) ?? { label: descriptor.label, models: [] };
-        bucket.models.push(model);
-        bySeries.set(descriptor.key, bucket);
-      });
-
-      const series = [...bySeries.entries()]
-        .map(([key, entry]) => ({
-          id: `${normalizeModelGroupKey(label)}_${normalizeModelGroupKey(key)}`,
-          label: entry.label,
-          models: entry.models.slice(),
-        }))
-
-      return {
-        id: normalizeModelGroupKey(label),
-        label,
-        totalCount: models.length,
-        series,
-      };
-    })
-    .sort((left, right) => {
-      const leftRank = MODEL_FAMILY_ORDER.get(left.label) ?? Number.MAX_SAFE_INTEGER;
-      const rightRank = MODEL_FAMILY_ORDER.get(right.label) ?? Number.MAX_SAFE_INTEGER;
-      return leftRank - rightRank || 0;
-    });
-
-  return {
-    totalCount: filteredModels.length,
-    groups,
-  };
-}
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -564,6 +451,7 @@ export const SettingsView = ({
   const [activeMcpId, setActiveMcpId] = useState<string>(config.mcpServers[0]?.id ?? '');
   const [showKey, setShowKey] = useState(false);
   const [providerSearchQuery, setProviderSearchQuery] = useState('');
+  const [collapsedProviderProtocolGroups, setCollapsedProviderProtocolGroups] = useState<Record<string, boolean>>({});
   const [modelSearchQuery, setModelSearchQuery] = useState('');
   const [collapsedModelGroups, setCollapsedModelGroups] = useState<Record<string, boolean>>({});
   const [collapsedModelSeries, setCollapsedModelSeries] = useState<Record<string, boolean>>({});
@@ -577,6 +465,10 @@ export const SettingsView = ({
     apiKey: '',
     baseUrl: getProviderBaseUrlPlaceholder('openai_chat_compatible'),
   });
+  const [showAddModelDialog, setShowAddModelDialog] = useState(false);
+  const [addModelDraft, setAddModelDraft] = useState<AddModelDraft | null>(null);
+  const [confirmProviderDelete, setConfirmProviderDelete] = useState<ConfirmProviderDeleteState | null>(null);
+  const [confirmMemoryDelete, setConfirmMemoryDelete] = useState<ConfirmMemoryDeleteState | null>(null);
   const [modelImportDialog, setModelImportDialog] = useState<ModelImportDialogState | null>(null);
   const [importModelSearchQuery, setImportModelSearchQuery] = useState('');
   const [importOnlyNotAdded, setImportOnlyNotAdded] = useState(true);
@@ -757,11 +649,8 @@ export const SettingsView = ({
     }));
   };
 
-  const filteredProviders = useMemo(
-    () =>
-      draft.providers.filter((provider) =>
-        provider.name.toLowerCase().includes(providerSearchQuery.toLowerCase()),
-      ),
+  const filteredProviderGroups = useMemo(
+    () => buildProviderGroups(draft.providers, providerSearchQuery),
     [draft.providers, providerSearchQuery],
   );
 
@@ -814,6 +703,13 @@ export const SettingsView = ({
   }, [activeProviderId]);
 
   useEffect(() => {
+    if (!providerSearchQuery.trim()) {
+      return;
+    }
+    setCollapsedProviderProtocolGroups({});
+  }, [providerSearchQuery]);
+
+  useEffect(() => {
     if (!modelImportDialog) {
       setImportModelSearchQuery('');
       setImportOnlyNotAdded(true);
@@ -832,6 +728,12 @@ export const SettingsView = ({
       });
     }
   }, [showAddProviderDialog]);
+
+  useEffect(() => {
+    if (!showAddModelDialog) {
+      setAddModelDraft(null);
+    }
+  }, [showAddModelDialog]);
 
   const loadMemoryFiles = async (options: { preferredPath?: string | null; announce?: string } = {}) => {
     const requestId = memoryFilesRequestIdRef.current + 1;
@@ -1010,17 +912,18 @@ export const SettingsView = ({
   };
 
   const addModelToProvider = async () => {
-    if (!activeProvider) {
+    if (!addModelDraft?.providerId || !addModelDraft.value.trim()) {
       return;
     }
 
-    const value = window.prompt('请输入模型 ID', activeProvider.models[0] ?? '');
-    if (!value?.trim()) {
+    const provider = draft.providers.find((entry) => entry.id === addModelDraft.providerId);
+    if (!provider) {
       return;
     }
 
-    const nextModels = Array.from(new Set([...activeProvider.models, value.trim()]));
-    await updateProvider(activeProvider.id, { models: nextModels });
+    const nextModels = Array.from(new Set([...provider.models, addModelDraft.value.trim()]));
+    await updateProvider(provider.id, { models: nextModels });
+    setShowAddModelDialog(false);
   };
 
   const removeProvider = async (providerId: string) => {
@@ -1034,11 +937,6 @@ export const SettingsView = ({
         ...current,
         [providerId]: '至少需要保留一个模型服务。',
       }));
-      return;
-    }
-
-    const confirmed = window.confirm(`确认删除模型服务“${provider.name}”吗？`);
-    if (!confirmed) {
       return;
     }
 
@@ -1061,6 +959,7 @@ export const SettingsView = ({
       ...current,
       [providerId]: `已删除 ${provider.name}。`,
     }));
+    setConfirmProviderDelete(null);
   };
 
   const removeModelsFromProvider = async (providerId: string, modelsToRemove: string[]) => {
@@ -1360,10 +1259,6 @@ export const SettingsView = ({
       return;
     }
 
-    if (!window.confirm(`确定删除 ${activeMemoryFile.label} 吗？`)) {
-      return;
-    }
-
     setMemoryFileLoading(true);
     try {
       await deleteAgentMemoryFile(activeMemoryFile.path, draft.apiServer);
@@ -1378,6 +1273,7 @@ export const SettingsView = ({
       });
     } finally {
       setMemoryFileLoading(false);
+      setConfirmMemoryDelete(null);
     }
   };
 
@@ -1433,7 +1329,10 @@ export const SettingsView = ({
       onConfigSaved?.(normalizeAgentConfig(payload.config));
       window.location.reload();
     } catch (error: any) {
-      window.alert(`恢复失败: ${error.message}`);
+      setConfigSaveStatus({
+        tone: 'error',
+        message: `恢复失败: ${error.message}`,
+      });
     } finally {
       event.target.value = '';
     }
@@ -2854,7 +2753,13 @@ export const SettingsView = ({
                       </button>
                       <button
                         onClick={() => {
-                          removeActiveDailyFile().catch(console.error);
+                          if (!activeMemoryFile || activeMemoryFile.kind === 'memory') {
+                            return;
+                          }
+                          setConfirmMemoryDelete({
+                            path: activeMemoryFile.path,
+                            label: activeMemoryFile.label,
+                          });
                         }}
                         disabled={
                           !draft.apiServer.enabled ||
@@ -3318,50 +3223,102 @@ export const SettingsView = ({
                 </div>
               </div>
               <div className="flex-1 space-y-1 overflow-y-auto p-2 custom-scrollbar">
-                {filteredProviders.map((provider) => (
-                  <div
-                    key={provider.id}
-                    className={`group flex items-center gap-2 rounded-2xl px-2 py-2 text-sm transition-colors ${
-                      activeProviderId === provider.id ? 'bg-white/5 text-white' : 'text-white/70 hover:bg-white/5'
-                    }`}
-                  >
-                    <button
-                      onClick={() => setActiveProviderId(provider.id)}
-                      className="flex min-w-0 flex-1 items-center justify-between px-1 py-1 text-left"
-                    >
-                      <div className="flex items-center gap-3 truncate">
-                        <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400/20 to-emerald-600/20">
-                          <Cloud size={14} className="text-emerald-400" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="truncate font-medium">{provider.name}</div>
-                          <div className="text-[11px] text-white/35">{provider.models.length} 个模型</div>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/40">
-                        {provider.models.length}
-                      </div>
-                      <div
-                        className={`rounded-full border px-2 py-0.5 text-[10px] ${
-                          provider.enabled
-                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                            : 'border-white/10 text-white/40'
-                        }`}
-                      >
-                        {provider.enabled ? 'ON' : 'OFF'}
-                      </div>
-                    </div>
-                    </button>
-                    <button
-                      onClick={() => removeProvider(provider.id)}
-                      className="rounded-full border border-transparent p-2 text-white/20 opacity-0 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300 group-hover:opacity-100"
-                      title="删除模型服务"
-                    >
-                      <Minus size={14} />
-                    </button>
+                {!filteredProviderGroups.groups.length ? (
+                  <div className="rounded-2xl border border-dashed border-white/10 bg-black/10 px-4 py-8 text-center text-sm text-white/40">
+                    没有匹配的模型服务。
                   </div>
-                ))}
+                ) : (
+                  filteredProviderGroups.groups.map((group) => {
+                    const collapsed = collapsedProviderProtocolGroups[group.id] ?? false;
+
+                    return (
+                      <div key={group.id} className="rounded-[22px] border border-white/5 bg-black/10 p-2">
+                        <button
+                          onClick={() =>
+                            setCollapsedProviderProtocolGroups((current) => ({
+                              ...current,
+                              [group.id]: !collapsed,
+                            }))
+                          }
+                          className="flex w-full items-center justify-between rounded-[18px] px-3 py-2 text-left transition-colors hover:bg-white/5"
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-white/5">
+                              {collapsed ? (
+                                <ChevronRight size={14} className="text-white/55" />
+                              ) : (
+                                <ChevronDown size={14} className="text-white/55" />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-white/90">{group.label}</div>
+                              <div className="truncate text-[11px] text-white/35">{group.description}</div>
+                            </div>
+                          </div>
+                          <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-white/45">
+                            {group.totalCount}
+                          </div>
+                        </button>
+
+                        {!collapsed ? (
+                          <div className="mt-2 space-y-1">
+                            {group.providers.map((provider) => (
+                              <div
+                                key={provider.id}
+                                className={`group flex items-center gap-2 rounded-2xl px-2 py-2 text-sm transition-colors ${
+                                  activeProviderId === provider.id
+                                    ? 'bg-white/5 text-white'
+                                    : 'text-white/70 hover:bg-white/5'
+                                }`}
+                              >
+                                <button
+                                  onClick={() => setActiveProviderId(provider.id)}
+                                  className="flex min-w-0 flex-1 items-center justify-between px-1 py-1 text-left"
+                                >
+                                  <div className="flex items-center gap-3 truncate">
+                                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400/20 to-emerald-600/20">
+                                      <Cloud size={14} className="text-emerald-400" />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="truncate font-medium">{provider.name}</div>
+                                      <div className="text-[11px] text-white/35">{provider.models.length} 个模型</div>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <div className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/40">
+                                      {provider.models.length}
+                                    </div>
+                                    <div
+                                      className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                                        provider.enabled
+                                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                                          : 'border-white/10 text-white/40'
+                                      }`}
+                                    >
+                                      {provider.enabled ? 'ON' : 'OFF'}
+                                    </div>
+                                  </div>
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    setConfirmProviderDelete({
+                                      providerId: provider.id,
+                                      providerName: provider.name,
+                                    })
+                                  }
+                                  className="rounded-full border border-transparent p-2 text-white/20 opacity-0 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300 group-hover:opacity-100"
+                                  title="删除模型服务"
+                                >
+                                  <Minus size={14} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })
+                )}
               </div>
               <div className="border-t border-white/5 p-3">
                 <button
@@ -3400,7 +3357,12 @@ export const SettingsView = ({
                     </h2>
                     <div className="flex items-center gap-3">
                       <button
-                        onClick={() => removeProvider(activeProvider.id)}
+                        onClick={() =>
+                          setConfirmProviderDelete({
+                            providerId: activeProvider.id,
+                            providerName: activeProvider.name,
+                          })
+                        }
                         className="rounded-full border border-white/10 bg-white/5 p-2 text-white/60 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
                         title="删除当前模型服务"
                       >
@@ -3555,7 +3517,13 @@ export const SettingsView = ({
                             获取模型列表
                           </button>
                           <button
-                            onClick={addModelToProvider}
+                            onClick={() => {
+                              setAddModelDraft({
+                                providerId: activeProvider.id,
+                                value: activeProvider.models[0] ?? '',
+                              });
+                              setShowAddModelDialog(true);
+                            }}
                             className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-white/80 hover:bg-white/10"
                           >
                             <Plus size={14} />
@@ -4169,6 +4137,135 @@ export const SettingsView = ({
                   创建厂商
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showAddModelDialog && addModelDraft ? (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-[560px] rounded-[28px] border border-white/10 bg-[#171717] shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
+              <div>
+                <div className="text-lg font-semibold text-white">添加模型 ID</div>
+                <div className="mt-1 text-sm text-white/45">手动补充当前厂商下的模型标识，适合接口未返回或你想预先录入的模型。</div>
+              </div>
+              <button
+                onClick={() => setShowAddModelDialog(false)}
+                className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-6 py-5">
+              <div className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-white/35">当前厂商</div>
+                <div className="mt-2 text-sm text-white/85">
+                  {draft.providers.find((provider) => provider.id === addModelDraft.providerId)?.name ?? '未知厂商'}
+                </div>
+              </div>
+              <label className="block">
+                <div className="mb-2 text-sm font-medium text-white/90">模型 ID</div>
+                <input
+                  type="text"
+                  value={addModelDraft.value}
+                  onChange={(event) =>
+                    setAddModelDraft((current) =>
+                      current
+                        ? {
+                            ...current,
+                            value: event.target.value,
+                          }
+                        : current,
+                    )
+                  }
+                  placeholder="例如：qwen-plus / gpt-5 / deepseek-chat"
+                  className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-emerald-500/40"
+                />
+              </label>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 border-t border-white/5 px-6 py-4">
+              <div className="text-sm text-white/45">只会添加到当前厂商，不会改动其它分组顺序。</div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowAddModelDialog(false)}
+                  className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => addModelToProvider().catch(console.error)}
+                  disabled={!addModelDraft.value.trim()}
+                  className="rounded-full border border-emerald-500/20 bg-emerald-500/15 px-4 py-2 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  添加模型
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmProviderDelete ? (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-[520px] rounded-[28px] border border-white/10 bg-[#171717] shadow-2xl">
+            <div className="border-b border-white/5 px-6 py-5">
+              <div className="text-lg font-semibold text-white">删除模型厂商</div>
+              <div className="mt-1 text-sm text-white/45">这会移除该厂商及其已保存的模型列表。</div>
+            </div>
+            <div className="px-6 py-5">
+              <div className="rounded-[22px] border border-red-500/15 bg-red-500/10 px-4 py-4 text-sm leading-6 text-red-100/85">
+                确认删除 <span className="font-medium text-white">{confirmProviderDelete.providerName}</span>？
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-white/5 px-6 py-4">
+              <button
+                onClick={() => setConfirmProviderDelete(null)}
+                className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => removeProvider(confirmProviderDelete.providerId).catch(console.error)}
+                className="rounded-full border border-red-500/20 bg-red-500/15 px-4 py-2 text-sm font-medium text-red-100 transition-colors hover:bg-red-500/20"
+              >
+                删除
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmMemoryDelete ? (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-[520px] rounded-[28px] border border-white/10 bg-[#171717] shadow-2xl">
+            <div className="border-b border-white/5 px-6 py-5">
+              <div className="text-lg font-semibold text-white">删除记忆文件</div>
+              <div className="mt-1 text-sm text-white/45">删除后会立即重扫当前 agent 的记忆索引。</div>
+            </div>
+            <div className="space-y-4 px-6 py-5">
+              <div className="rounded-[22px] border border-red-500/15 bg-red-500/10 px-4 py-4 text-sm leading-6 text-red-100/85">
+                确认删除 <span className="font-medium text-white">{confirmMemoryDelete.label}</span>？
+              </div>
+              <div className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3 text-[12px] text-white/50">
+                {confirmMemoryDelete.path}
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 border-t border-white/5 px-6 py-4">
+              <button
+                onClick={() => setConfirmMemoryDelete(null)}
+                className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => removeActiveDailyFile().catch(console.error)}
+                className="rounded-full border border-red-500/20 bg-red-500/15 px-4 py-2 text-sm font-medium text-red-100 transition-colors hover:bg-red-500/20"
+              >
+                删除文件
+              </button>
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Bot, ChevronLeft, ChevronRight, Copy, RefreshCcw, User, Zap } from 'lucide-react';
@@ -122,7 +122,7 @@ function buildDisplayItems(messages: MessageLike[]): LaneDisplayItem[] {
   return items;
 }
 
-export function AgentLaneColumn({
+function AgentLaneColumnComponent({
   lane,
   messages,
   isGenerating,
@@ -140,7 +140,7 @@ export function AgentLaneColumn({
   const bottomRef = useRef<HTMLDivElement>(null);
   const [contentWidth, setContentWidth] = useState(280);
   const [selectedVariantByGroup, setSelectedVariantByGroup] = useState<Record<string, number>>({});
-  const displayItems = buildDisplayItems(messages);
+  const displayItems = useMemo(() => buildDisplayItems(messages), [messages]);
 
   useEffect(() => {
     if (!widthRef.current) {
@@ -481,3 +481,24 @@ export function AgentLaneColumn({
     </section>
   );
 }
+
+function areLanePropsEqual(previous: AgentLaneColumnProps, next: AgentLaneColumnProps) {
+  return (
+    previous.messages === next.messages &&
+    previous.isGenerating === next.isGenerating &&
+    previous.showTimestamps === next.showTimestamps &&
+    previous.showToolResults === next.showToolResults &&
+    previous.autoScroll === next.autoScroll &&
+    previous.compact === next.compact &&
+    previous.scrollKey === next.scrollKey &&
+    previous.latestAssistantMessageId === next.latestAssistantMessageId &&
+    previous.lane.id === next.lane.id &&
+    previous.lane.name === next.lane.name &&
+    previous.lane.description === next.lane.description &&
+    previous.lane.model === next.lane.model &&
+    previous.lane.accentColor === next.lane.accentColor &&
+    previous.lane.position === next.lane.position
+  );
+}
+
+export const AgentLaneColumn = memo(AgentLaneColumnComponent, areLanePropsEqual);

@@ -64,3 +64,6 @@
 - Fixed model-provider protocol persistence so rapidly editing provider fields in Settings no longer races and overwrites `responses` providers back to `chat`, and legacy/custom providers now infer `openai_responses_compatible` from Responses-style DashScope base URLs.
 - Replaced the browser `prompt()` flow for adding model providers with an in-app creation dialog that collects vendor name, protocol type, API key, and base URL in one place.
 - Locked provider protocol selection to creation time in the Settings UI so provider entries now use stable suffixes like `· Chat` / `· Responses`, while the detail pane shows the protocol as read-only to avoid accidental fallback or protocol drift.
+- Grouped provider lists in Settings and the chat model picker by protocol mode (`OpenAI Compatible / Responses / Anthropic`), so model services are easier to scan when multiple vendor variants coexist.
+- Replaced the remaining browser-native Settings prompts and confirms for provider/model/memory actions with in-app dialogs, keeping the interaction style consistent with the rest of the shell.
+- Memoized the heavy chat message lane so typing into the composer no longer forces long conversation columns to rebuild on every keystroke, which reduces input lag in large topics.

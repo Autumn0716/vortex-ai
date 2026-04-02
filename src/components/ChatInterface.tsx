@@ -72,7 +72,7 @@ import { syncProjectKnowledgeDocuments } from '../lib/project-knowledge';
 import { TimeoutError, withSoftTimeout } from '../lib/async-timeout';
 import { formatErrorDetails, wrapErrorWithContext } from '../lib/error-details';
 import { registerConfiguredAgentMemoryFileStore } from '../lib/agent-memory-api';
-import { buildModelGroups } from '../lib/model-groups';
+import { buildModelGroups, buildProviderGroups, getProviderProtocolMeta } from '../lib/model-groups';
 import { subscribeProjectKnowledgeEvents } from '../lib/project-knowledge-api';
 import { getRelevantSkillContext, syncAgentSkillDocuments } from '../lib/agent-skills';
 
@@ -315,6 +315,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [modelPickerProviderId, setModelPickerProviderId] = useState<string>('');
   const [modelPickerProviderQuery, setModelPickerProviderQuery] = useState('');
   const [modelPickerSearchQuery, setModelPickerSearchQuery] = useState('');
+  const [collapsedPickerProviderGroups, setCollapsedPickerProviderGroups] = useState<Record<string, boolean>>({});
   const [collapsedPickerGroups, setCollapsedPickerGroups] = useState<Record<string, boolean>>({});
   const [collapsedPickerSeries, setCollapsedPickerSeries] = useState<Record<string, boolean>>({});
   const [topicRunStates, setTopicRunStates] = useState<Record<string, TopicRunState>>({});
@@ -357,6 +358,20 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     activeProvider?.name.toLowerCase().includes('qwen') ||
     activeModel.toLowerCase().includes('qwen');
   const activeMemoryEnabled = workspace?.runtime.enableMemory ?? config.memory.enableAgentLongTerm;
+  const activeLane = useMemo(
+    () =>
+      workspace
+        ? {
+            id: workspace.agent.id,
+            name: activeDisplayName,
+            description: workspace.agent.description,
+            model: activeModel,
+            accentColor: workspace.agent.accentColor,
+            position: 0,
+          }
+        : null,
+    [workspace, activeDisplayName, activeModel],
+  );
   const latestAssistantMessageId = useMemo(
     () =>
       [...(workspace?.messages ?? [])]
@@ -1508,10 +1523,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   const enabledProviders = config.providers.filter((provider) => provider.enabled);
   const filteredModelPickerProviders = useMemo(
-    () =>
-      enabledProviders.filter((provider) =>
-        provider.name.toLowerCase().includes(modelPickerProviderQuery.trim().toLowerCase()),
-      ),
+    () => buildProviderGroups(enabledProviders, modelPickerProviderQuery),
     [enabledProviders, modelPickerProviderQuery],
   );
   const modelPickerProvider =
@@ -1536,6 +1548,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     if (!showModelPicker) {
       setModelPickerProviderQuery('');
       setModelPickerSearchQuery('');
+      setCollapsedPickerProviderGroups({});
       setCollapsedPickerGroups({});
       setCollapsedPickerSeries({});
     }
@@ -2025,7 +2038,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 <div className="h-full overflow-x-auto custom-scrollbar">
                   <div className="mx-auto grid min-h-full w-full max-w-[1180px] gap-4 p-4 md:p-6">
                     <AgentLaneColumn
-                      lane={{
+                      lane={activeLane ?? {
                         id: workspace.agent.id,
                         name: activeDisplayName,
                         description: workspace.agent.description,
@@ -3286,32 +3299,82 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </div>
               </div>
               <div className="flex-1 space-y-1 overflow-y-auto p-2 custom-scrollbar">
-                {filteredModelPickerProviders.map((provider) => (
-                  <button
-                    key={provider.id}
-                    onClick={() => {
-                      setModelPickerProviderId(provider.id);
-                      setCollapsedPickerGroups({});
-                      setCollapsedPickerSeries({});
-                    }}
-                    className={`flex w-full cursor-pointer items-center justify-between rounded-2xl border px-3 py-3 text-left transition-all duration-150 ${
-                      modelPickerProviderId === provider.id
-                        ? 'border-emerald-500/25 bg-[linear-gradient(180deg,rgba(16,185,129,0.16),rgba(255,255,255,0.05))] text-white shadow-[0_12px_28px_rgba(16,185,129,0.14)]'
-                        : 'border-white/5 text-white/65 hover:border-white/12 hover:bg-white/[0.08] hover:text-white hover:shadow-[0_10px_24px_rgba(0,0,0,0.22)]'
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">{provider.name}</div>
-                      <div className="text-[11px] text-white/35">
-                        {provider.models.length} 个模型
-                        {modelPickerProviderId === provider.id ? ' · 当前浏览' : ''}
+                {!filteredModelPickerProviders.groups.length ? (
+                  <div className="rounded-2xl border border-dashed border-white/10 bg-black/10 px-4 py-8 text-center text-sm text-white/40">
+                    没有匹配的 provider。
+                  </div>
+                ) : (
+                  filteredModelPickerProviders.groups.map((group) => {
+                    const collapsed = collapsedPickerProviderGroups[group.id] ?? false;
+
+                    return (
+                      <div key={group.id} className="rounded-[22px] border border-white/5 bg-black/10 p-2">
+                        <button
+                          onClick={() =>
+                            setCollapsedPickerProviderGroups((current) => ({
+                              ...current,
+                              [group.id]: !collapsed,
+                            }))
+                          }
+                          className="flex w-full items-center justify-between rounded-[18px] px-3 py-2 text-left transition-colors hover:bg-white/5"
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-white/5">
+                              {collapsed ? (
+                                <ChevronRight size={14} className="text-white/55" />
+                              ) : (
+                                <ChevronDown size={14} className="text-white/55" />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-white/90">{group.label}</div>
+                              <div className="truncate text-[11px] text-white/35">{group.description}</div>
+                            </div>
+                          </div>
+                          <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-white/45">
+                            {group.totalCount}
+                          </div>
+                        </button>
+
+                        {!collapsed ? (
+                          <div className="mt-2 space-y-1">
+                            {group.providers.map((provider) => (
+                              <button
+                                key={provider.id}
+                                onClick={() => {
+                                  setModelPickerProviderId(provider.id);
+                                  setCollapsedPickerGroups({});
+                                  setCollapsedPickerSeries({});
+                                }}
+                                className={`flex w-full cursor-pointer items-center justify-between rounded-2xl border px-3 py-3 text-left transition-all duration-150 ${
+                                  modelPickerProviderId === provider.id
+                                    ? 'border-emerald-500/25 bg-[linear-gradient(180deg,rgba(16,185,129,0.16),rgba(255,255,255,0.05))] text-white shadow-[0_12px_28px_rgba(16,185,129,0.14)]'
+                                    : 'border-white/5 text-white/65 hover:border-white/12 hover:bg-white/[0.08] hover:text-white hover:shadow-[0_10px_24px_rgba(0,0,0,0.22)]'
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <div className="truncate text-sm font-medium">{provider.name}</div>
+                                  <div className="text-[11px] text-white/35">
+                                    {provider.models.length} 个模型
+                                    {modelPickerProviderId === provider.id ? ' · 当前浏览' : ''}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] text-white/40">
+                                    {getProviderProtocolMeta(provider).label}
+                                  </div>
+                                  <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400/15 to-emerald-600/15">
+                                    <Cloud size={14} className="text-emerald-300" />
+                                  </div>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
-                    </div>
-                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400/15 to-emerald-600/15">
-                      <Cloud size={14} className="text-emerald-300" />
-                    </div>
-                  </button>
-                ))}
+                    );
+                  })
+                )}
               </div>
             </div>
 
