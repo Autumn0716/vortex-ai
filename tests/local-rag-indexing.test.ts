@@ -392,3 +392,54 @@ test('searchDocumentsInDatabase adds corrective retrieval results when the prima
     database.close();
   }
 });
+
+test('searchDocumentsInDatabase uses graph-neighborhood expansion to surface second-order matches', async () => {
+  const database = await createSearchDatabase();
+
+  try {
+    database.run(`
+      CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        document_id UNINDEXED,
+        title,
+        content
+      );
+    `);
+
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      [
+        'doc_bridge',
+        'Branch Handoff Guide',
+        'Branch handoff uses `parent_topic_id` to connect child results to the upstream thread.',
+      ],
+    );
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      [
+        'doc_neighbor',
+        'Parent Topic Id Reference',
+        '`parent_topic_id` stores the upstream topic identifier for branch metadata.',
+      ],
+    );
+
+    indexDocumentChunks(database, {
+      id: 'doc_bridge',
+      title: 'Branch Handoff Guide',
+      content: 'Branch handoff uses `parent_topic_id` to connect child results to the upstream thread.',
+    });
+    indexDocumentChunks(database, {
+      id: 'doc_neighbor',
+      title: 'Parent Topic Id Reference',
+      content: '`parent_topic_id` stores the upstream topic identifier for branch metadata.',
+    });
+
+    const results = await searchDocumentsInDatabase(database, 'branch handoff');
+    const neighborResult = results.find((result) => result.id === 'doc_neighbor');
+
+    assert.ok(neighborResult);
+    assert.ok((neighborResult?.graphExpansionHints?.length ?? 0) > 0);
+  } finally {
+    database.close();
+  }
+});

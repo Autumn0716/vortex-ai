@@ -8,6 +8,7 @@ export interface HybridDocumentCandidate {
   vectorScore?: number;
   graphScore?: number;
   graphHints?: string[];
+  graphExpansionHints?: string[];
 }
 
 export interface RankedHybridDocument extends HybridDocumentCandidate {

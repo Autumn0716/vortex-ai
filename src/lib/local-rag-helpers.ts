@@ -26,6 +26,7 @@ export interface CorrectiveRetrievalSignal {
   supportLabel?: 'low' | 'medium' | 'high' | 'unknown';
   matchedTerms?: string[];
   graphHints?: string[];
+  graphExpansionHints?: string[];
 }
 
 export interface CorrectiveKnowledgeQueryPlan {
@@ -474,8 +475,13 @@ export function planCorrectiveKnowledgeQueries(
 
   signals.slice(0, 3).forEach((signal) => {
     signal.graphHints?.slice(0, 4).forEach((hint) => pushSeed(hint));
+    signal.graphExpansionHints?.slice(0, 3).forEach((hint) => pushSeed(hint));
     signal.matchedTerms?.slice(0, 4).forEach((term) => pushSeed(term));
-    const combinedHint = [...(signal.graphHints ?? []), ...(signal.matchedTerms ?? [])]
+    const combinedHint = [
+      ...(signal.graphHints ?? []),
+      ...(signal.graphExpansionHints ?? []),
+      ...(signal.matchedTerms ?? []),
+    ]
       .slice(0, 4)
       .join(' ');
     pushSeed(combinedHint);

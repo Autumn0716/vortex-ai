@@ -220,6 +220,7 @@ export interface KnowledgeDocumentSupportMetadata {
   supportLabel?: 'low' | 'medium' | 'high' | 'unknown';
   matchedTerms?: string[];
   graphHints?: string[];
+  graphExpansionHints?: string[];
   retrievalStage?: 'primary' | 'corrective' | 'hybrid';
 }
 
@@ -232,6 +233,7 @@ interface RetrievedDocumentResult extends KnowledgeDocumentSupportMetadata {
   title: string;
   content: string;
   graphHints?: string[];
+  graphExpansionHints?: string[];
 }
 
 interface DocumentSearchCandidate {
@@ -242,6 +244,7 @@ interface DocumentSearchCandidate {
   vectorScore?: number;
   graphScore?: number;
   graphHints?: string[];
+  graphExpansionHints?: string[];
 }
 
 export interface KnowledgeDocumentSearchOptions {
@@ -1266,6 +1269,7 @@ function mergeSearchResultWithMetadata(
     supportLabel: result.supportLabel,
     matchedTerms: result.matchedTerms,
     graphHints: result.graphHints,
+    graphExpansionHints: result.graphExpansionHints,
     retrievalStage: result.retrievalStage,
   };
 }
@@ -2801,7 +2805,14 @@ function readGraphCandidates(
   database: Database,
   query: string,
   options?: Pick<KnowledgeDocumentSearchOptions, 'sourceTypes' | 'sourceUriPrefixes'>,
-): Array<{ id: string; title: string; content: string; graphScore: number; graphHints: string[] }> {
+): Array<{
+  id: string;
+  title: string;
+  content: string;
+  graphScore: number;
+  graphHints: string[];
+  graphExpansionHints: string[];
+}> {
   const queryEntities = extractKnowledgeGraphEntities(query, 8).map((entry) => entry.normalizedEntity);
   if (queryEntities.length === 0) {
     return [];
@@ -2818,6 +2829,41 @@ function readGraphCandidates(
       },
     ]),
   );
+
+  const edgeRows = mapRows<{
+    source_entity: string;
+    target_entity: string;
+    weight: number;
+  }>(
+    database.exec(
+      `
+        SELECT source_entity, target_entity, weight
+        FROM document_graph_edges
+      `,
+    ),
+  );
+
+  const expandedEntityWeights = new Map<string, number>();
+  const queryEntitySet = new Set(queryEntities);
+  edgeRows.forEach((row) => {
+    if (queryEntitySet.has(row.source_entity) && !queryEntitySet.has(row.target_entity)) {
+      expandedEntityWeights.set(
+        row.target_entity,
+        Math.max(expandedEntityWeights.get(row.target_entity) ?? 0, row.weight * 0.45),
+      );
+    }
+    if (queryEntitySet.has(row.target_entity) && !queryEntitySet.has(row.source_entity)) {
+      expandedEntityWeights.set(
+        row.source_entity,
+        Math.max(expandedEntityWeights.get(row.source_entity) ?? 0, row.weight * 0.45),
+      );
+    }
+  });
+
+  const boundedExpandedEntities = [...expandedEntityWeights.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, 6);
+  const expandedEntityScores = new Map(boundedExpandedEntities);
 
   const rows = mapRows<{
     document_id: string;
@@ -2840,20 +2886,42 @@ function readGraphCandidates(
     ),
   );
 
-  const scored = new Map<string, { id: string; title: string; content: string; graphScore: number; graphHints: string[] }>();
+  const scored = new Map<
+    string,
+    {
+      id: string;
+      title: string;
+      content: string;
+      directGraphScore: number;
+      expansionGraphScore: number;
+      graphHints: string[];
+      graphExpansionHints: string[];
+    }
+  >();
   rows.forEach((row) => {
-    if (!queryEntities.includes(row.normalized_entity)) {
+    if (!matchesKnowledgeDocumentFilters(metadataById.get(row.document_id) ?? null, options)) {
       return;
     }
-    if (!matchesKnowledgeDocumentFilters(metadataById.get(row.document_id) ?? null, options)) {
+
+    const directMatch = queryEntitySet.has(row.normalized_entity);
+    const expansionWeight = expandedEntityScores.get(row.normalized_entity) ?? 0;
+    if (!directMatch && expansionWeight <= 0) {
       return;
     }
 
     const existing = scored.get(row.document_id);
     if (existing) {
-      existing.graphScore += row.weight;
-      if (!existing.graphHints.includes(row.normalized_entity)) {
+      if (directMatch) {
+        existing.directGraphScore += row.weight;
+      }
+      if (expansionWeight > 0) {
+        existing.expansionGraphScore += expansionWeight;
+      }
+      if (directMatch && !existing.graphHints.includes(row.normalized_entity)) {
         existing.graphHints.push(row.normalized_entity);
+      }
+      if (expansionWeight > 0 && !existing.graphExpansionHints.includes(row.normalized_entity)) {
+        existing.graphExpansionHints.push(row.normalized_entity);
       }
       return;
     }
@@ -2862,16 +2930,25 @@ function readGraphCandidates(
       id: row.document_id,
       title: row.title,
       content: row.content,
-      graphScore: row.weight,
-      graphHints: [row.normalized_entity],
+      directGraphScore: directMatch ? row.weight : 0,
+      expansionGraphScore: expansionWeight,
+      graphHints: directMatch ? [row.normalized_entity] : [],
+      graphExpansionHints: expansionWeight > 0 ? [row.normalized_entity] : [],
     });
   });
 
   return [...scored.values()]
     .map((entry) => ({
       ...entry,
-      graphScore: Number(Math.min(1, entry.graphScore / Math.max(1, queryEntities.length)).toFixed(3)),
+      graphScore: Number(
+        Math.min(
+          1,
+          entry.directGraphScore / Math.max(1, queryEntities.length) +
+            Math.min(0.35, entry.expansionGraphScore / Math.max(1, expandedEntityScores.size || 1)),
+        ).toFixed(3),
+      ),
       graphHints: entry.graphHints.slice(0, 6),
+      graphExpansionHints: entry.graphExpansionHints.slice(0, 6),
     }))
     .sort((left, right) => right.graphScore - left.graphScore)
     .slice(0, 8);
@@ -2886,6 +2963,7 @@ function mergeDocumentSearchCandidate(
     seen.set(candidate.id, {
       ...candidate,
       graphHints: [...(candidate.graphHints ?? [])],
+      graphExpansionHints: [...(candidate.graphExpansionHints ?? [])],
     });
     return;
   }
@@ -2907,6 +2985,11 @@ function mergeDocumentSearchCandidate(
 
   const graphHints = new Set([...(existing.graphHints ?? []), ...(candidate.graphHints ?? [])]);
   existing.graphHints = [...graphHints].slice(0, 6);
+  const graphExpansionHints = new Set([
+    ...(existing.graphExpansionHints ?? []),
+    ...(candidate.graphExpansionHints ?? []),
+  ]);
+  existing.graphExpansionHints = [...graphExpansionHints].slice(0, 6);
 }
 
 async function collectDocumentCandidates(
@@ -3028,6 +3111,7 @@ function shapeRetrievedDocumentResults(
         title: row.title,
         content: compressedContent,
         graphHints: row.graphHints ?? [],
+        graphExpansionHints: row.graphExpansionHints ?? [],
         supportScore: support.score,
         supportLabel: support.label,
         matchedTerms: support.matchedTerms,

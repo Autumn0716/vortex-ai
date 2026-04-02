@@ -222,5 +222,10 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - 当前补救查询优先利用首轮结果里的 `matchedTerms / graphHints`，把模糊问法往更具体的技术术语或结构字段上收窄
 - 最终结果会把主检索与补救检索合并重排，并返回 `retrievalStage = primary / corrective / hybrid` 供后续观测和 UI 接线使用
 
+进度汇报（2026-04-02，第十五次更新）:
+- 已把 `document_graph_edges` 真正接入检索链：query 命中直接图节点后，会有一层有界的邻接扩展信号参与排序
+- 当前实现会把二阶邻接实体单独记为 `graphExpansionHints`，避免和直接命中的 `graphHints` 混在一起
+- 这样即使用户问题没有直接提到某个字段名或术语，只要它和当前 query 实体在图里有稳定邻接关系，也能以较弱分值把相关文档拉进候选集
+
 当前仍待继续：
 - 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开
