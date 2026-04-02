@@ -202,5 +202,10 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - 当前 rerank 先使用标题命中、正文命中和 exact phrase 奖励这些确定性信号，不引入模型重排
 - 这样后续接 context compression 和忠实度检查时，前置候选顺序已经更稳定了
 
+进度汇报（2026-04-02，第十一次更新）:
+- 已补上确定性的 context compression：知识库检索结果现在会围绕 query hit 裁出更短的 focused excerpt
+- 当前压缩发生在检索返回阶段，不会改动原始文档存储，只减少下游 prompt / tool 的上下文占用
+- RAG 第二阶段现在已经有 `query rewrite + rerank + context compression` 三段基础链路
+
 当前仍待继续：
 - 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开

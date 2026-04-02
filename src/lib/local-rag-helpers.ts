@@ -156,6 +156,53 @@ export function expandKnowledgeSearchQueries(query: string, maxVariants = 8): st
   return candidates.slice(0, maxVariants);
 }
 
+export function compressRetrievedContext(
+  query: string,
+  content: string,
+  options: { maxChars?: number; windowChars?: number } = {},
+) {
+  const normalizedContent = content.replace(/\s+/g, ' ').trim();
+  if (!normalizedContent) {
+    return '';
+  }
+
+  const maxChars = Math.max(120, options.maxChars ?? 420);
+  if (normalizedContent.length <= maxChars) {
+    return normalizedContent;
+  }
+
+  const queryTokens = buildSemanticCacheKey(query)
+    .split(/\s+/)
+    .filter((token) => token.length > 1 && !ENGLISH_QUERY_STOPWORDS.has(token));
+  const loweredContent = normalizedContent.toLowerCase();
+  const windowChars = Math.max(60, options.windowChars ?? Math.floor(maxChars / 2));
+
+  let anchor = -1;
+  for (const token of queryTokens) {
+    anchor = loweredContent.indexOf(token.toLowerCase());
+    if (anchor >= 0) {
+      break;
+    }
+  }
+
+  if (anchor < 0) {
+    return `${normalizedContent.slice(0, maxChars - 1).trim()}…`;
+  }
+
+  const start = Math.max(0, anchor - windowChars);
+  const end = Math.min(normalizedContent.length, anchor + windowChars);
+  const excerpt = normalizedContent.slice(start, end).trim();
+  const prefix = start > 0 ? '…' : '';
+  const suffix = end < normalizedContent.length ? '…' : '';
+  const compressed = `${prefix}${excerpt}${suffix}`;
+
+  if (compressed.length <= maxChars) {
+    return compressed;
+  }
+
+  return `${compressed.slice(0, maxChars - 1).trim()}…`;
+}
+
 export function chunkDocumentContent(
   content: string,
   options: ChunkDocumentOptions = {},

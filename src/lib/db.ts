@@ -7,6 +7,7 @@ import { getAgentConfig } from './agent/config';
 import {
   buildSemanticCacheKey,
   chunkDocumentContent,
+  compressRetrievedContext,
   decomposeTaskQuery,
   expandKnowledgeSearchQueries,
 } from './local-rag-helpers';
@@ -2828,7 +2829,7 @@ export async function searchDocumentsInDatabase(
       .map((row) => ({
         id: row.id,
         title: row.title,
-        content: row.content,
+        content: compressRetrievedContext(normalizedQuery, row.content),
       }));
 
     writeDocumentSearchCache(database, scopedCacheKey, normalizedQuery, results);

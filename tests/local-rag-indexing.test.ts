@@ -190,3 +190,43 @@ test('searchDocumentsInDatabase rewrites conversational and cross-lingual querie
     database.close();
   }
 });
+
+test('searchDocumentsInDatabase returns compressed excerpts instead of full document bodies', async () => {
+  const database = await createSearchDatabase();
+
+  try {
+    database.run(`
+      CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        document_id UNINDEXED,
+        title,
+        content
+      );
+    `);
+
+    const content = [
+      'Intro section that is not important to the query and mostly discusses unrelated setup notes.'.repeat(4),
+      'Another paragraph with general commentary and filler that should be compressed away in retrieval.'.repeat(4),
+      'Critical branch handoff summary to parent topic with rollout checklist and audit note.',
+      'Closing section with unrelated observations and archival remarks that are not needed for the prompt.'.repeat(4),
+    ].join(' ');
+
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      ['doc_compression', 'Compression Guide', content],
+    );
+    indexDocumentChunks(database, {
+      id: 'doc_compression',
+      title: 'Compression Guide',
+      content,
+    });
+
+    const results = await searchDocumentsInDatabase(database, 'branch handoff summary');
+
+    assert.equal(results.length, 1);
+    assert.ok((results[0]?.content.length ?? 0) < content.length);
+    assert.match(results[0]?.content ?? '', /branch handoff summary to parent topic/i);
+  } finally {
+    database.close();
+  }
+});
