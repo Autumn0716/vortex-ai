@@ -1,6 +1,18 @@
 {
   "activeProviderId": "openai",
   "activeModel": "gpt-4o",
+  "providers": [
+    {
+      "id": "qwen_responses",
+      "name": "Qwen Responses",
+      "enabled": true,
+      "apiKey": "sk-xxx",
+      "baseUrl": "https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1",
+      "models": ["qwen-plus"],
+      "type": "custom_openai",
+      "protocol": "openai_responses_compatible"
+    }
+  ],
   "apiServer": {
     "enabled": true,
     "baseUrl": "http://127.0.0.1:3850",

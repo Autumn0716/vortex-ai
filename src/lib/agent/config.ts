@@ -1,5 +1,9 @@
 import localforage from 'localforage';
 import { DEFAULT_API_SERVER_BASE_URL, getProjectConfig, saveProjectConfig } from '../agent-memory-api';
+import {
+  type ProviderProtocol,
+  getDefaultProviderProtocol,
+} from '../provider-compatibility';
 
 export type ProviderType = 'openai' | 'anthropic' | 'custom_openai';
 export type ProxyMode = 'direct' | 'system' | 'custom';
@@ -26,6 +30,7 @@ export interface ModelProvider {
   baseUrl?: string;
   models: string[];
   type: ProviderType;
+  protocol: ProviderProtocol;
 }
 
 export interface GeneralSettings {
@@ -179,6 +184,7 @@ const DEFAULT_PROVIDERS: ModelProvider[] = [
     apiKey: '',
     models: ['gpt-4o', 'gpt-4.1-mini', 'gpt-4-turbo'],
     type: 'openai',
+    protocol: 'openai_chat_compatible',
   },
   {
     id: 'anthropic',
@@ -187,6 +193,7 @@ const DEFAULT_PROVIDERS: ModelProvider[] = [
     apiKey: '',
     models: ['claude-3-7-sonnet-latest', 'claude-3-5-sonnet-latest'],
     type: 'anthropic',
+    protocol: 'anthropic_native',
   },
   {
     id: 'deepseek',
@@ -196,6 +203,7 @@ const DEFAULT_PROVIDERS: ModelProvider[] = [
     baseUrl: 'https://api.deepseek.com/v1',
     models: ['deepseek-chat', 'deepseek-coder'],
     type: 'custom_openai',
+    protocol: 'openai_chat_compatible',
   },
   {
     id: 'siliconflow',
@@ -205,6 +213,7 @@ const DEFAULT_PROVIDERS: ModelProvider[] = [
     baseUrl: 'https://api.siliconflow.cn/v1',
     models: ['Qwen/Qwen2.5-72B-Instruct', 'THUDM/glm-4-9b-chat'],
     type: 'custom_openai',
+    protocol: 'openai_chat_compatible',
   },
 ];
 
@@ -529,6 +538,7 @@ function mergeProvider(defaultProvider: ModelProvider, provider?: Partial<ModelP
   return {
     ...defaultProvider,
     ...provider,
+    protocol: provider?.protocol ?? defaultProvider.protocol,
     models: normalizeStringArray(provider?.models).length
       ? normalizeStringArray(provider?.models)
       : defaultProvider.models,
@@ -558,6 +568,7 @@ function normalizeProviders(rawProviders?: Partial<ModelProvider>[]): ModelProvi
       baseUrl: provider.baseUrl,
       models: normalizeStringArray(provider.models),
       type: provider.type ?? 'custom_openai',
+      protocol: provider.protocol ?? getDefaultProviderProtocol(provider.type ?? 'custom_openai'),
     });
   });
 

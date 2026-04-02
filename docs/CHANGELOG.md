@@ -51,3 +51,6 @@
 - Upgraded `search_knowledge_base` to return an explicit evidence summary plus stable per-result support, retrieval-stage, and graph metadata, and added a compact runtime grounding instruction so agent answers treat weak evidence more cautiously.
 - Added in-chat message actions for copying user/assistant text, regenerating the latest assistant turn in place, and grouping regenerated assistant variants with visible `<current/total>` counters.
 - Added a composer-level web-search picker button with provider selection, active/highlighted state, and runtime wiring for a first-pass `search_web` tool backed by the selected provider.
+- Added protocol-aware model provider configuration so each vendor entry can now be marked as `OpenAI 兼容`, `OpenAI Responses 兼容`, or `Anthropic 原生`, with matching base URL placeholders and request previews in Settings.
+- Added response-compatible runtime routing so providers configured for `Responses` now call `/responses` directly, while chat-compatible providers keep using the existing LangGraph chat-completions path and local tool loop.
+- Added model-list endpoint fallback for response-compatible providers so `/models` probing can fall back from the Responses base path to the sibling Chat-compatible model catalog when necessary.

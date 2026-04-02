@@ -68,7 +68,6 @@ import { TimeoutError, withSoftTimeout } from '../lib/async-timeout';
 import { formatErrorDetails, wrapErrorWithContext } from '../lib/error-details';
 import { registerConfiguredAgentMemoryFileStore } from '../lib/agent-memory-api';
 import { buildModelGroups } from '../lib/model-groups';
-import { isAIMessageChunk } from '@langchain/core/messages';
 import { subscribeProjectKnowledgeEvents } from '../lib/project-knowledge-api';
 import { getRelevantSkillContext, syncAgentSkillDocuments } from '../lib/agent-skills';
 
@@ -167,42 +166,6 @@ function upsertWorkspaceMessage(
       messageCount: nextMessages.length,
     },
   };
-}
-
-function stringifyMessageContent(content: unknown) {
-  if (typeof content === 'string') {
-    return content;
-  }
-  if (Array.isArray(content)) {
-    return content
-      .map((entry) => {
-        if (typeof entry === 'string') {
-          return entry;
-        }
-        if (typeof entry === 'object' && entry && 'text' in entry) {
-          return String((entry as { text?: unknown }).text ?? '');
-        }
-        return JSON.stringify(entry);
-      })
-      .join('\n');
-  }
-  return String(content ?? '');
-}
-
-function extractToolUsage(messages: any[], initialCount: number) {
-  const tools: { name: string; status: 'completed'; result: string }[] = [];
-  for (let index = initialCount; index < messages.length; index += 1) {
-    const message = messages[index];
-    if (message?._getType?.() === 'tool') {
-      const toolMessage = message as { name: string; content: unknown };
-      tools.push({
-        name: toolMessage.name,
-        status: 'completed',
-        result: String(toolMessage.content).slice(0, 1200),
-      });
-    }
-  }
-  return tools;
 }
 
 function buildMessageHistoryForGeneration(messages: TopicMessage[], historyWindow: number) {
@@ -1119,9 +1082,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     const abortController = new AbortController();
     topicAbortControllersRef.current[workspaceSnapshot.topic.id] = abortController;
     let lcMessages: any[] = [];
-    let lastValuesState: { messages?: any[] } | null = null;
     let assistantDraftId = createLocalId('message');
     let streamedAssistantContent = '';
+    let finalAssistantContent = '';
+    let finalAssistantMessageId = assistantDraftId;
+    let finalAssistantTools: { name: string; status: 'completed'; result: string }[] = [];
 
     try {
       const [{ HumanMessage, AIMessage }, { createAgentRuntime }] = await Promise.all([
@@ -1180,38 +1145,32 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
       const stream = await runtime.stream(
         { messages: lcMessages },
-        { streamMode: ['messages', 'values'], signal: abortController.signal },
+        { signal: abortController.signal },
       );
 
-      for await (const chunk of stream) {
-        if (!Array.isArray(chunk) || chunk.length < 2) {
+      for await (const event of stream) {
+        if (event.type === 'reasoning_delta') {
           continue;
         }
 
-        const [mode, payload] = chunk as unknown as [string, any];
-        if (mode === 'values') {
-          lastValuesState = payload;
+        if (event.type === 'tool_event') {
+          finalAssistantTools = [...finalAssistantTools, event.tool];
           continue;
         }
 
-        if (mode !== 'messages' || !Array.isArray(payload)) {
+        if (event.type === 'assistant_message') {
+          finalAssistantContent = event.content;
+          finalAssistantMessageId = event.messageId || assistantDraftId;
+          finalAssistantTools = event.tools;
           continue;
         }
 
-        const [message] = payload;
-        if (!message || message?._getType?.() !== 'ai') {
+        if (event.type !== 'assistant_delta') {
           continue;
         }
 
-        if (typeof message.id === 'string' && message.id.trim()) {
-          assistantDraftId = message.id;
-        }
-
-        if (isAIMessageChunk(message)) {
-          streamedAssistantContent += stringifyMessageContent(message.content);
-        } else {
-          streamedAssistantContent = stringifyMessageContent(message.content);
-        }
+        assistantDraftId = event.messageId || assistantDraftId;
+        streamedAssistantContent += event.delta;
 
         const optimisticAssistantMessage = toTopicMessage({
           id: assistantDraftId,
@@ -1234,24 +1193,19 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         );
       }
 
-      const finalMessages = lastValuesState?.messages ?? [];
-      const lastAssistantMessage = [...finalMessages]
-        .reverse()
-        .find((message) => message?._getType?.() === 'ai') as { id?: string; content: unknown } | undefined;
-
-      if (!lastAssistantMessage) {
+      if (!(finalAssistantContent || streamedAssistantContent)) {
         throw new Error('The model did not return a final assistant message.');
       }
 
       const assistantMessage: TopicMessageInput = {
-        id: lastAssistantMessage.id ?? assistantDraftId,
+        id: finalAssistantMessageId,
         topicId: workspaceSnapshot.topic.id,
         agentId: workspaceSnapshot.agent.id,
         role: 'assistant',
         authorName: workspaceSnapshot.runtime.displayName,
-        content: stringifyMessageContent(lastAssistantMessage.content),
+        content: finalAssistantContent || streamedAssistantContent,
         createdAt: new Date().toISOString(),
-        tools: extractToolUsage(finalMessages, lcMessages.length),
+        tools: finalAssistantTools,
       };
 
       setWorkspace((previous) => upsertWorkspaceMessage(previous, toTopicMessage(assistantMessage)));
@@ -1270,7 +1224,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             authorName: workspaceSnapshot.runtime.displayName,
             content: partialContent,
             createdAt: new Date().toISOString(),
-            tools: extractToolUsage(lastValuesState?.messages ?? [], lcMessages.length),
+            tools: finalAssistantTools,
           };
           setWorkspace((previous) => upsertWorkspaceMessage(previous, toTopicMessage(partialMessage)));
           await addTopicMessages([partialMessage]);

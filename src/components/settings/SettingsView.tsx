@@ -44,6 +44,13 @@ import {
   saveAgentConfig,
 } from '../../lib/agent/config';
 import {
+  type ProviderProtocol,
+  buildProviderModelListCandidates,
+  getProviderBaseUrlPlaceholder,
+  getProviderRequestMode,
+  getProviderRequestPreview,
+} from '../../lib/provider-compatibility';
+import {
   addDocument,
   exportWorkspaceData,
   getDataStats,
@@ -101,6 +108,28 @@ const PROXY_OPTIONS = [
   { value: 'direct', label: '直连', description: '浏览器直接请求模型与搜索服务。' },
   { value: 'system', label: '系统代理', description: '优先跟随系统或浏览器代理配置。' },
   { value: 'custom', label: '自定义代理', description: '通过自定义网关地址转发请求。' },
+] as const;
+
+const PROVIDER_PROTOCOL_OPTIONS: Array<{
+  value: ProviderProtocol;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'openai_chat_compatible',
+    label: 'OpenAI 兼容',
+    description: '调用 `/chat/completions`，适合大多数兼容 OpenAI 的模型服务。',
+  },
+  {
+    value: 'openai_responses_compatible',
+    label: 'OpenAI Responses 兼容',
+    description: '调用 `/responses`，适合 Qwen 内置工具、MCP 与更完整的 Responses 工作流。',
+  },
+  {
+    value: 'anthropic_native',
+    label: 'Anthropic 原生',
+    description: '走 Anthropic Messages 接口，不使用 OpenAI 兼容路径。',
+  },
 ] as const;
 
 const SEARCH_TYPE_OPTIONS = [
@@ -537,23 +566,8 @@ export const SettingsView = ({
   const memoryFilesRequestIdRef = useRef(0);
   const nightlyArchiveRequestIdRef = useRef(0);
 
-  const buildModelListCandidates = (baseUrl?: string) => {
-    const normalized = (baseUrl || '').trim().replace(/\/+$/, '');
-    if (!normalized) {
-      return [];
-    }
-
-    const candidates = new Set<string>();
-    candidates.add(`${normalized}/models`);
-    if (!/\/v1$/i.test(normalized)) {
-      candidates.add(`${normalized}/v1/models`);
-    }
-
-    return Array.from(candidates);
-  };
-
   const fetchProviderModels = async (provider: ModelProvider): Promise<ProviderModelFetchResult> => {
-    const candidates = buildModelListCandidates(provider.baseUrl);
+    const candidates = buildProviderModelListCandidates(provider);
     if (!provider.apiKey.trim()) {
       throw new Error('请先填写 API Key。');
     }
@@ -743,6 +757,7 @@ export const SettingsView = ({
                 (model) => !importOnlyNotAdded || !importedModelIds.has(model.toLowerCase()),
               ),
               type: 'custom_openai',
+              protocol: 'openai_chat_compatible',
             },
             importModelSearchQuery,
           )
@@ -924,7 +939,8 @@ export const SettingsView = ({
       return;
     }
 
-    const baseUrl = window.prompt('请输入兼容 OpenAI 的 API Base URL', 'https://api.example.com/v1');
+    const protocol = 'openai_chat_compatible';
+    const baseUrl = window.prompt('请输入兼容接口的 API Base URL', getProviderBaseUrlPlaceholder(protocol));
     const provider: ModelProvider = {
       id: createProviderId(),
       name: name.trim(),
@@ -933,6 +949,7 @@ export const SettingsView = ({
       baseUrl: baseUrl?.trim() || '',
       models: [],
       type: 'custom_openai',
+      protocol,
     };
 
     await updateDraft((current) => ({
@@ -1092,7 +1109,7 @@ export const SettingsView = ({
       return;
     }
 
-    const candidates = buildModelListCandidates(provider.baseUrl);
+    const candidates = buildProviderModelListCandidates(provider);
     if (candidates.length === 0) {
       setProviderChecks((current) => ({
         ...current,
@@ -3323,6 +3340,13 @@ export const SettingsView = ({
                       <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-normal text-white/45">
                         {activeProvider.type}
                       </span>
+                      <span className="rounded-full border border-emerald-500/15 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-normal text-emerald-100/80">
+                        {getProviderRequestMode(activeProvider.protocol) === 'responses'
+                          ? 'responses'
+                          : activeProvider.protocol === 'anthropic_native'
+                            ? 'anthropic'
+                            : 'chat'}
+                      </span>
                     </h2>
                     <div className="flex items-center gap-3">
                       <button
@@ -3349,6 +3373,56 @@ export const SettingsView = ({
                   <div className="max-w-3xl space-y-8">
                     <SectionCard title="鉴权与连通性">
                       <div className="space-y-4">
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <div>
+                            <div className="mb-2 flex items-center justify-between">
+                              <label className="text-sm font-medium text-white/90">兼容协议</label>
+                              <div className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-white/45">
+                                {getProviderRequestMode(activeProvider.protocol)}
+                              </div>
+                            </div>
+                            <select
+                              value={activeProvider.protocol}
+                              onChange={(event) => {
+                                const nextProtocol = event.target.value as ProviderProtocol;
+                                updateProvider(activeProvider.id, {
+                                  protocol: nextProtocol,
+                                }).catch(console.error);
+                              }}
+                              className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white focus:border-emerald-500/50 focus:outline-none"
+                            >
+                              {PROVIDER_PROTOCOL_OPTIONS.filter(
+                                (option) =>
+                                  activeProvider.type !== 'anthropic' || option.value === 'anthropic_native',
+                              ).map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <p className="mt-2 text-[11px] text-white/40">
+                              {PROVIDER_PROTOCOL_OPTIONS.find((option) => option.value === activeProvider.protocol)
+                                ?.description ?? '按厂商接口选择请求协议。'}
+                            </p>
+                          </div>
+
+                          <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                            <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">Request Mode</div>
+                            <div className="mt-2 text-sm font-medium text-white/90">
+                              {getProviderRequestMode(activeProvider.protocol) === 'responses'
+                                ? 'Responses'
+                                : activeProvider.protocol === 'anthropic_native'
+                                  ? 'Anthropic Messages'
+                                  : 'Chat Completions'}
+                            </div>
+                            <div className="mt-2 text-xs leading-6 text-white/45">
+                              {getProviderRequestMode(activeProvider.protocol) === 'responses'
+                                ? '该厂商会走 `/responses`，适合 Qwen 内置工具、MCP 与更完整的 tool orchestration。'
+                                : '该厂商会走传统聊天接口，工具调用继续通过 chat-completions / LangGraph 本地工具链完成。'}
+                            </div>
+                          </div>
+                        </div>
+
                         <div>
                           <div className="mb-2 flex items-center justify-between">
                             <label className="text-sm font-medium text-white/90">API 密钥</label>
@@ -3396,11 +3470,11 @@ export const SettingsView = ({
                             onChange={(event) =>
                               updateProvider(activeProvider.id, { baseUrl: event.target.value })
                             }
-                            placeholder="https://api.example.com/v1"
+                            placeholder={getProviderBaseUrlPlaceholder(activeProvider.protocol)}
                             className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white focus:border-emerald-500/50 focus:outline-none"
                           />
                           <p className="mt-2 text-[11px] text-white/40">
-                            预览: {(activeProvider.baseUrl || '默认地址').replace(/\/$/, '')}/chat/completions
+                            预览: {getProviderRequestPreview(activeProvider.baseUrl, activeProvider.protocol)}
                           </p>
                         </div>
                       </div>
@@ -3408,7 +3482,7 @@ export const SettingsView = ({
 
                     <SectionCard
                       title="模型列表"
-                      description="支持自动探测 OpenAI-compatible 的 /models 或 /v1/models 接口。"
+                      description="支持自动探测 `/models`，Responses 兼容地址会额外回退到对应的 Chat 兼容模型列表。"
                       action={
                         <div className="flex items-center gap-2">
                           <button
