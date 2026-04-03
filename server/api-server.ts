@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { readProjectConfig, writeProjectConfig } from './config-store';
+import { inspectOfficialModelMetadata } from './model-inspector';
 import { createNightlyMemoryArchiveScheduler } from './nightly-memory-archive';
 import {
   createProjectKnowledgeWatcher,
@@ -156,6 +157,22 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     } catch (error) {
       response.status(500).json({
         error: error instanceof Error ? error.message : 'Failed to read project config.',
+      });
+    }
+  });
+
+  app.get('/api/model-inspector', async (request, response) => {
+    try {
+      const providerName = String(request.query.providerName ?? '').trim();
+      const model = String(request.query.model ?? '').trim();
+      if (!providerName || !model) {
+        response.status(400).json({ error: 'providerName and model are required.' });
+        return;
+      }
+      response.json(await inspectOfficialModelMetadata(providerName, model));
+    } catch (error) {
+      response.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to inspect official model metadata.',
       });
     }
   });

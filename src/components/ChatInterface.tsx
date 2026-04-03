@@ -73,7 +73,11 @@ import { applyThemePreferences } from '../lib/theme';
 import { syncProjectKnowledgeDocuments } from '../lib/project-knowledge';
 import { TimeoutError, withSoftTimeout } from '../lib/async-timeout';
 import { formatErrorDetails, wrapErrorWithContext } from '../lib/error-details';
-import { registerConfiguredAgentMemoryFileStore } from '../lib/agent-memory-api';
+import {
+  inspectOfficialModelMetadata as inspectOfficialModelMetadataViaApi,
+  registerConfiguredAgentMemoryFileStore,
+  type OfficialModelMetadataResponse,
+} from '../lib/agent-memory-api';
 import { buildModelGroups, buildProviderGroups, getProviderProtocolMeta } from '../lib/model-groups';
 import { subscribeProjectKnowledgeEvents } from '../lib/project-knowledge-api';
 import { getRelevantSkillContext, syncAgentSkillDocuments } from '../lib/agent-skills';
@@ -232,6 +236,14 @@ function formatMetricsDuration(durationMs?: number) {
   return `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)}s`;
 }
 
+function formatModelInspectorTokenValue(value?: number) {
+  return value ? `${value.toLocaleString()} tokens` : '未识别';
+}
+
+function formatModelInspectorPrice(value?: number) {
+  return value != null ? `${value} 元 / 1M tokens` : '未识别';
+}
+
 interface OfficialModelResourceLink {
   label: string;
   href: string;
@@ -363,6 +375,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [showBranchTopicDialog, setShowBranchTopicDialog] = useState(false);
   const [showBranchHandoffDialog, setShowBranchHandoffDialog] = useState(false);
   const [showModelFeaturesDialog, setShowModelFeaturesDialog] = useState(false);
+  const [showModelInspectorDialog, setShowModelInspectorDialog] = useState(false);
   const [sessionSettingsDraft, setSessionSettingsDraft] = useState<SessionSettingsDraft | null>(null);
   const [quickTopicDraft, setQuickTopicDraft] = useState<QuickTopicDraft | null>(null);
   const [branchTopicDraft, setBranchTopicDraft] = useState<BranchTopicDraft | null>(null);
@@ -373,6 +386,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [branchTopicSaving, setBranchTopicSaving] = useState(false);
   const [branchHandoffSaving, setBranchHandoffSaving] = useState(false);
   const [modelFeaturesSaving, setModelFeaturesSaving] = useState(false);
+  const [modelInspectorLoading, setModelInspectorLoading] = useState(false);
+  const [modelInspectorError, setModelInspectorError] = useState('');
+  const [modelInspectorResult, setModelInspectorResult] = useState<OfficialModelMetadataResponse | null>(null);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelPickerTarget, setModelPickerTarget] = useState<ModelPickerTarget>('global');
   const [settingsInitialCategory, setSettingsInitialCategory] =
@@ -1076,6 +1092,28 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       },
     });
     setShowModelFeaturesDialog(true);
+  };
+
+  const handleOpenModelInspector = async () => {
+    setShowModelInspectorDialog(true);
+    setModelInspectorLoading(true);
+    setModelInspectorError('');
+    setModelInspectorResult(null);
+    try {
+      if (!config.apiServer.enabled) {
+        throw new Error('需要先启用本地 API Server，才能抓取官方模型信息。');
+      }
+      const result = await inspectOfficialModelMetadataViaApi(
+        config.apiServer,
+        activeProviderName,
+        activeModel,
+      );
+      setModelInspectorResult(result);
+    } catch (error) {
+      setModelInspectorError(error instanceof Error ? error.message : '模型检测失败。');
+    } finally {
+      setModelInspectorLoading(false);
+    }
   };
 
   const handleSaveModelFeatures = async () => {
@@ -2195,16 +2233,14 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   <ChevronDown size={14} className="text-white/45" />
                 </button>
                 {officialModelResourceLinks[0] ? (
-                  <a
-                    href={officialModelResourceLinks[0].href}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    onClick={() => handleOpenModelInspector().catch(console.error)}
                     className="inline-flex items-center gap-2 rounded-lg border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-xs text-sky-100 transition-colors hover:bg-sky-400/15"
                     title={`查看 ${activeProviderName} · ${activeModel} 的官方模型信息`}
                   >
                     <Globe size={14} />
                     模型检测
-                  </a>
+                  </button>
                 ) : null}
                 <button
                   onClick={handleOpenModelFeaturesDialog}
@@ -3131,14 +3167,12 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                         去会话设置切换模型
                       </button>
                       {officialModelResourceLinks[0] ? (
-                        <a
-                          href={officialModelResourceLinks[0].href}
-                          target="_blank"
-                          rel="noreferrer"
+                        <button
+                          onClick={() => handleOpenModelInspector().catch(console.error)}
                           className="rounded-xl border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-sm text-sky-100 transition-colors hover:bg-sky-400/15"
                         >
                           模型检测
-                        </a>
+                        </button>
                       ) : null}
                     </div>
                   </div>
@@ -3379,6 +3413,125 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     {modelFeaturesSaving ? '保存中...' : '保存模型功能'}
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showModelInspectorDialog ? (
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+          <div className="flex h-[72vh] min-h-[540px] w-full max-w-[920px] flex-col overflow-hidden rounded-[30px] border border-white/10 bg-[#171717] shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Model Inspector</div>
+                <div className="mt-2 text-lg font-semibold text-white">
+                  {activeProviderName} · {activeModel}
+                </div>
+                <div className="mt-1 text-sm text-white/50">
+                  直接从官方模型页与价格页抓取上下文、最大输入输出与费用信息。
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowModelInspectorDialog(false);
+                  setModelInspectorError('');
+                  setModelInspectorResult(null);
+                }}
+                className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 custom-scrollbar">
+              {modelInspectorLoading ? (
+                <div className="flex h-full items-center justify-center text-sm text-white/45">
+                  正在抓取官方模型信息...
+                </div>
+              ) : modelInspectorError ? (
+                <div className="rounded-[24px] border border-red-500/20 bg-red-500/10 p-5 text-sm leading-6 text-red-100/85">
+                  {modelInspectorError}
+                </div>
+              ) : modelInspectorResult ? (
+                <div className="space-y-5">
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {[
+                      ['版本', modelInspectorResult.versionLabel || '未识别'],
+                      ['模式', modelInspectorResult.modeLabel || '未识别'],
+                      ['上下文长度', formatModelInspectorTokenValue(modelInspectorResult.contextWindow)],
+                      ['最大输入', formatModelInspectorTokenValue(modelInspectorResult.maxInputTokens)],
+                      ['最长思维链', formatModelInspectorTokenValue(modelInspectorResult.longestReasoningTokens)],
+                      ['最大输出', formatModelInspectorTokenValue(modelInspectorResult.maxOutputTokens)],
+                      ['输入成本', formatModelInspectorPrice(modelInspectorResult.inputCostPerMillion)],
+                      ['输出成本', formatModelInspectorPrice(modelInspectorResult.outputCostPerMillion)],
+                      ['抓取时间', formatMetricsTimestamp(modelInspectorResult.fetchedAt)],
+                    ].map(([label, value]) => (
+                      <div key={label} className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-4">
+                        <div className="text-[11px] uppercase tracking-[0.16em] text-white/35">{label}</div>
+                        <div className="mt-2 text-sm text-white/85">{value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {modelInspectorResult.pricingNote ? (
+                    <div className="rounded-[24px] border border-amber-500/20 bg-amber-500/10 p-4">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-amber-100/55">计费说明</div>
+                      <div className="mt-3 whitespace-pre-wrap break-words text-sm leading-7 text-amber-50/88">
+                        {modelInspectorResult.pricingNote}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="rounded-[24px] border border-white/10 bg-black/20 p-4">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-white/35">官方来源</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {modelInspectorResult.sources.map((source) => (
+                        <a
+                          key={source.url}
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/65 transition-colors hover:bg-white/10 hover:text-white"
+                        >
+                          {source.label}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-white/10 bg-black/20 p-4">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-white/35">抓取摘录</div>
+                    <div className="mt-3 whitespace-pre-wrap break-words text-sm leading-7 text-white/72">
+                      {modelInspectorResult.excerpt || '这次没有从官方页面中稳定提取到可用摘录，请点击上面的官方来源手动核对。'}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border-t border-white/5 px-6 py-4">
+              <div className="text-xs text-white/35">
+                当前优先抓官方页；若页面结构变化，摘录和字段识别可能为空，但官方来源链接始终保留。
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => handleOpenModelInspector().catch(console.error)}
+                  disabled={modelInspectorLoading}
+                  className="rounded-xl border border-white/10 bg-black/20 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  重新检测
+                </button>
+                <button
+                  onClick={() => {
+                    setShowModelInspectorDialog(false);
+                    setModelInspectorError('');
+                    setModelInspectorResult(null);
+                  }}
+                  className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/85 transition-colors hover:bg-white/10"
+                >
+                  关闭
+                </button>
               </div>
             </div>
           </div>

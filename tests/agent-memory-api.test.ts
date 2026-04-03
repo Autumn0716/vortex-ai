@@ -10,6 +10,7 @@ import { createFlowAgentApiServer, resolveAllowedPath } from '../server/api-serv
 import {
   getApiServerHealth,
   getNightlyArchiveStatus,
+  inspectOfficialModelMetadata,
   listAgentMemoryFiles,
   readAgentMemoryFile,
   registerConfiguredAgentMemoryFileStore,
@@ -202,6 +203,38 @@ test('API memory file listing includes warm and cold surrogate markdown files', 
       ],
     );
   } finally {
+    await server.close();
+  }
+});
+
+test('API server exposes official model inspector results', async () => {
+  const rootDir = await createTempRoot();
+  const server = await startServer(rootDir);
+  const settings = {
+    enabled: true,
+    baseUrl: server.baseUrl,
+    authToken: '',
+  };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input, init) => {
+    if (typeof input === 'string' && input.startsWith(server.baseUrl)) {
+      return originalFetch(input, init);
+    }
+    return new Response(
+      '<html><body><h1>gpt-4.1-mini</h1><div>1,047,576 context window</div><div>32,768 max output tokens</div><div>Input $0.40</div><div>Output $1.60</div></body></html>',
+      { status: 200, headers: { 'Content-Type': 'text/html' } },
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await inspectOfficialModelMetadata(settings, 'OpenAI', 'gpt-4.1-mini');
+    assert.equal(result?.contextWindow, 1047576);
+    assert.equal(result?.maxOutputTokens, 32768);
+    assert.equal(result?.inputCostPerMillion, 0.4);
+    assert.equal(result?.outputCostPerMillion, 1.6);
+  } finally {
+    globalThis.fetch = originalFetch;
     await server.close();
   }
 });

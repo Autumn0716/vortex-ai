@@ -23,6 +23,23 @@ interface ApiFileResponse {
   content?: string;
 }
 
+export interface OfficialModelMetadataResponse {
+  providerName: string;
+  model: string;
+  versionLabel?: string;
+  modeLabel?: string;
+  contextWindow?: number;
+  maxInputTokens?: number;
+  longestReasoningTokens?: number;
+  maxOutputTokens?: number;
+  inputCostPerMillion?: number;
+  outputCostPerMillion?: number;
+  pricingNote?: string;
+  excerpt?: string;
+  sources: Array<{ label: string; url: string }>;
+  fetchedAt: string;
+}
+
 export interface ApiHealthResponse {
   ok?: boolean;
   rootDir?: string;
@@ -243,6 +260,23 @@ export async function saveProjectConfig(
     method: 'PUT',
     body: JSON.stringify(value),
   });
+}
+
+export async function inspectOfficialModelMetadata(
+  settings: ApiServerSettings,
+  providerName: string,
+  model: string,
+): Promise<OfficialModelMetadataResponse | null> {
+  if (!settings.enabled) {
+    return null;
+  }
+
+  return requestApi<OfficialModelMetadataResponse>(
+    settings,
+    `/api/model-inspector?providerName=${encodeURIComponent(providerName)}&model=${encodeURIComponent(model)}`,
+    {},
+    { allowNotFound: true },
+  );
 }
 
 function createMemoryTemplate(agentName: string) {
