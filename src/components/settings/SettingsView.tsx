@@ -3421,6 +3421,12 @@ export const SettingsView = ({
                           </div>
                         </div>
 
+                        <div className="rounded-2xl border border-sky-400/15 bg-sky-400/8 px-4 py-4 text-sm leading-6 text-sky-100/75">
+                          图搜图、文搜图、网页抓取、代码解释器、MCP 这些模型专属能力不是在 Settings 里全局开启。
+                          它们是当前会话级开关，需要先把厂商建成 <span className="font-medium text-white">Responses</span> 协议，
+                          再回到聊天页右上角的 <span className="font-medium text-white">模型功能</span> 面板里单独启用。
+                        </div>
+
                         <div>
                           <div className="mb-2 flex items-center justify-between">
                             <label className="text-sm font-medium text-white/90">API 密钥</label>
