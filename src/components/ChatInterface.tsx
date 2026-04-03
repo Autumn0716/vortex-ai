@@ -3140,21 +3140,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       <div className="mt-2 text-sm text-white/85">
                         {activeProviderName} · {activeModel}
                       </div>
-                      {officialModelResourceLinks.length ? (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {officialModelResourceLinks.map((link) => (
-                            <a
-                              key={link.href}
-                              href={link.href}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/65 transition-colors hover:bg-white/10 hover:text-white"
-                            >
-                              {link.label}
-                            </a>
-                          ))}
-                        </div>
-                      ) : null}
+                      <div className="mt-3 text-xs leading-6 text-white/50">
+                        模型规格、计费和上下文能力统一通过“模型检测”在应用内抓取并展示；官方链接仅保留在检测结果里作为校验来源。
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <button
