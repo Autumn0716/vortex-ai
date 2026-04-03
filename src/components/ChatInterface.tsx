@@ -2194,6 +2194,18 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   </span>
                   <ChevronDown size={14} className="text-white/45" />
                 </button>
+                {officialModelResourceLinks[0] ? (
+                  <a
+                    href={officialModelResourceLinks[0].href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-xs text-sky-100 transition-colors hover:bg-sky-400/15"
+                    title={`查看 ${activeProviderName} · ${activeModel} 的官方模型信息`}
+                  >
+                    <Globe size={14} />
+                    模型检测
+                  </a>
+                ) : null}
                 <button
                   onClick={handleOpenModelFeaturesDialog}
                   disabled={!workspace}
