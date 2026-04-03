@@ -3445,6 +3445,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 <div className="space-y-5">
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                     {[
+                      ['厂商', modelInspectorResult.providerName || activeProviderName],
                       ['版本', modelInspectorResult.versionLabel || '未识别'],
                       ['模式', modelInspectorResult.modeLabel || '未识别'],
                       ['上下文长度', formatModelInspectorTokenValue(modelInspectorResult.contextWindow)],
@@ -3499,8 +3500,29 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             </div>
 
             <div className="flex items-center justify-between gap-3 border-t border-white/5 px-6 py-4">
-              <div className="text-xs text-white/35">
-                当前优先抓官方页；若页面结构变化，摘录和字段识别可能为空，但官方来源链接始终保留。
+              <div className="space-y-2">
+                <div className="text-xs text-white/35">
+                  当前优先抓官方页；若页面结构变化，摘录和字段识别可能为空，但官方来源链接始终保留。
+                </div>
+                {(modelInspectorResult?.sources.length
+                  ? modelInspectorResult.sources
+                  : officialModelResourceLinks.map((link) => ({ label: link.label, url: link.href }))).length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {(modelInspectorResult?.sources.length
+                      ? modelInspectorResult.sources
+                      : officialModelResourceLinks.map((link) => ({ label: link.label, url: link.href }))).map((source) => (
+                      <a
+                        key={source.url}
+                        href={source.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/65 transition-colors hover:bg-white/10 hover:text-white"
+                      >
+                        {source.label}
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <div className="flex items-center gap-3">
                 <button

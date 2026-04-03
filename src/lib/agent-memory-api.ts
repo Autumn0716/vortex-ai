@@ -275,7 +275,6 @@ export async function inspectOfficialModelMetadata(
     settings,
     `/api/model-inspector?providerName=${encodeURIComponent(providerName)}&model=${encodeURIComponent(model)}`,
     {},
-    { allowNotFound: true },
   );
 }
 
