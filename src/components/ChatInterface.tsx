@@ -75,6 +75,7 @@ import { TimeoutError, withSoftTimeout } from '../lib/async-timeout';
 import { formatErrorDetails, wrapErrorWithContext } from '../lib/error-details';
 import {
   inspectOfficialModelMetadata as inspectOfficialModelMetadataViaApi,
+  listStoredModelMetadata,
   registerConfiguredAgentMemoryFileStore,
   type OfficialModelMetadataResponse,
 } from '../lib/agent-memory-api';
@@ -237,10 +238,14 @@ function stringifyMessageForEstimate(message: TopicMessage) {
 
 function buildToolContextEstimate(input: {
   requestMode: 'chat' | 'responses';
+  enableTools?: boolean;
   webSearchEnabled: boolean;
   responsesTools: TopicModelFeatures['responsesTools'];
   enableCustomFunctionCalling: boolean;
 }) {
+  if (!input.enableTools) {
+    return '';
+  }
   if (input.requestMode === 'responses') {
     const tools: string[] = [];
     if (input.responsesTools.webSearch) tools.push('web_search');
@@ -521,7 +526,56 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const latestAssistantMetrics = latestAssistantMessageId
     ? messageMetricsById[latestAssistantMessageId]
     : undefined;
-  const currentContextTokens = activeRunState?.currentInputTokens ?? latestAssistantMetrics?.inputTokens;
+  const currentContextTokens = useMemo(() => {
+    if (activeRunState?.isGenerating) {
+      const streamedOutputTokens = estimateTokenCount(activeRunState.draftAssistantMessage?.content ?? '');
+      return (activeRunState.currentInputTokens ?? 0) + streamedOutputTokens;
+    }
+
+    if (latestAssistantMetrics?.totalTokens) {
+      return latestAssistantMetrics.totalTokens;
+    }
+
+    if (!workspace) {
+      return undefined;
+    }
+
+    const requestMode = activeProvider?.protocol === 'openai_responses_compatible' ? 'responses' : 'chat';
+    const toolContextEstimate = buildToolContextEstimate({
+      requestMode,
+      enableTools: workspace.runtime.enableTools,
+      webSearchEnabled: composerWebSearchEnabled,
+      responsesTools: activeModelFeatures.responsesTools,
+      enableCustomFunctionCalling: activeModelFeatures.enableCustomFunctionCalling,
+    });
+    const sessionMessages = buildMessageHistoryForGeneration(
+      workspace.messages,
+      config.memory.historyWindow,
+    );
+
+    return estimateTokenCount(
+      [
+        config.systemPrompt,
+        workspace.runtime.systemPrompt,
+        toolContextEstimate,
+        ...sessionMessages.map((message) => stringifyMessageForEstimate(message)),
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    );
+  }, [
+    activeModelFeatures.enableCustomFunctionCalling,
+    activeModelFeatures.responsesTools,
+    activeProvider?.protocol,
+    activeRunState?.currentInputTokens,
+    activeRunState?.draftAssistantMessage?.content,
+    activeRunState?.isGenerating,
+    composerWebSearchEnabled,
+    config.memory.historyWindow,
+    config.systemPrompt,
+    latestAssistantMetrics?.totalTokens,
+    workspace,
+  ]);
   const activeModelMetadataKey = `${activeProviderId}::${activeModel}`.toLowerCase();
   const activeModelMetadata = modelMetadataCache[activeModelMetadataKey] ?? null;
   const currentContextWindow = activeModelMetadata?.contextWindow;
@@ -729,20 +783,27 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   };
 
   const hydrateTopic = async (topicId: string) => {
-    setLoadingWorkspace(true);
+    const shouldBlock = !workspace;
+    if (shouldBlock) {
+      setLoadingWorkspace(true);
+    }
     const nextWorkspace = await getTopicWorkspace(topicId);
     if (!nextWorkspace) {
       startTransition(() => {
         setWorkspace(null);
-        setLoadingWorkspace(false);
+        if (shouldBlock) {
+          setLoadingWorkspace(false);
+        }
       });
       return;
     }
 
+    const shouldRefreshMemory = activeAgentId !== nextWorkspace.agent.id || memoryDocuments.length === 0;
     const [topicRecords, memoryRecords] = await Promise.all([
       listTopics(nextWorkspace.agent.id),
-      listAgentMemoryDocuments(nextWorkspace.agent.id),
-      refreshLibrary(),
+      shouldRefreshMemory
+        ? listAgentMemoryDocuments(nextWorkspace.agent.id)
+        : Promise.resolve(memoryDocuments),
     ]);
     const draftAssistantMessage = topicRunStates[topicId]?.draftAssistantMessage;
     const hydratedWorkspace = {
@@ -758,7 +819,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       setMemoryDocuments(memoryRecords);
       setActiveAgentIdState(nextWorkspace.agent.id);
       setActiveTopicIdState(nextWorkspace.topic.id);
-      setLoadingWorkspace(false);
+      if (shouldBlock) {
+        setLoadingWorkspace(false);
+      }
     });
   };
 
@@ -1565,6 +1628,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       });
       const toolContextEstimate = buildToolContextEstimate({
         requestMode: runtimeRequestMode,
+        enableTools: workspaceSnapshot.runtime.enableTools,
         webSearchEnabled: composerWebSearchEnabled,
         responsesTools: modelFeatures.responsesTools,
         enableCustomFunctionCalling: modelFeatures.enableCustomFunctionCalling,
@@ -1956,45 +2020,34 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   }, [config.search.defaultProviderId, enabledSearchProviders]);
 
   useEffect(() => {
-    if (!config.apiServer.enabled || !activeProviderName || !activeModel) {
-      return;
-    }
-
-    const cacheKey = `${activeProviderId}::${activeModel}`.toLowerCase();
-    if (modelMetadataCache[cacheKey]) {
+    if (!config.apiServer.enabled || !activeProviderId || !activeModel) {
       return;
     }
 
     let cancelled = false;
-    void inspectOfficialModelMetadataViaApi(config.apiServer, activeProviderId, activeProviderName, activeModel)
-      .then((result) => {
-        if (
-          cancelled ||
-          !result ||
-          !(
-            result.contextWindow ||
-            result.maxInputTokens ||
-            result.longestReasoningTokens ||
-            result.maxOutputTokens ||
-            result.inputCostPerMillion != null ||
-            result.outputCostPerMillion != null
-          )
-        ) {
+    void listStoredModelMetadata(config.apiServer, activeProviderId)
+      .then((entries) => {
+        if (cancelled || !entries || Object.keys(entries).length === 0) {
           return;
         }
         setModelMetadataCache((current) => ({
           ...current,
-          [cacheKey]: result,
+          ...Object.fromEntries(
+            Object.values(entries).map((entry) => [
+              `${entry.providerId ?? activeProviderId}::${entry.model}`.toLowerCase(),
+              entry,
+            ]),
+          ),
         }));
       })
       .catch(() => {
-        // Keep footer silent; explicit errors are shown in the inspector dialog.
+        // Keep footer silent; explicit actions surface errors.
       });
 
     return () => {
       cancelled = true;
     };
-  }, [activeModel, activeProviderId, activeProviderName, config.apiServer, modelMetadataCache]);
+  }, [activeModel, activeProviderId, config.apiServer]);
 
   return (
     <div className="app-shell relative z-10 flex h-screen w-full overflow-hidden font-sans text-white">
