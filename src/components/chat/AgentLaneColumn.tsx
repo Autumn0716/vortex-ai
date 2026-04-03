@@ -159,6 +159,7 @@ function AgentLaneColumnComponent({
   const [contentWidth, setContentWidth] = useState(280);
   const [selectedVariantByGroup, setSelectedVariantByGroup] = useState<Record<string, number>>({});
   const [collapsedReasoningById, setCollapsedReasoningById] = useState<Record<string, boolean>>({});
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const displayItems = useMemo(() => buildDisplayItems(messages), [messages]);
 
   useEffect(() => {
@@ -214,6 +215,7 @@ function AgentLaneColumnComponent({
 
   useEffect(() => {
     shouldStickToBottomRef.current = true;
+    setShowScrollToBottom(false);
   }, [scrollKey]);
 
   useLayoutEffect(() => {
@@ -250,6 +252,25 @@ function AgentLaneColumnComponent({
 
     const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
     shouldStickToBottomRef.current = distanceFromBottom <= 80;
+    setShowScrollToBottom(distanceFromBottom > 120);
+  };
+
+  const jumpToBottom = () => {
+    shouldStickToBottomRef.current = true;
+    setShowScrollToBottom(false);
+
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({
+        block: 'end',
+        behavior: 'smooth',
+      });
+      return;
+    }
+
+    bodyRef.current?.scrollTo({
+      top: bodyRef.current.scrollHeight,
+      behavior: 'smooth',
+    });
   };
 
   const formatChatTimestamp = (value: string) => {
@@ -301,7 +322,7 @@ function AgentLaneColumnComponent({
         </div>
       </header>
 
-      <div ref={widthRef} className="min-h-0 flex-1">
+      <div ref={widthRef} className="relative min-h-0 flex-1">
         <div ref={bodyRef} onScroll={handleScroll} className="h-full overflow-y-auto p-4 custom-scrollbar">
           <div className="flex min-h-full flex-col gap-4">
             {displayItems.map((item) => {
@@ -585,6 +606,14 @@ function AgentLaneColumnComponent({
             <div ref={bottomRef} className="h-px w-full" />
           </div>
         </div>
+        {showScrollToBottom ? (
+          <button
+            onClick={jumpToBottom}
+            className="absolute bottom-4 right-4 rounded-full border border-white/10 bg-[#10131c]/92 px-3 py-2 text-[11px] text-white/78 shadow-[0_12px_30px_rgba(0,0,0,0.35)] transition-colors hover:bg-[#161b27] hover:text-white"
+          >
+            回到底部
+          </button>
+        ) : null}
       </div>
     </section>
   );
