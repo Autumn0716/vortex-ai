@@ -46,9 +46,21 @@ export interface AgentToolResult {
   result: string;
 }
 
+export interface AgentRuntimeUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
 export type AgentRuntimeStreamEvent =
   | { type: 'assistant_delta'; messageId: string; delta: string }
-  | { type: 'assistant_message'; messageId: string; content: string; tools: AgentToolResult[] }
+  | {
+      type: 'assistant_message';
+      messageId: string;
+      content: string;
+      tools: AgentToolResult[];
+      usage?: AgentRuntimeUsage;
+    }
   | { type: 'tool_event'; tool: AgentToolResult }
   | { type: 'reasoning_delta'; delta: string };
 
@@ -83,6 +95,31 @@ function stringifyMessageContent(content: unknown) {
       .join('\n');
   }
   return String(content ?? '');
+}
+
+function extractUsageMetadata(payload: any): AgentRuntimeUsage | undefined {
+  const usage = payload?.usage_metadata ?? payload?.usage ?? payload?.response_metadata?.tokenUsage ?? payload?.response_metadata?.usage;
+  if (!usage || typeof usage !== 'object') {
+    return undefined;
+  }
+
+  const inputTokens = Number(
+    usage.input_tokens ?? usage.inputTokens ?? usage.prompt_tokens ?? usage.promptTokens ?? 0,
+  );
+  const outputTokens = Number(
+    usage.output_tokens ?? usage.outputTokens ?? usage.completion_tokens ?? usage.completionTokens ?? 0,
+  );
+  const totalTokens = Number(usage.total_tokens ?? usage.totalTokens ?? inputTokens + outputTokens);
+
+  if (!Number.isFinite(inputTokens) && !Number.isFinite(outputTokens) && !Number.isFinite(totalTokens)) {
+    return undefined;
+  }
+
+  return {
+    inputTokens: Number.isFinite(inputTokens) && inputTokens > 0 ? inputTokens : undefined,
+    outputTokens: Number.isFinite(outputTokens) && outputTokens > 0 ? outputTokens : undefined,
+    totalTokens: Number.isFinite(totalTokens) && totalTokens > 0 ? totalTokens : undefined,
+  };
 }
 
 function extractToolUsage(messages: any[], initialCount: number) {
@@ -432,6 +469,7 @@ async function* streamLangGraphRuntime(options: {
   }
 
   const tools = extractToolUsage(finalMessages, initialCount);
+  const usage = extractUsageMetadata(lastAssistantMessage);
   for (const tool of tools) {
     yield { type: 'tool_event', tool };
   }
@@ -441,6 +479,7 @@ async function* streamLangGraphRuntime(options: {
     messageId: lastAssistantMessage.id ?? (assistantDraftId || 'assistant_final'),
     content: stringifyMessageContent(lastAssistantMessage.content) || streamedAssistantContent,
     tools,
+    usage,
   };
 }
 
@@ -561,6 +600,7 @@ async function* streamResponsesRuntime(options: {
   let nextInput: unknown = buildResponseInput(options.input.messages, options.systemPrompt);
   let previousResponseId: string | undefined;
   let finalContent = '';
+  let finalUsage: AgentRuntimeUsage | undefined;
 
   for (let step = 0; step < 6; step += 1) {
     const response = await fetch(`${baseUrl}/responses`, {
@@ -641,6 +681,7 @@ async function* streamResponsesRuntime(options: {
         if (outputText) {
           finalContent = outputText;
         }
+        finalUsage = extractUsageMetadata(event.response);
       }
     }
 
@@ -650,6 +691,7 @@ async function* streamResponsesRuntime(options: {
         messageId,
         content: finalContent,
         tools,
+        usage: finalUsage,
       };
       return;
     }

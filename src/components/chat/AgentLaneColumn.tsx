@@ -1,7 +1,7 @@
 import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, ChevronLeft, ChevronRight, Copy, RefreshCcw, User, Zap } from 'lucide-react';
+import { Bot, ChevronDown, ChevronLeft, ChevronRight, Copy, RefreshCcw, User, Zap } from 'lucide-react';
 import type { StoredToolRun } from '../../lib/db';
 import type { TopicMessageAttachment } from '../../lib/agent-workspace';
 import { estimateMessageCardHeight } from '../../lib/pretext';
@@ -57,6 +57,20 @@ export interface AgentLaneColumnProps {
   showToolResults: boolean;
   autoScroll: boolean;
   compact: boolean;
+  reasoningContent?: string;
+  messageMetricsById?: Record<
+    string,
+    {
+      completedAt: string;
+      streamDurationMs: number;
+      reasoningDurationMs?: number;
+      inputTokens: number;
+      outputTokens: number;
+      totalTokens: number;
+      usageSource: 'provider' | 'estimate';
+    }
+  >;
+  messageReasoningById?: Record<string, string>;
   scrollKey?: string;
   latestAssistantMessageId?: string;
   onCopyMessage?: (message: MessageLike) => void;
@@ -130,6 +144,9 @@ function AgentLaneColumnComponent({
   showToolResults,
   autoScroll,
   compact,
+  reasoningContent,
+  messageMetricsById = {},
+  messageReasoningById = {},
   scrollKey,
   latestAssistantMessageId,
   onCopyMessage,
@@ -138,8 +155,10 @@ function AgentLaneColumnComponent({
   const bodyRef = useRef<HTMLDivElement>(null);
   const widthRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const shouldStickToBottomRef = useRef(true);
   const [contentWidth, setContentWidth] = useState(280);
   const [selectedVariantByGroup, setSelectedVariantByGroup] = useState<Record<string, number>>({});
+  const [collapsedReasoningById, setCollapsedReasoningById] = useState<Record<string, boolean>>({});
   const displayItems = useMemo(() => buildDisplayItems(messages), [messages]);
 
   useEffect(() => {
@@ -193,8 +212,12 @@ function AgentLaneColumnComponent({
     messages[messages.length - 1]?.content.length ?? 0
   }::${messages.length}`;
 
+  useEffect(() => {
+    shouldStickToBottomRef.current = true;
+  }, [scrollKey]);
+
   useLayoutEffect(() => {
-    if (!autoScroll || !bodyRef.current) {
+    if (!autoScroll || !bodyRef.current || !shouldStickToBottomRef.current) {
       return;
     }
 
@@ -218,6 +241,32 @@ function AgentLaneColumnComponent({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [autoScroll, isGenerating, lastMessageSignature, scrollKey]);
+
+  const handleScroll = () => {
+    const element = bodyRef.current;
+    if (!element) {
+      return;
+    }
+
+    const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+    shouldStickToBottomRef.current = distanceFromBottom <= 80;
+  };
+
+  const formatChatTimestamp = (value: string) => {
+    const date = new Date(value);
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    const hours = `${date.getHours()}`.padStart(2, '0');
+    const minutes = `${date.getMinutes()}`.padStart(2, '0');
+    return `${month}-${day} ${hours}:${minutes}`;
+  };
+
+  const formatDuration = (durationMs?: number) => {
+    if (!durationMs || durationMs <= 0) {
+      return '0.0s';
+    }
+    return `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)}s`;
+  };
 
   const accentColor = resolveAccentColor(lane.accentColor);
   const cardContentWidth = Math.max(contentWidth - (compact ? 42 : 54), 180);
@@ -253,7 +302,7 @@ function AgentLaneColumnComponent({
       </header>
 
       <div ref={widthRef} className="min-h-0 flex-1">
-        <div ref={bodyRef} className="h-full overflow-y-auto p-4 custom-scrollbar">
+        <div ref={bodyRef} onScroll={handleScroll} className="h-full overflow-y-auto p-4 custom-scrollbar">
           <div className="flex min-h-full flex-col gap-4">
             {displayItems.map((item) => {
               const message =
@@ -285,6 +334,9 @@ function AgentLaneColumnComponent({
                 message.id === latestAssistantMessageId &&
                 typeof onRegenerateAssistantMessage === 'function';
               const canCopy = typeof onCopyMessage === 'function';
+              const reasoningText = !isUser ? messageReasoningById[message.id] ?? '' : '';
+              const metrics = !isUser ? messageMetricsById[message.id] : undefined;
+              const reasoningCollapsed = collapsedReasoningById[message.id] ?? false;
 
               return (
                 <div
@@ -309,12 +361,7 @@ function AgentLaneColumnComponent({
                       <div className="flex flex-wrap items-center gap-2 px-1 text-[11px] text-white/45">
                         <span className="font-medium text-white/60">{isUser ? 'You' : message.authorName}</span>
                         {showTimestamps ? (
-                          <span>
-                            {new Date(message.createdAt).toLocaleTimeString([], {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
+                          <span>{formatChatTimestamp(metrics?.completedAt ?? message.createdAt)}</span>
                         ) : null}
                         {!isUser ? (
                           <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/50">
@@ -351,6 +398,21 @@ function AgentLaneColumnComponent({
                             </button>
                           </div>
                         ) : null}
+                        {!isUser && metrics ? (
+                          <>
+                            {metrics.reasoningDurationMs != null ? (
+                              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/50">
+                                思考 {formatDuration(metrics.reasoningDurationMs)}
+                              </span>
+                            ) : null}
+                            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/50">
+                              输出 {formatDuration(metrics.streamDurationMs)}
+                            </span>
+                            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/50">
+                              Tokens {metrics.inputTokens}/{metrics.outputTokens}/{metrics.totalTokens}
+                            </span>
+                          </>
+                        ) : null}
                         {canCopy ? (
                           <button
                             onClick={() => onCopyMessage?.(message)}
@@ -370,6 +432,39 @@ function AgentLaneColumnComponent({
                           </button>
                         ) : null}
                       </div>
+
+                      {!isUser && reasoningText ? (
+                        <div className="w-full rounded-2xl border border-fuchsia-400/15 bg-fuchsia-400/8 px-4 py-3 text-sm text-white/80">
+                          <button
+                            onClick={() =>
+                              setCollapsedReasoningById((previous) => ({
+                                ...previous,
+                                [message.id]: !reasoningCollapsed,
+                              }))
+                            }
+                            className="flex w-full items-center justify-between gap-3 text-left"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] text-fuchsia-100">
+                                思考过程
+                              </span>
+                              {metrics?.reasoningDurationMs != null ? (
+                                <span className="text-[11px] text-fuchsia-100/70">
+                                  总时长 {formatDuration(metrics.reasoningDurationMs)}
+                                </span>
+                              ) : null}
+                            </div>
+                            <span className="text-fuchsia-100/70">
+                              {reasoningCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                            </span>
+                          </button>
+                          {!reasoningCollapsed ? (
+                            <div className="mt-3 max-h-[320px] overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-white/8 bg-black/20 p-3 text-[12px] leading-6 text-fuchsia-50/92 custom-scrollbar">
+                              {reasoningText}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
 
                       {message.tools?.length ? (
                         <div className="flex w-full flex-col gap-2">
@@ -456,6 +551,19 @@ function AgentLaneColumnComponent({
                   </div>
                   <div className="flex flex-col gap-2">
                     <div className="px-1 text-[11px] text-white/45">{lane.name}</div>
+                    {reasoningContent?.trim() ? (
+                      <div className="max-w-[720px] rounded-2xl border border-fuchsia-400/15 bg-fuchsia-400/8 px-4 py-3 text-sm text-white/80">
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] text-fuchsia-100">
+                            思考过程
+                          </span>
+                          <span className="text-[11px] text-fuchsia-100/70">流式更新中</span>
+                        </div>
+                        <div className="mt-3 max-h-[260px] overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-white/8 bg-black/20 p-3 text-[12px] leading-6 text-fuchsia-50/92 custom-scrollbar">
+                          {reasoningContent}
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-white/10 bg-black/20 px-4 py-3">
                       <div
                         className="h-2 w-2 animate-bounce rounded-full"
@@ -490,6 +598,9 @@ function areLanePropsEqual(previous: AgentLaneColumnProps, next: AgentLaneColumn
     previous.showToolResults === next.showToolResults &&
     previous.autoScroll === next.autoScroll &&
     previous.compact === next.compact &&
+    previous.reasoningContent === next.reasoningContent &&
+    previous.messageMetricsById === next.messageMetricsById &&
+    previous.messageReasoningById === next.messageReasoningById &&
     previous.scrollKey === next.scrollKey &&
     previous.latestAssistantMessageId === next.latestAssistantMessageId &&
     previous.lane.id === next.lane.id &&
