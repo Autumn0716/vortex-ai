@@ -6,10 +6,12 @@ export interface ModelInspectorSource {
 export interface ModelInspectorResult {
   providerName: string;
   model: string;
+  resolverVersion?: number;
   versionLabel?: string;
   modeLabel?: string;
   contextWindow?: number;
   maxInputTokens?: number;
+  maxInputCharacters?: number;
   longestReasoningTokens?: number;
   maxOutputTokens?: number;
   inputCostPerMillion?: number;
@@ -22,16 +24,20 @@ export interface ModelInspectorResult {
 
 type ExtractedModelMetadata = Pick<
   ModelInspectorResult,
+  | 'resolverVersion'
   | 'versionLabel'
   | 'modeLabel'
   | 'contextWindow'
   | 'maxInputTokens'
+  | 'maxInputCharacters'
   | 'longestReasoningTokens'
   | 'maxOutputTokens'
   | 'inputCostPerMillion'
   | 'outputCostPerMillion'
   | 'pricingNote'
 >;
+
+export const MODEL_INSPECTOR_RESOLVER_VERSION = 3;
 
 function normalizeModelName(model: string) {
   return model.trim().toLowerCase();
@@ -68,6 +74,10 @@ function parseCurrencyToken(raw: string | undefined) {
   const normalized = raw.replace(/[$元人民币\/\s,]/g, '').trim();
   const value = Number(normalized);
   return Number.isFinite(value) ? value : undefined;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function buildQwenTieredPricingNote(text: string) {
@@ -135,6 +145,12 @@ function extractAnthropicMetadata(text: string): ExtractedModelMetadata {
 
 function extractQwenMetadata(text: string, model: string): ExtractedModelMetadata {
   const normalizedTarget = normalizeComparableToken(model);
+  if (normalizedTarget.startsWith('qwenimage')) {
+    return extractQwenImageMetadata(text, model);
+  }
+  if (normalizedTarget.startsWith('qwen3tts') || normalizedTarget.startsWith('qwentts')) {
+    return extractQwenTtsMetadata(text, model);
+  }
   const modelMatches = [...text.matchAll(/Qwen[\w.+-]+/gi)].map((entry) => ({
     label: entry[0],
     index: entry.index ?? 0,
@@ -149,7 +165,7 @@ function extractQwenMetadata(text: string, model: string): ExtractedModelMetadat
     targetMatches[targetMatches.length - 1];
   const marker = targetMatch?.index ?? -1;
   const detailedChunk =
-    marker >= 0 ? text.slice(marker, Math.min(text.length, marker + 1800)) : text;
+    marker >= 0 ? text.slice(marker, Math.min(text.length, marker + 1800)) : '';
 
   const stableThinkingRow = detailedChunk.match(
     /(稳定版|快照版|最新版)\s+思考\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)([\s\S]*?)(?=\s+非思考\s|\s+qwen[\w.+-]+\b|\s+以上模型根据本次请求输入的 Token数)/i,
@@ -172,6 +188,32 @@ function extractQwenMetadata(text: string, model: string): ExtractedModelMetadat
       outputCostPerMillion: directOutputPrice,
       pricingNote: tieredPricingNote ?? pricingNoteChunk ?? undefined,
     };
+  }
+
+  if (
+    normalizedTarget.includes('qwen3max') ||
+    normalizedTarget.includes('qwen36plus') ||
+    normalizedTarget.includes('qwen35plus') ||
+    normalizedTarget.includes('qwenplus') ||
+    normalizedTarget.includes('qwenmax') ||
+    normalizedTarget.includes('qwenflash')
+  ) {
+    const explicitRowPattern = new RegExp(
+      `${escapeRegExp(model)}([\\s\\S]{0,260}?)(稳定版|快照版|最新版)([\\s\\S]{0,220}?)(思考|思考模式)([\\s\\S]{0,80}?)([\\d,]+)([\\s\\S]{0,80}?)([\\d,]+)([\\s\\S]{0,80}?)([\\d,]+)([\\s\\S]{0,120}?)(?:思维链最长\\s*([\\d,]+)|([\\d,]+))?`,
+      'i',
+    );
+    const explicitRow = text.match(explicitRowPattern);
+    if (explicitRow) {
+      return {
+        versionLabel: explicitRow[2],
+        modeLabel: explicitRow[4].includes('模式') ? explicitRow[4] : '思考',
+        contextWindow: parseNumberToken(explicitRow[6]),
+        maxInputTokens: parseNumberToken(explicitRow[8]),
+        maxOutputTokens: parseNumberToken(explicitRow[10]),
+        longestReasoningTokens: parseNumberToken(explicitRow[12] ?? explicitRow[13]),
+        pricingNote: buildQwenTieredPricingNote(text),
+      };
+    }
   }
 
   const metricsIndex = marker >= 0 ? text.indexOf('最大上下文长度', marker) : -1;
@@ -210,15 +252,66 @@ function extractQwenMetadata(text: string, model: string): ExtractedModelMetadat
     }
   }
 
+  const rowWindowMatch = text.match(
+    new RegExp(`${escapeRegExp(model)}([\\s\\S]{0,260}?)((?=qwen[\\w.+-]+\\b)|$)`, 'i'),
+  );
+  const rowWindow = rowWindowMatch?.[0] ?? '';
+  if (rowWindow) {
+    const genericRow = {
+      contextWindow: parseNumberToken(rowWindow.match(/(?:上下文长度|最大上下文长度)[^0-9]*([\d,]+)/i)?.[1]),
+      maxInputTokens: parseNumberToken(rowWindow.match(/最大输入[^0-9]*([\d,]+)/i)?.[1]),
+      longestReasoningTokens: parseNumberToken(rowWindow.match(/最长思维链[^0-9]*([\d,]+)/i)?.[1]),
+      maxOutputTokens: parseNumberToken(rowWindow.match(/最大输出[^0-9]*([\d,]+)/i)?.[1]),
+      inputCostPerMillion: parseCurrencyToken(rowWindow.match(/(?:最低输入价格|输入成本)[^0-9]*([\d.]+)\s*元/i)?.[1]),
+      outputCostPerMillion: parseCurrencyToken(rowWindow.match(/(?:最低输出价格|输出成本)[^0-9]*([\d.]+)\s*元/i)?.[1]),
+    };
+    if (
+      genericRow.contextWindow ||
+      genericRow.maxInputTokens ||
+      genericRow.longestReasoningTokens ||
+      genericRow.maxOutputTokens ||
+      genericRow.inputCostPerMillion != null ||
+      genericRow.outputCostPerMillion != null
+    ) {
+      return genericRow;
+    }
+  }
+
+  return {};
+}
+
+function extractQwenImageMetadata(text: string, model: string): ExtractedModelMetadata {
+  const match = text.match(
+    new RegExp(`${escapeRegExp(model)}([\\s\\S]{0,120}?)(稳定版|快照版|最新版)?([\\s\\S]{0,120}?)([\\d.]+)\\s*元/张`, 'i'),
+  );
+  if (!match) {
+    return {};
+  }
   return {
-    versionLabel: undefined,
-    modeLabel: undefined,
-    contextWindow: parseNumberToken(metricsSection.match(/(?:上下文长度|最大上下文长度)[^0-9]*([\d,]+)/i)?.[1]),
-    maxInputTokens: parseNumberToken(metricsSection.match(/最大输入[^0-9]*([\d,]+)/i)?.[1]),
-    longestReasoningTokens: parseNumberToken(metricsSection.match(/最长思维链[^0-9]*([\d,]+)/i)?.[1]),
-    maxOutputTokens: parseNumberToken(metricsSection.match(/最大输出[^0-9]*([\d,]+)/i)?.[1]),
-    inputCostPerMillion: parseCurrencyToken(metricsSection.match(/(?:最低输入价格|输入成本)[^0-9]*([\d.]+)\s*元/i)?.[1]),
-    outputCostPerMillion: parseCurrencyToken(metricsSection.match(/(?:最低输出价格|输出成本)[^0-9]*([\d.]+)\s*元/i)?.[1]),
+    versionLabel: match[2] ?? undefined,
+    pricingNote: `单价 ${match[4]} 元/张`,
+  };
+}
+
+function extractQwenTtsMetadata(text: string, model: string): ExtractedModelMetadata {
+  const versionLabel = text.match(
+    new RegExp(`${escapeRegExp(model)}([\\s\\S]{0,80}?)(稳定版|快照版|最新版)`, 'i'),
+  )?.[2];
+  const unitPrice = text.match(
+    new RegExp(`${escapeRegExp(model)}([\\s\\S]{0,180}?)([\\d.]+)\\s*元\\/万字符`, 'i'),
+  )?.[2];
+  const maxInputCharacters = parseNumberToken(
+    text.match(
+      new RegExp(`${escapeRegExp(model)}([\\s\\S]{0,220}?)(?:最大输入字符数|输入字符数上限)[^0-9]*([\\d,]+)`, 'i'),
+    )?.[2],
+  );
+  if (!unitPrice && !maxInputCharacters) {
+    return {};
+  }
+  return {
+    versionLabel,
+    maxInputCharacters,
+    pricingNote: `${unitPrice ? `单价 ${unitPrice} 元/万字符` : '语音按字符计费'}${maxInputCharacters ? `；最大输入字符数 ${maxInputCharacters}` : ''}`,
   };
 }
 
@@ -282,10 +375,12 @@ export function extractModelInspectorResult(providerName: string, model: string,
           : extractQwenMetadata(text, model);
 
     merged = {
+      resolverVersion: merged.resolverVersion ?? next.resolverVersion,
       versionLabel: merged.versionLabel ?? next.versionLabel,
       modeLabel: merged.modeLabel ?? next.modeLabel,
       contextWindow: merged.contextWindow ?? next.contextWindow,
       maxInputTokens: merged.maxInputTokens ?? next.maxInputTokens,
+      maxInputCharacters: merged.maxInputCharacters ?? next.maxInputCharacters,
       longestReasoningTokens: merged.longestReasoningTokens ?? next.longestReasoningTokens,
       maxOutputTokens: merged.maxOutputTokens ?? next.maxOutputTokens,
       inputCostPerMillion: merged.inputCostPerMillion ?? next.inputCostPerMillion,
@@ -297,6 +392,7 @@ export function extractModelInspectorResult(providerName: string, model: string,
   return {
     providerName,
     model,
+    resolverVersion: MODEL_INSPECTOR_RESOLVER_VERSION,
     ...merged,
     excerpt,
     sources,

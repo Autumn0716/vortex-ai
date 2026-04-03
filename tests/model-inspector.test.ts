@@ -102,6 +102,49 @@ test('extractModelInspectorResult prioritizes Qwen detailed table rows', () => {
   );
 });
 
+test('extractModelInspectorResult does not apply flagship qwen3 card data to qwen image models', () => {
+  const result = extractModelInspectorResult('Aliyun', 'qwen-image-2.0-2026-03-03', [
+    {
+      url: 'https://help.aliyun.com/zh/model-studio/models',
+      html: `
+        <html><body>
+          qwen-image-2.0-2026-03-03 稳定版 0.2元/张
+          Qwen3-Max Qwen3.6-Plus Qwen3.5-Flash
+          最大上下文长度（Token 数） 262,144 1,000,000 1,000,000
+          最低输入价格（每百万 Token） 2.5 元 2 元 0.2 元
+          最低输出价格（每百万 Token） 10 元 12 元 2 元
+        </body></html>
+      `,
+    },
+  ]);
+
+  assert.equal(result.contextWindow, undefined);
+  assert.equal(result.inputCostPerMillion, undefined);
+  assert.equal(result.outputCostPerMillion, undefined);
+  assert.equal(result.pricingNote, '单价 0.2 元/张');
+});
+
+test('extractModelInspectorResult extracts qwen tts row-specific fields without token fallback', () => {
+  const result = extractModelInspectorResult('Aliyun', 'qwen3-tts-vd-2026-01-26', [
+    {
+      url: 'https://help.aliyun.com/zh/model-studio/models',
+      html: `
+        <html><body>
+          qwen3-tts-vd-2026-01-26 稳定版 0.8元/万字符 最大输入字符数 600
+          Qwen3-Max Qwen3.6-Plus Qwen3.5-Flash
+          最大上下文长度（Token 数） 262,144 1,000,000 1,000,000
+          最低输入价格（每百万 Token） 2.5 元 2 元 0.2 元
+          最低输出价格（每百万 Token） 10 元 12 元 2 元
+        </body></html>
+      `,
+    },
+  ]);
+
+  assert.equal(result.contextWindow, undefined);
+  assert.equal(result.maxInputCharacters, 600);
+  assert.equal(result.pricingNote, '单价 0.8 元/万字符；最大输入字符数 600');
+});
+
 test('getOfficialModelInspectorSources returns provider-specific sources', () => {
   assert.equal(getOfficialModelInspectorSources('OpenAI', 'gpt-4o').length > 0, true);
   assert.equal(getOfficialModelInspectorSources('Anthropic', 'claude-3-7-sonnet').length > 0, true);

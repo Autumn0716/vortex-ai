@@ -24,12 +24,15 @@ interface ApiFileResponse {
 }
 
 export interface OfficialModelMetadataResponse {
+  providerId?: string;
   providerName: string;
   model: string;
+  resolverVersion?: number;
   versionLabel?: string;
   modeLabel?: string;
   contextWindow?: number;
   maxInputTokens?: number;
+  maxInputCharacters?: number;
   longestReasoningTokens?: number;
   maxOutputTokens?: number;
   inputCostPerMillion?: number;
@@ -38,6 +41,7 @@ export interface OfficialModelMetadataResponse {
   excerpt?: string;
   sources: Array<{ label: string; url: string }>;
   fetchedAt: string;
+  updatedAt?: string;
 }
 
 export interface ApiHealthResponse {
@@ -264,8 +268,10 @@ export async function saveProjectConfig(
 
 export async function inspectOfficialModelMetadata(
   settings: ApiServerSettings,
+  providerId: string,
   providerName: string,
   model: string,
+  options: { refresh?: boolean } = {},
 ): Promise<OfficialModelMetadataResponse | null> {
   if (!settings.enabled) {
     return null;
@@ -274,7 +280,7 @@ export async function inspectOfficialModelMetadata(
   try {
     return await requestApi<OfficialModelMetadataResponse>(
       settings,
-      `/api/model-inspector?providerName=${encodeURIComponent(providerName)}&model=${encodeURIComponent(model)}`,
+      `/api/model-inspector?providerId=${encodeURIComponent(providerId)}&providerName=${encodeURIComponent(providerName)}&model=${encodeURIComponent(model)}${options.refresh ? '&refresh=true' : ''}`,
       {},
     );
   } catch (error) {
@@ -284,6 +290,42 @@ export async function inspectOfficialModelMetadata(
     }
     throw error;
   }
+}
+
+export async function listStoredModelMetadata(
+  settings: ApiServerSettings,
+  providerId: string,
+): Promise<Record<string, OfficialModelMetadataResponse>> {
+  if (!settings.enabled) {
+    return {};
+  }
+
+  const payload = await requestApi<{ entries?: Record<string, OfficialModelMetadataResponse> }>(
+    settings,
+    `/api/model-metadata?providerId=${encodeURIComponent(providerId)}`,
+    {},
+    { allowNotFound: true },
+  );
+  return payload?.entries ?? {};
+}
+
+export async function saveStoredModelMetadata(
+  settings: ApiServerSettings,
+  input: {
+    providerId: string;
+    providerName: string;
+    model: string;
+    metadata: Partial<OfficialModelMetadataResponse>;
+  },
+): Promise<OfficialModelMetadataResponse | null> {
+  if (!settings.enabled) {
+    return null;
+  }
+
+  return requestApi<OfficialModelMetadataResponse>(settings, '/api/model-metadata', {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  });
 }
 
 function createMemoryTemplate(agentName: string) {

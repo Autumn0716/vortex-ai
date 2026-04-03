@@ -4,7 +4,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { readProjectConfig, writeProjectConfig } from './config-store';
-import { inspectOfficialModelMetadata } from './model-inspector';
+import { inspectOfficialModelMetadata, MODEL_INSPECTOR_RESOLVER_VERSION } from './model-inspector';
+import {
+  listStoredModelMetadata,
+  patchStoredModelMetadata,
+  readStoredModelMetadata,
+  writeStoredModelMetadata,
+} from './model-metadata-store';
 import { createNightlyMemoryArchiveScheduler } from './nightly-memory-archive';
 import {
   createProjectKnowledgeWatcher,
@@ -163,16 +169,63 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
 
   app.get('/api/model-inspector', async (request, response) => {
     try {
+      const providerId = String(request.query.providerId ?? '').trim();
       const providerName = String(request.query.providerName ?? '').trim();
       const model = String(request.query.model ?? '').trim();
-      if (!providerName || !model) {
-        response.status(400).json({ error: 'providerName and model are required.' });
+      const refresh = String(request.query.refresh ?? '').trim() === 'true';
+      if (!providerId || !providerName || !model) {
+        response.status(400).json({ error: 'providerId, providerName and model are required.' });
         return;
       }
-      response.json(await inspectOfficialModelMetadata(providerName, model));
+      if (!refresh) {
+        const cached = await readStoredModelMetadata(rootDir, providerId, model);
+        if (cached && cached.resolverVersion === MODEL_INSPECTOR_RESOLVER_VERSION) {
+          response.json(cached);
+          return;
+        }
+      }
+
+      const detected = await inspectOfficialModelMetadata(providerName, model);
+      response.json(await writeStoredModelMetadata(rootDir, providerId, model, detected));
     } catch (error) {
       response.status(500).json({
         error: error instanceof Error ? error.message : 'Failed to inspect official model metadata.',
+      });
+    }
+  });
+
+  app.get('/api/model-metadata', async (request, response) => {
+    try {
+      const providerId = String(request.query.providerId ?? '').trim();
+      if (!providerId) {
+        response.status(400).json({ error: 'providerId is required.' });
+        return;
+      }
+      response.json({
+        entries: await listStoredModelMetadata(rootDir, providerId),
+      });
+    } catch (error) {
+      response.status(500).json({
+        error: error instanceof Error ? error.message : 'Failed to read stored model metadata.',
+      });
+    }
+  });
+
+  app.put('/api/model-metadata', async (request, response) => {
+    try {
+      const providerId = String(request.body?.providerId ?? '').trim();
+      const providerName = String(request.body?.providerName ?? '').trim();
+      const model = String(request.body?.model ?? '').trim();
+      if (!providerId || !providerName || !model) {
+        response.status(400).json({ error: 'providerId, providerName and model are required.' });
+        return;
+      }
+      response.json(
+        await patchStoredModelMetadata(rootDir, providerId, providerName, model, request.body?.metadata ?? {}),
+      );
+    } catch (error) {
+      response.status(400).json({
+        error: error instanceof Error ? error.message : 'Failed to write stored model metadata.',
       });
     }
   });

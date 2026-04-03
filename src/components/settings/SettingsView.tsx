@@ -25,6 +25,7 @@ import {
   Palette,
   Plus,
   RefreshCw,
+  RotateCcw,
   Minus,
   Search,
   Server,
@@ -72,10 +73,12 @@ import {
   getApiServerHealth,
   getNightlyArchiveStatus,
   inspectOfficialModelMetadata,
+  listStoredModelMetadata,
   listAgentMemoryFiles,
   readAgentMemoryFile,
   resolveApiServerBaseUrl,
   saveNightlyArchiveSettings,
+  saveStoredModelMetadata,
   syncAgentMemoryLifecycleForAgent,
   writeAgentMemoryFile,
   type AgentMemoryFileEntry,
@@ -233,6 +236,11 @@ interface ConfirmMemoryDeleteState {
   label: string;
 }
 
+interface ModelDetailsDialogState {
+  providerId: string;
+  model: string;
+}
+
 function formatNightlyArchiveRunSummary(status: NightlyArchiveStatus | null) {
   if (!status) {
     return '当前未读取到夜间归档状态。';
@@ -326,6 +334,15 @@ function formatInspectorTokenValue(value?: number) {
 
 function formatInspectorPriceValue(value?: number) {
   return value != null ? `${value} 元 / 1M` : '未识别';
+}
+
+function parseOptionalNumberInput(value: string) {
+  const normalized = value.trim().replace(/,/g, '');
+  if (!normalized) {
+    return undefined;
+  }
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 async function readFileAsText(file: File) {
@@ -482,6 +499,11 @@ export const SettingsView = ({
   const [addModelDraft, setAddModelDraft] = useState<AddModelDraft | null>(null);
   const [confirmProviderDelete, setConfirmProviderDelete] = useState<ConfirmProviderDeleteState | null>(null);
   const [confirmMemoryDelete, setConfirmMemoryDelete] = useState<ConfirmMemoryDeleteState | null>(null);
+  const [modelDetailsDialog, setModelDetailsDialog] = useState<ModelDetailsDialogState | null>(null);
+  const [modelDetailsLoading, setModelDetailsLoading] = useState(false);
+  const [modelDetailsError, setModelDetailsError] = useState('');
+  const [modelDetailsDraft, setModelDetailsDraft] = useState<Partial<OfficialModelMetadataResponse> | null>(null);
+  const [modelDetailsSaving, setModelDetailsSaving] = useState(false);
   const [modelImportDialog, setModelImportDialog] = useState<ModelImportDialogState | null>(null);
   const [importModelSearchQuery, setImportModelSearchQuery] = useState('');
   const [importOnlyNotAdded, setImportOnlyNotAdded] = useState(true);
@@ -671,6 +693,13 @@ export const SettingsView = ({
   const activeProviderModelMetadata = activeProvider
     ? providerModelMetadata[activeProvider.id] ?? {}
     : {};
+  const modelDetailsProvider = modelDetailsDialog
+    ? draft.providers.find((provider) => provider.id === modelDetailsDialog.providerId) ?? null
+    : null;
+  const modelDetailsMetadata =
+    modelDetailsDialog && modelDetailsProvider
+      ? providerModelMetadata[modelDetailsProvider.id]?.[modelDetailsDialog.model] ?? null
+      : null;
   const activeSearchProvider = draft.search.providers.find(
     (provider) => provider.id === activeSearchProviderId,
   );
@@ -750,6 +779,47 @@ export const SettingsView = ({
       setAddModelDraft(null);
     }
   }, [showAddModelDialog]);
+
+  useEffect(() => {
+    if (!modelDetailsDialog) {
+      setModelDetailsDraft(null);
+      setModelDetailsError('');
+      return;
+    }
+    if (modelDetailsMetadata) {
+      setModelDetailsDraft(modelDetailsMetadata);
+    }
+  }, [modelDetailsDialog, modelDetailsMetadata]);
+
+  useEffect(() => {
+    if (!draft.apiServer.enabled || !activeProvider) {
+      return;
+    }
+
+    let cancelled = false;
+    listStoredModelMetadata(draft.apiServer, activeProvider.id)
+      .then((entries) => {
+        if (cancelled) {
+          return;
+        }
+        setProviderModelMetadata((current) => ({
+          ...current,
+          [activeProvider.id]: entries,
+        }));
+      })
+      .catch(() => {
+        // Silent; explicit actions surface errors.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeProvider,
+    draft.apiServer.enabled,
+    draft.apiServer.baseUrl,
+    draft.apiServer.authToken,
+  ]);
 
   const loadMemoryFiles = async (options: { preferredPath?: string | null; announce?: string } = {}) => {
     const requestId = memoryFilesRequestIdRef.current + 1;
@@ -1095,7 +1165,9 @@ export const SettingsView = ({
 
     for (const model of provider.models) {
       try {
-        const result = await inspectOfficialModelMetadata(draft.apiServer, provider.name, model);
+        const result = await inspectOfficialModelMetadata(draft.apiServer, provider.id, provider.name, model, {
+          refresh: true,
+        });
         if (
           result &&
           (
@@ -1135,6 +1207,146 @@ export const SettingsView = ({
           : `模型检测完成：已识别 ${successCount} / ${provider.models.length} 个模型；失败 ${failureCount} 个。${firstError ? ` ${firstError}` : ''}`,
     }));
     setProviderLoadingId(null);
+  };
+
+  const inspectSingleModel = async (provider: ModelProvider, model: string) => {
+    if (!draft.apiServer.enabled) {
+      throw new Error('需要先启用本地 API Server，模型检测才能抓取官方规格。');
+    }
+
+    const result = await inspectOfficialModelMetadata(draft.apiServer, provider.id, provider.name, model);
+    if (
+      !result ||
+      !(
+        result.contextWindow ||
+        result.maxInputTokens ||
+        result.longestReasoningTokens ||
+        result.maxOutputTokens ||
+        result.inputCostPerMillion != null ||
+        result.outputCostPerMillion != null
+      )
+    ) {
+      throw new Error('没有从官方页面识别到可用的模型规格信息。');
+    }
+
+    setProviderModelMetadata((current) => ({
+      ...current,
+      [provider.id]: {
+        ...(current[provider.id] ?? {}),
+        [model]: result,
+      },
+    }));
+
+    return result;
+  };
+
+  const openModelDetailsDialog = async (provider: ModelProvider, model: string) => {
+    setModelDetailsDialog({ providerId: provider.id, model });
+    setModelDetailsError('');
+    setModelDetailsDraft(null);
+    const cached = providerModelMetadata[provider.id]?.[model];
+    if (cached) {
+      setModelDetailsDraft(cached);
+      return;
+    }
+
+    setModelDetailsLoading(true);
+    try {
+      const result = await inspectSingleModel(provider, model);
+      setModelDetailsDraft(result);
+    } catch (error) {
+      setModelDetailsError(error instanceof Error ? error.message : '模型检测失败。');
+    } finally {
+      setModelDetailsLoading(false);
+    }
+  };
+
+  const handleSaveModelDetails = async () => {
+    if (!modelDetailsDialog || !modelDetailsProvider || !modelDetailsDraft) {
+      return;
+    }
+
+    setModelDetailsSaving(true);
+    setModelDetailsError('');
+    try {
+      const result = await saveStoredModelMetadata(draft.apiServer, {
+        providerId: modelDetailsProvider.id,
+        providerName: modelDetailsProvider.name,
+        model: modelDetailsDialog.model,
+        metadata: {
+          versionLabel: modelDetailsDraft.versionLabel?.trim() || undefined,
+          modeLabel: modelDetailsDraft.modeLabel?.trim() || undefined,
+          resolverVersion: modelDetailsDraft.resolverVersion,
+          contextWindow: parseOptionalNumberInput(String(modelDetailsDraft.contextWindow ?? '')),
+          maxInputTokens: parseOptionalNumberInput(String(modelDetailsDraft.maxInputTokens ?? '')),
+          maxInputCharacters: parseOptionalNumberInput(
+            String(modelDetailsDraft.maxInputCharacters ?? ''),
+          ),
+          longestReasoningTokens: parseOptionalNumberInput(
+            String(modelDetailsDraft.longestReasoningTokens ?? ''),
+          ),
+          maxOutputTokens: parseOptionalNumberInput(String(modelDetailsDraft.maxOutputTokens ?? '')),
+          inputCostPerMillion: parseOptionalNumberInput(
+            String(modelDetailsDraft.inputCostPerMillion ?? ''),
+          ),
+          outputCostPerMillion: parseOptionalNumberInput(
+            String(modelDetailsDraft.outputCostPerMillion ?? ''),
+          ),
+          pricingNote: modelDetailsDraft.pricingNote?.trim() || undefined,
+          excerpt: modelDetailsDraft.excerpt,
+          sources: modelDetailsDraft.sources,
+          fetchedAt: modelDetailsDraft.fetchedAt,
+        },
+      });
+      if (!result) {
+        throw new Error('写入本地模型规格失败。');
+      }
+      setProviderModelMetadata((current) => ({
+        ...current,
+        [modelDetailsProvider.id]: {
+          ...(current[modelDetailsProvider.id] ?? {}),
+          [modelDetailsDialog.model]: result,
+        },
+      }));
+      setModelDetailsDraft(result);
+    } catch (error) {
+      setModelDetailsError(error instanceof Error ? error.message : '保存模型规格失败。');
+    } finally {
+      setModelDetailsSaving(false);
+    }
+  };
+
+  const handleResetModelDetails = async () => {
+    if (!modelDetailsDialog || !modelDetailsProvider) {
+      return;
+    }
+
+    setModelDetailsLoading(true);
+    setModelDetailsError('');
+    try {
+      const result = await inspectOfficialModelMetadata(
+        draft.apiServer,
+        modelDetailsProvider.id,
+        modelDetailsProvider.name,
+        modelDetailsDialog.model,
+        { refresh: true },
+      );
+      if (!result) {
+        throw new Error('重置为官方默认失败。');
+      }
+      setProviderModelMetadata((current) => ({
+        ...current,
+        [modelDetailsProvider.id]: {
+          ...(current[modelDetailsProvider.id] ?? {}),
+          [modelDetailsDialog.model]: result,
+        },
+      }));
+      setModelDetailsDraft(result);
+    } catch (error) {
+      setModelDetailsError(error instanceof Error ? error.message : '重置为默认失败。');
+    } finally {
+      setModelDetailsLoading(false);
+    }
   };
 
   const addMcpServer = async (template?: (typeof MCP_LIBRARY)[number]) => {
@@ -3605,68 +3817,12 @@ export const SettingsView = ({
                         </div>
 
                         {Object.keys(activeProviderModelMetadata).length > 0 ? (
-                          <div className="space-y-3 rounded-2xl border border-sky-400/12 bg-sky-400/[0.04] p-3">
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <div className="text-sm font-medium text-white/90">已检测模型规格</div>
-                                <div className="text-[11px] text-white/45">
-                                  当前厂商已识别 {Object.keys(activeProviderModelMetadata).length} / {activeProvider.models.length} 个模型。
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="space-y-3">
-                              {activeProvider.models.map((model) => {
-                                const metadata = activeProviderModelMetadata[model];
-                                if (!metadata) {
-                                  return null;
-                                }
-
-                                return (
-                                  <div
-                                    key={`${activeProvider.id}-${model}`}
-                                    className="rounded-2xl border border-white/8 bg-black/20 p-3"
-                                  >
-                                    <div className="flex flex-wrap items-center justify-between gap-3">
-                                      <div>
-                                        <div className="text-sm font-medium text-white/90">{model}</div>
-                                        <div className="mt-1 text-[11px] text-white/45">
-                                          {metadata.providerName}
-                                          {metadata.versionLabel ? ` · ${metadata.versionLabel}` : ''}
-                                          {metadata.modeLabel ? ` · ${metadata.modeLabel}` : ''}
-                                        </div>
-                                      </div>
-                                      <div className="flex flex-wrap gap-2">
-                                        {[
-                                          `上下文 ${formatInspectorTokenValue(metadata.contextWindow)}`,
-                                          `最大输入 ${formatInspectorTokenValue(metadata.maxInputTokens)}`,
-                                          metadata.longestReasoningTokens
-                                            ? `思维链 ${formatInspectorTokenValue(metadata.longestReasoningTokens)}`
-                                            : null,
-                                          `最大输出 ${formatInspectorTokenValue(metadata.maxOutputTokens)}`,
-                                          `输入 ${formatInspectorPriceValue(metadata.inputCostPerMillion)}`,
-                                          `输出 ${formatInspectorPriceValue(metadata.outputCostPerMillion)}`,
-                                        ]
-                                          .filter(Boolean)
-                                          .map((label) => (
-                                            <span
-                                              key={label}
-                                              className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-white/65"
-                                            >
-                                              {label}
-                                            </span>
-                                          ))}
-                                      </div>
-                                    </div>
-                                    {metadata.pricingNote ? (
-                                      <div className="mt-3 text-[11px] leading-5 text-white/52">
-                                        {metadata.pricingNote}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                );
-                              })}
-                            </div>
+                          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-sky-400/12 bg-sky-400/[0.04] px-3 py-2 text-[11px] text-white/55">
+                            <span className="text-white/82">已缓存 {Object.keys(activeProviderModelMetadata).length}</span>
+                            <span>/ {activeProvider.models.length} 个模型规格</span>
+                            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
+                              写入 model-metadata.json
+                            </span>
                           </div>
                         ) : null}
 
@@ -3779,28 +3935,56 @@ export const SettingsView = ({
 
                                             {!seriesCollapsed ? (
                                               <div className="mt-2 space-y-2">
-                                                {series.models.map((model) => (
-                                                  <div
-                                                    key={model}
-                                                    className="group flex items-center justify-between rounded-xl border border-white/5 bg-white/5 p-3 transition-colors hover:bg-white/10"
-                                                  >
-                                                    <div className="flex min-w-0 items-center gap-3">
-                                                      <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20">
-                                                        <Box size={10} className="text-orange-400" />
-                                                      </div>
-                                                      <span className="truncate text-sm text-white/90">{model}</span>
-                                                    </div>
-                                                    <button
-                                                      onClick={() =>
-                                                        removeModelsFromProvider(activeProvider.id, [model])
-                                                      }
-                                                      className="rounded-full border border-transparent p-1.5 text-white/25 opacity-0 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300 group-hover:opacity-100"
-                                                      title="移除模型"
+                                                {series.models.map((model) => {
+                                                  const metadata = activeProviderModelMetadata[model];
+                                                  return (
+                                                    <div
+                                                      key={model}
+                                                      className="group flex items-center justify-between rounded-xl border border-white/5 bg-white/5 px-3 py-2.5 transition-colors hover:bg-white/10"
                                                     >
-                                                      <Minus size={12} />
-                                                    </button>
-                                                  </div>
-                                                ))}
+                                                      <div className="min-w-0 flex-1">
+                                                        <div className="flex min-w-0 items-center gap-3">
+                                                          <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-orange-400/20 to-red-500/20">
+                                                            <Box size={10} className="text-orange-400" />
+                                                          </div>
+                                                          <span className="truncate text-sm text-white/90">{model}</span>
+                                                        </div>
+                                                        {metadata ? (
+                                                          <div className="mt-1 flex flex-wrap gap-1.5 pl-8">
+                                                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] text-white/52">
+                                                              上下文 {formatInspectorTokenValue(metadata.contextWindow)}
+                                                            </span>
+                                                            {metadata.maxOutputTokens ? (
+                                                              <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] text-white/52">
+                                                                输出 {formatInspectorTokenValue(metadata.maxOutputTokens)}
+                                                              </span>
+                                                            ) : null}
+                                                          </div>
+                                                        ) : null}
+                                                      </div>
+                                                      <div className="flex items-center gap-2">
+                                                        <button
+                                                          onClick={() =>
+                                                            openModelDetailsDialog(activeProvider, model).catch(console.error)
+                                                          }
+                                                          className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] text-white/60 transition-all duration-150 hover:border-sky-400/30 hover:bg-sky-400/12 hover:text-sky-100"
+                                                          title="查看模型设置"
+                                                        >
+                                                          模型设置
+                                                        </button>
+                                                        <button
+                                                          onClick={() =>
+                                                            removeModelsFromProvider(activeProvider.id, [model])
+                                                          }
+                                                          className="rounded-full border border-transparent p-1.5 text-white/25 opacity-0 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300 group-hover:opacity-100"
+                                                          title="移除模型"
+                                                        >
+                                                          <Minus size={12} />
+                                                        </button>
+                                                      </div>
+                                                    </div>
+                                                  );
+                                                })}
                                               </div>
                                             ) : null}
                                           </div>
@@ -3852,6 +4036,241 @@ export const SettingsView = ({
           </div>
         )}
       </div>
+
+      {modelDetailsDialog && modelDetailsProvider ? (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-[760px] rounded-[28px] border border-white/10 bg-[#171717] shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
+              <div>
+                <div className="text-lg font-semibold text-white">模型设置</div>
+                <div className="mt-1 text-sm text-white/45">
+                  {modelDetailsDialog.model} · {modelDetailsProvider.name}
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setModelDetailsDialog(null);
+                  setModelDetailsDraft(null);
+                  setModelDetailsError('');
+                }}
+                className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-4 px-6 py-5">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="block">
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-white/35">模型 ID</div>
+                  <input
+                    value={modelDetailsDialog.model}
+                    readOnly
+                    className="w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2.5 text-sm text-white/70 outline-none"
+                  />
+                </label>
+                <label className="block">
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-white/35">厂商</div>
+                  <input
+                    value={modelDetailsDraft?.providerName ?? modelDetailsProvider.name}
+                    onChange={(event) =>
+                      setModelDetailsDraft((current) => ({
+                        ...(current ?? {}),
+                        providerName: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                  />
+                </label>
+                <label className="block">
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-white/35">版本</div>
+                  <input
+                    value={modelDetailsDraft?.versionLabel ?? ''}
+                    onChange={(event) =>
+                      setModelDetailsDraft((current) => ({
+                        ...(current ?? {}),
+                        versionLabel: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                  />
+                </label>
+                <label className="block">
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-white/35">模式</div>
+                  <input
+                    value={modelDetailsDraft?.modeLabel ?? ''}
+                    onChange={(event) =>
+                      setModelDetailsDraft((current) => ({
+                        ...(current ?? {}),
+                        modeLabel: event.target.value,
+                      }))
+                    }
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                  />
+                </label>
+                <label className="block">
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-white/35">上下文长度</div>
+                  <input
+                    value={modelDetailsDraft?.contextWindow ?? ''}
+                    onChange={(event) =>
+                      setModelDetailsDraft((current) => ({
+                        ...(current ?? {}),
+                        contextWindow: parseOptionalNumberInput(event.target.value),
+                      }))
+                    }
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                  />
+                </label>
+                <label className="block">
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-white/35">最大输入</div>
+                  <input
+                    value={modelDetailsDraft?.maxInputTokens ?? ''}
+                    onChange={(event) =>
+                      setModelDetailsDraft((current) => ({
+                        ...(current ?? {}),
+                        maxInputTokens: parseOptionalNumberInput(event.target.value),
+                      }))
+                    }
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                  />
+                </label>
+                <label className="block">
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-white/35">最大输入字符数</div>
+                  <input
+                    value={modelDetailsDraft?.maxInputCharacters ?? ''}
+                    onChange={(event) =>
+                      setModelDetailsDraft((current) => ({
+                        ...(current ?? {}),
+                        maxInputCharacters: parseOptionalNumberInput(event.target.value),
+                      }))
+                    }
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                  />
+                </label>
+                <label className="block">
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-white/35">最长思维链</div>
+                  <input
+                    value={modelDetailsDraft?.longestReasoningTokens ?? ''}
+                    onChange={(event) =>
+                      setModelDetailsDraft((current) => ({
+                        ...(current ?? {}),
+                        longestReasoningTokens: parseOptionalNumberInput(event.target.value),
+                      }))
+                    }
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                  />
+                </label>
+                <label className="block">
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-white/35">最大输出</div>
+                  <input
+                    value={modelDetailsDraft?.maxOutputTokens ?? ''}
+                    onChange={(event) =>
+                      setModelDetailsDraft((current) => ({
+                        ...(current ?? {}),
+                        maxOutputTokens: parseOptionalNumberInput(event.target.value),
+                      }))
+                    }
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                  />
+                </label>
+                <label className="block">
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-white/35">输入价格</div>
+                  <input
+                    value={modelDetailsDraft?.inputCostPerMillion ?? ''}
+                    onChange={(event) =>
+                      setModelDetailsDraft((current) => ({
+                        ...(current ?? {}),
+                        inputCostPerMillion: parseOptionalNumberInput(event.target.value),
+                      }))
+                    }
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                  />
+                </label>
+                <label className="block">
+                  <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-white/35">输出价格</div>
+                  <input
+                    value={modelDetailsDraft?.outputCostPerMillion ?? ''}
+                    onChange={(event) =>
+                      setModelDetailsDraft((current) => ({
+                        ...(current ?? {}),
+                        outputCostPerMillion: parseOptionalNumberInput(event.target.value),
+                      }))
+                    }
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                  />
+                </label>
+              </div>
+
+              <label className="block">
+                <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-white/35">计费备注</div>
+                <textarea
+                  rows={3}
+                  value={modelDetailsDraft?.pricingNote ?? ''}
+                  onChange={(event) =>
+                    setModelDetailsDraft((current) => ({
+                      ...(current ?? {}),
+                      pricingNote: event.target.value,
+                    }))
+                  }
+                  className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm leading-6 text-white outline-none focus:border-emerald-500/40"
+                />
+              </label>
+
+              {modelDetailsError ? (
+                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-3 text-sm text-red-100/85">
+                  {modelDetailsError}
+                </div>
+              ) : null}
+
+              {modelDetailsDraft?.sources?.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {modelDetailsDraft.sources.map((source) => (
+                    <a
+                      key={source.url}
+                      href={source.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+                    >
+                      {source.label}
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex items-center justify-between gap-4 border-t border-white/5 px-6 py-4">
+              <button
+                onClick={() => handleResetModelDetails().catch(console.error)}
+                disabled={modelDetailsLoading}
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <RotateCcw size={14} />
+                重置为默认
+              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    setModelDetailsDialog(null);
+                    setModelDetailsDraft(null);
+                    setModelDetailsError('');
+                  }}
+                  className="rounded-full border border-white/10 px-4 py-2 text-sm text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => handleSaveModelDetails().catch(console.error)}
+                  disabled={modelDetailsSaving || modelDetailsLoading}
+                  className="rounded-full border border-emerald-500/20 bg-emerald-500/15 px-4 py-2 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {modelDetailsSaving ? '保存中...' : '保存'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {modelImportDialog ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">
