@@ -2028,7 +2028,7 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
 
 function appendMemoryLine(existingContent: string, line: string) {
   const trimmed = existingContent.trim();
-  return trimmed ? `${trimmed}\n${line}` : line;
+  return trimmed ? `${trimmed}\n\n${line}` : line;
 }
 
 function dateKeyFromIso(timestamp: string) {
@@ -2094,17 +2094,23 @@ function upsertDailyMemoryLog(
     agentId: string;
     topicId: string;
     topicTitle: string;
+    role: TopicMessage['role'];
     authorName: string;
     content: string;
     createdAt: string;
+    attachments?: TopicMessageAttachment[];
+    tools?: StoredToolRun[];
   },
 ) {
   const eventDate = dateKeyFromIso(input.createdAt);
   const line = buildConversationMemoryEntry({
     topicTitle: input.topicTitle,
     authorName: input.authorName,
+    role: input.role,
     createdAt: input.createdAt,
     content: input.content,
+    attachments: input.attachments,
+    tools: input.tools,
   });
   const importanceScore = scoreMemoryImportance(input.content, 'conversation_log');
   const existing = mapRows<{
@@ -2269,9 +2275,12 @@ function recordMemoryFromMessages(database: Database, messages: TopicMessageInpu
       agentId: message.agentId,
       topicId: message.topicId,
       topicTitle,
+      role: message.role,
       authorName: message.authorName,
       content: message.content,
       createdAt,
+      attachments: message.attachments,
+      tools: message.tools,
     });
 
     if (shouldPromoteMemory(message.content, message.role)) {

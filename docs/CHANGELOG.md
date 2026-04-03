@@ -68,3 +68,4 @@
 - Replaced the remaining browser-native Settings prompts and confirms for provider/model/memory actions with in-app dialogs, keeping the interaction style consistent with the rest of the shell.
 - Memoized the heavy chat message lane so typing into the composer no longer forces long conversation columns to rebuild on every keystroke, which reduces input lag in large topics.
 - Extended graph-assisted retrieval into a more explicit graph-evidence layer by adding bounded two-hop graph expansion and `graphPaths` metadata, so retrieved documents can now explain not just which entities matched but which graph paths connected the query to that document.
+- Increased daily memory log granularity so conversation-log entries now persist richer block-level details including role labels, attachment summaries, tool result summaries, and explicit `open_loop` / `decision` signals before nightly warm/cold compression runs.

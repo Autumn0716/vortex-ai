@@ -237,5 +237,12 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - 检索结果现在除了 `graphHints / graphExpansionHints`，还会带 `graphPaths`
 - 这样 agent 不只知道命中了哪些术语，还能看到类似 `branch handoff -> parent_topic_id -> review audit record` 这种图谱连接路径，后续继续做 GraphRAG 时可以直接把路径当成可解释证据使用
 
+进度汇报（2026-04-03，第十八次更新）:
+- 已把 `daily` source log 的记录粒度调细：原先每条消息只写一行 `时间 + topic + 作者 + 内容`，现在会额外记录角色、附件摘要、工具调用摘要，以及 `open_loop / decision` 这类显式状态信号
+- `conversation_log` 仍然保持 Markdown 友好格式，但已从“单行活动记录”升级为“块级活动记录”，便于夜间 warm/cold lifecycle 在不读取完整 transcript 的前提下抓到更多结构化线索
+- 当前尚未开始长对话 `session summary`，也就是消息上下文仍以 `historyWindow` 截断为主；这部分已保留为后续待办
+
 当前仍待继续：
 - 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开
+- 长对话的原始消息窗口目前仍以固定 `historyWindow` 截断为主，需补上会话级 `session summary` 压缩链路：当消息历史超过阈值时，自动把较早轮次总结为可回放摘要，再与近期原始消息拼接进入模型，而不是只丢弃旧消息
+- daily 日志当前粒度仍偏“活动行/关键片段”，需升级为更细粒度记录：保留更完整的 user / assistant 关键回合、工具调用结果、附件与显式任务状态变更，再由夜间 lifecycle 统一压缩到 `warm/cold` 替身

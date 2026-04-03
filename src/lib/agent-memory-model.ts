@@ -301,13 +301,61 @@ export function scoreMemoryImportance(content: string, sourceType: MemorySourceT
 export function buildConversationMemoryEntry(input: {
   topicTitle: string;
   authorName: string;
+  role?: 'user' | 'assistant' | 'system' | 'tool';
   createdAt: string;
   content: string;
+  attachments?: Array<{ name: string; sizeBytes?: number }>;
+  tools?: Array<{ name: string; status: 'running' | 'completed' | 'failed'; result?: string }>;
 }): string {
   const timestamp = new Date(input.createdAt);
   const hh = `${timestamp.getHours()}`.padStart(2, '0');
   const mm = `${timestamp.getMinutes()}`.padStart(2, '0');
-  return `- [${hh}:${mm}] ${input.topicTitle} · ${input.authorName}: ${normalizeMemoryText(input.content)}`;
+  const roleLabel =
+    input.role === 'assistant'
+      ? 'Assistant'
+      : input.role === 'system'
+        ? 'System'
+        : input.role === 'tool'
+          ? 'Tool'
+          : 'User';
+  const content = normalizeMemoryText(input.content);
+  const lines = [`- [${hh}:${mm}] ${input.topicTitle} · ${roleLabel}(${input.authorName}): ${content}`];
+
+  if (input.attachments?.length) {
+    const attachmentSummary = input.attachments
+      .slice(0, 3)
+      .map((attachment) => {
+        const sizeLabel =
+          typeof attachment.sizeBytes === 'number' && Number.isFinite(attachment.sizeBytes)
+            ? `${Math.max(1, Math.round(attachment.sizeBytes / 1024))}KB`
+            : null;
+        return sizeLabel ? `${attachment.name} (${sizeLabel})` : attachment.name;
+      })
+      .join(', ');
+    const suffix = input.attachments.length > 3 ? ` 等 ${input.attachments.length} 个附件` : '';
+    lines.push(`  - Attachments: ${attachmentSummary}${suffix}`);
+  }
+
+  if (input.tools?.length) {
+    const toolSummary = input.tools
+      .slice(0, 3)
+      .map((tool) => {
+        const resultPreview = normalizeMemoryText(tool.result ?? '').slice(0, 72);
+        return resultPreview ? `${tool.name}[${tool.status}]: ${resultPreview}` : `${tool.name}[${tool.status}]`;
+      })
+      .join('; ');
+    const suffix = input.tools.length > 3 ? `；其余 ${input.tools.length - 3} 个工具已省略` : '';
+    lines.push(`  - Tools: ${toolSummary}${suffix}`);
+  }
+
+  if (/(todo|待办|阻塞|deadline|due|follow-up|follow up|未完成|待处理|下一步|next step)/i.test(content)) {
+    lines.push('  - Signals: open_loop');
+  }
+  if (/(decision|决策|共识|已确认|resolved|最终)/i.test(content)) {
+    lines.push('  - Signals: decision');
+  }
+
+  return lines.join('\n');
 }
 
 export function buildPromotionFingerprint(content: string): string {

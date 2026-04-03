@@ -64,11 +64,30 @@ test('buildConversationMemoryEntry formats a compact daily log line', () => {
   const entry = buildConversationMemoryEntry({
     topicTitle: 'Agent RAG Upgrade',
     authorName: 'You',
+    role: 'user',
     createdAt: '2026-04-01T08:30:00.000Z',
     content: '需要把技能索引和记忆分层都接起来。',
   });
 
-  assert.match(entry, /^\- \[\d{2}:\d{2}\] Agent RAG Upgrade · You:/);
+  assert.match(entry, /^\- \[\d{2}:\d{2}\] Agent RAG Upgrade · User\(You\):/);
+});
+
+test('buildConversationMemoryEntry keeps attachment tool and task signals in daily logs', () => {
+  const entry = buildConversationMemoryEntry({
+    topicTitle: 'Image Search Debug',
+    authorName: 'Quick Assistant',
+    role: 'assistant',
+    createdAt: '2026-04-01T08:31:00.000Z',
+    content: '下一步先检查 image_search 的 tool result，再确认最终决策。',
+    attachments: [{ name: 'cute_babe.jpg', sizeBytes: 73 * 1024 }],
+    tools: [{ name: 'image_search', status: 'completed', result: 'Found 4 similar images from provider.' }],
+  });
+
+  assert.match(entry, /Assistant\(Quick Assistant\)/);
+  assert.match(entry, /Attachments: cute_babe\.jpg \(73KB\)/);
+  assert.match(entry, /Tools: image_search\[completed\]: Found 4 similar images from provider\./);
+  assert.match(entry, /Signals: open_loop/);
+  assert.match(entry, /Signals: decision/);
 });
 
 test('buildPromotionFingerprint is stable for semantically identical whitespace', () => {
