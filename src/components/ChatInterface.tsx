@@ -252,6 +252,8 @@ interface TopicRunState {
   draftAssistantMessage?: TopicMessage;
   reasoningPreview?: string;
   reasoningContent?: string;
+  turnStartedAt?: number;
+  reasoningStartedAt?: number;
 }
 
 interface MessageRunMetrics {
@@ -361,9 +363,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     workspace?.agent ?? agents.find((entry) => entry.id === activeAgentId) ?? null;
   const activeRunState = activeTopicId ? topicRunStates[activeTopicId] : undefined;
   const isGenerating = activeRunState?.isGenerating ?? false;
-  const composerNotice = activeRunState?.reasoningPreview
-    ? `思考中: ${activeRunState.reasoningPreview}`
-    : activeRunState?.composerNotice ?? shellNotice;
+  const composerNotice = activeRunState?.composerNotice ?? shellNotice;
   const backgroundGeneratingCount = useMemo(
     () =>
       Object.entries(topicRunStates).filter(
@@ -506,6 +506,8 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         draftAssistantMessage: next.draftAssistantMessage,
         reasoningPreview: next.reasoningPreview ?? '',
         reasoningContent: next.reasoningContent ?? '',
+        turnStartedAt: next.turnStartedAt,
+        reasoningStartedAt: next.reasoningStartedAt,
       };
 
       if (
@@ -513,7 +515,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         !merged.composerNotice &&
         !merged.draftAssistantMessage &&
         !merged.reasoningPreview &&
-        !merged.reasoningContent
+        !merged.reasoningContent &&
+        !merged.turnStartedAt &&
+        !merged.reasoningStartedAt
       ) {
         if (!(topicId in previous)) {
           return previous;
@@ -1242,6 +1246,8 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       composerNotice: '',
       reasoningPreview: '',
       reasoningContent: '',
+      turnStartedAt: Date.now(),
+      reasoningStartedAt: undefined,
     }));
     await addTopicMessages([userMessage]);
     await maybeAutoTitleTopic(workspaceSnapshot.topic.id, userContent);
@@ -1406,9 +1412,8 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
       for await (const event of stream) {
         if (event.type === 'reasoning_delta') {
-          if (reasoningStartedAt === null) {
-            reasoningStartedAt = Date.now();
-          }
+          const nextReasoningStartedAt = reasoningStartedAt ?? Date.now();
+          reasoningStartedAt = nextReasoningStartedAt;
           streamedReasoningContent += event.delta;
           setTopicRunState(workspaceSnapshot.topic.id, (previous) => ({
             isGenerating: true,
@@ -1416,6 +1421,8 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             draftAssistantMessage: previous?.draftAssistantMessage,
             reasoningPreview: `${previous?.reasoningPreview ?? ''}${event.delta}`.slice(-280),
             reasoningContent: `${previous?.reasoningContent ?? ''}${event.delta}`,
+            turnStartedAt: previous?.turnStartedAt ?? turnStartedAt,
+            reasoningStartedAt: previous?.reasoningStartedAt ?? nextReasoningStartedAt,
           }));
           continue;
         }
@@ -1458,6 +1465,8 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           draftAssistantMessage: optimisticAssistantMessage,
           reasoningPreview: previous?.reasoningPreview ?? '',
           reasoningContent: previous?.reasoningContent ?? '',
+          turnStartedAt: previous?.turnStartedAt ?? turnStartedAt,
+          reasoningStartedAt: previous?.reasoningStartedAt,
         }));
         setWorkspace((previous) =>
           previous?.topic.id === workspaceSnapshot.topic.id
@@ -1528,6 +1537,24 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           };
           setWorkspace((previous) => upsertWorkspaceMessage(previous, toTopicMessage(partialMessage)));
           await addTopicMessages([partialMessage]);
+          const completedAt = new Date().toISOString();
+          const estimatedInputTokens = estimateTokenCount(aggregatedInputText);
+          const estimatedOutputTokens = estimateTokenCount(partialContent);
+          setMessageMetricsById((previous) => ({
+            ...previous,
+            [partialMessage.id ?? assistantDraftId]: {
+              completedAt,
+              streamDurationMs: Math.max(0, Date.now() - turnStartedAt),
+              reasoningDurationMs:
+                reasoningStartedAt !== null
+                  ? Math.max(0, Date.now() - reasoningStartedAt)
+                  : undefined,
+              inputTokens: estimatedInputTokens,
+              outputTokens: estimatedOutputTokens,
+              totalTokens: estimatedInputTokens + estimatedOutputTokens,
+              usageSource: 'estimate',
+            },
+          }));
           if (streamedReasoningContent.trim()) {
             setMessageReasoningById((previous) => ({
               ...previous,
@@ -1591,6 +1618,8 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       composerNotice: 'Regenerating response…',
       reasoningPreview: '',
       reasoningContent: '',
+      turnStartedAt: Date.now(),
+      reasoningStartedAt: undefined,
     }));
 
     await executeAssistantTurn({
@@ -2166,6 +2195,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       autoScroll={config.ui.autoScroll}
                       compact={config.ui.compactLanes}
                       reasoningContent={activeRunState?.reasoningContent ?? ''}
+                      liveReasoningStartedAt={activeRunState?.reasoningStartedAt}
                       messageMetricsById={messageMetricsById}
                       messageReasoningById={messageReasoningById}
                       scrollKey={workspace.topic.id}

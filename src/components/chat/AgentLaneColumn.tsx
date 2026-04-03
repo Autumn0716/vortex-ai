@@ -58,6 +58,7 @@ export interface AgentLaneColumnProps {
   autoScroll: boolean;
   compact: boolean;
   reasoningContent?: string;
+  liveReasoningStartedAt?: number;
   messageMetricsById?: Record<
     string,
     {
@@ -145,6 +146,7 @@ function AgentLaneColumnComponent({
   autoScroll,
   compact,
   reasoningContent,
+  liveReasoningStartedAt,
   messageMetricsById = {},
   messageReasoningById = {},
   scrollKey,
@@ -159,7 +161,9 @@ function AgentLaneColumnComponent({
   const [contentWidth, setContentWidth] = useState(280);
   const [selectedVariantByGroup, setSelectedVariantByGroup] = useState<Record<string, number>>({});
   const [collapsedReasoningById, setCollapsedReasoningById] = useState<Record<string, boolean>>({});
+  const [liveReasoningCollapsed, setLiveReasoningCollapsed] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [liveClock, setLiveClock] = useState(() => Date.now());
   const displayItems = useMemo(() => buildDisplayItems(messages), [messages]);
 
   useEffect(() => {
@@ -218,6 +222,23 @@ function AgentLaneColumnComponent({
     setShowScrollToBottom(false);
   }, [scrollKey]);
 
+  useEffect(() => {
+    if (!reasoningContent?.trim()) {
+      setLiveReasoningCollapsed(false);
+    }
+  }, [reasoningContent]);
+
+  useEffect(() => {
+    if (!isGenerating || !liveReasoningStartedAt) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setLiveClock(Date.now());
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [isGenerating, liveReasoningStartedAt]);
+
   useLayoutEffect(() => {
     if (!autoScroll || !bodyRef.current || !shouldStickToBottomRef.current) {
       return;
@@ -227,14 +248,14 @@ function AgentLaneColumnComponent({
       if (bottomRef.current) {
         bottomRef.current.scrollIntoView({
           block: 'end',
-          behavior: isGenerating ? 'smooth' : 'auto',
+          behavior: 'auto',
         });
         return;
       }
 
       bodyRef.current?.scrollTo({
         top: bodyRef.current.scrollHeight,
-        behavior: isGenerating ? 'smooth' : 'auto',
+        behavior: 'auto',
       });
     };
 
@@ -251,8 +272,8 @@ function AgentLaneColumnComponent({
     }
 
     const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
-    shouldStickToBottomRef.current = distanceFromBottom <= 80;
-    setShowScrollToBottom(distanceFromBottom > 120);
+    shouldStickToBottomRef.current = distanceFromBottom <= 180;
+    setShowScrollToBottom(distanceFromBottom > 220);
   };
 
   const jumpToBottom = () => {
@@ -291,6 +312,8 @@ function AgentLaneColumnComponent({
 
   const accentColor = resolveAccentColor(lane.accentColor);
   const cardContentWidth = Math.max(contentWidth - (compact ? 42 : 54), 180);
+  const liveReasoningDurationMs =
+    isGenerating && liveReasoningStartedAt ? Math.max(0, liveClock - liveReasoningStartedAt) : undefined;
 
   return (
     <section
@@ -430,7 +453,7 @@ function AgentLaneColumnComponent({
                               输出 {formatDuration(metrics.streamDurationMs)}
                             </span>
                             <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/50">
-                              Tokens {metrics.inputTokens}/{metrics.outputTokens}/{metrics.totalTokens}
+                              Tokens 上下文 {metrics.inputTokens} / 输出 {metrics.outputTokens} / 总计 {metrics.totalTokens}
                             </span>
                           </>
                         ) : null}
@@ -574,15 +597,30 @@ function AgentLaneColumnComponent({
                     <div className="px-1 text-[11px] text-white/45">{lane.name}</div>
                     {reasoningContent?.trim() ? (
                       <div className="max-w-[720px] rounded-2xl border border-fuchsia-400/15 bg-fuchsia-400/8 px-4 py-3 text-sm text-white/80">
-                        <div className="flex items-center gap-2">
-                          <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] text-fuchsia-100">
-                            思考过程
+                        <button
+                          onClick={() => setLiveReasoningCollapsed((previous) => !previous)}
+                          className="flex w-full items-center justify-between gap-3 text-left"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] text-fuchsia-100">
+                              思考过程
+                            </span>
+                            <span className="text-[11px] text-fuchsia-100/70">流式更新中</span>
+                            {liveReasoningDurationMs != null ? (
+                              <span className="text-[11px] text-fuchsia-100/70">
+                                已思考 {formatDuration(liveReasoningDurationMs)}
+                              </span>
+                            ) : null}
+                          </div>
+                          <span className="text-fuchsia-100/70">
+                            {liveReasoningCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                           </span>
-                          <span className="text-[11px] text-fuchsia-100/70">流式更新中</span>
-                        </div>
-                        <div className="mt-3 max-h-[260px] overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-white/8 bg-black/20 p-3 text-[12px] leading-6 text-fuchsia-50/92 custom-scrollbar">
-                          {reasoningContent}
-                        </div>
+                        </button>
+                        {!liveReasoningCollapsed ? (
+                          <div className="mt-3 max-h-[260px] overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-white/8 bg-black/20 p-3 text-[12px] leading-6 text-fuchsia-50/92 custom-scrollbar">
+                            {reasoningContent}
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                     <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-white/10 bg-black/20 px-4 py-3">
@@ -628,6 +666,7 @@ function areLanePropsEqual(previous: AgentLaneColumnProps, next: AgentLaneColumn
     previous.autoScroll === next.autoScroll &&
     previous.compact === next.compact &&
     previous.reasoningContent === next.reasoningContent &&
+    previous.liveReasoningStartedAt === next.liveReasoningStartedAt &&
     previous.messageMetricsById === next.messageMetricsById &&
     previous.messageReasoningById === next.messageReasoningById &&
     previous.scrollKey === next.scrollKey &&
