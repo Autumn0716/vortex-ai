@@ -215,6 +215,22 @@ function estimateTokenCount(input: string) {
   return Math.max(1, Math.round(cjkCount + latinWordCount + punctuationCount * 0.35));
 }
 
+function formatMetricsTimestamp(value: string) {
+  const date = new Date(value);
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  const hours = `${date.getHours()}`.padStart(2, '0');
+  const minutes = `${date.getMinutes()}`.padStart(2, '0');
+  return `${month}-${day} ${hours}:${minutes}`;
+}
+
+function formatMetricsDuration(durationMs?: number) {
+  if (!durationMs || durationMs <= 0) {
+    return '0.0s';
+  }
+  return `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)}s`;
+}
+
 function buildLangChainMessageContent(message: TopicMessage) {
   if (message.role !== 'user' || !message.attachments?.length) {
     return message.content;
@@ -414,6 +430,12 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         .find((message) => message.role === 'assistant')?.id,
     [workspace?.messages],
   );
+  const latestAssistantMetrics = latestAssistantMessageId
+    ? messageMetricsById[latestAssistantMessageId]
+    : undefined;
+  const composerFooterNotice = latestAssistantMetrics
+    ? `输入 ${latestAssistantMetrics.inputTokens} / 输出 ${latestAssistantMetrics.outputTokens} / 总计 ${latestAssistantMetrics.totalTokens} tokens · 输出 ${formatMetricsDuration(latestAssistantMetrics.streamDurationMs)} · ${formatMetricsTimestamp(latestAssistantMetrics.completedAt)}`
+    : composerNotice || 'FlowAgent can make mistakes. Verify important output before shipping.';
   const enabledSearchProviders = useMemo(
     () => config.search.providers.filter((provider) => provider.enabled),
     [config.search.providers],
@@ -2446,7 +2468,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 text-[11px] text-white/35">
                   <span>{selectedAgent?.name ?? 'Agent'} · Shared knowledge base</span>
-                  <span className="max-w-[70ch] truncate">{composerNotice || 'FlowAgent can make mistakes. Verify important output before shipping.'}</span>
+                  <span className="max-w-[90ch] truncate">{composerFooterNotice}</span>
                 </div>
               </div>
             </div>

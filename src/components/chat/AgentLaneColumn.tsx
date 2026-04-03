@@ -442,21 +442,6 @@ function AgentLaneColumnComponent({
                             </button>
                           </div>
                         ) : null}
-                        {!isUser && metrics ? (
-                          <>
-                            {metrics.reasoningDurationMs != null ? (
-                              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/50">
-                                思考 {formatDuration(metrics.reasoningDurationMs)}
-                              </span>
-                            ) : null}
-                            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/50">
-                              输出 {formatDuration(metrics.streamDurationMs)}
-                            </span>
-                            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/50">
-                              Tokens 上下文 {metrics.inputTokens} / 输出 {metrics.outputTokens} / 总计 {metrics.totalTokens}
-                            </span>
-                          </>
-                        ) : null}
                         {canCopy ? (
                           <button
                             onClick={() => onCopyMessage?.(message)}
