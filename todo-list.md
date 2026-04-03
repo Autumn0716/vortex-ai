@@ -232,5 +232,10 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - 当前工具结果会显式给出 `answer_with_citations / answer_carefully / request_more_evidence` 这类 recommendation，便于模型按证据强弱调整回答力度
 - runtime system prompt 也已补上窄范围 grounding 指令：知识库证据弱时要降级表述，证据强时优先引用标题或来源
 
+进度汇报（2026-04-03，第十七次更新）:
+- 已把图检索从“节点命中 + 一跳邻接”推进到“有界两跳扩展 + 路径证据”
+- 检索结果现在除了 `graphHints / graphExpansionHints`，还会带 `graphPaths`
+- 这样 agent 不只知道命中了哪些术语，还能看到类似 `branch handoff -> parent_topic_id -> review audit record` 这种图谱连接路径，后续继续做 GraphRAG 时可以直接把路径当成可解释证据使用
+
 当前仍待继续：
 - 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开

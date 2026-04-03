@@ -237,6 +237,7 @@ export interface KnowledgeDocumentSupportMetadata {
   matchedTerms?: string[];
   graphHints?: string[];
   graphExpansionHints?: string[];
+  graphPaths?: string[];
   retrievalStage?: 'primary' | 'corrective' | 'hybrid';
 }
 
@@ -250,6 +251,7 @@ interface RetrievedDocumentResult extends KnowledgeDocumentSupportMetadata {
   content: string;
   graphHints?: string[];
   graphExpansionHints?: string[];
+  graphPaths?: string[];
 }
 
 interface DocumentSearchCandidate {
@@ -261,6 +263,7 @@ interface DocumentSearchCandidate {
   graphScore?: number;
   graphHints?: string[];
   graphExpansionHints?: string[];
+  graphPaths?: string[];
 }
 
 export interface KnowledgeDocumentSearchOptions {
@@ -2832,6 +2835,7 @@ function readGraphCandidates(
   graphScore: number;
   graphHints: string[];
   graphExpansionHints: string[];
+  graphPaths: string[];
 }> {
   const queryEntities = extractKnowledgeGraphEntities(query, 8).map((entry) => entry.normalizedEntity);
   if (queryEntities.length === 0) {
@@ -2853,37 +2857,84 @@ function readGraphCandidates(
   const edgeRows = mapRows<{
     source_entity: string;
     target_entity: string;
+    relation: string;
     weight: number;
   }>(
     database.exec(
       `
-        SELECT source_entity, target_entity, weight
+        SELECT source_entity, target_entity, relation, weight
         FROM document_graph_edges
       `,
     ),
   );
 
-  const expandedEntityWeights = new Map<string, number>();
   const queryEntitySet = new Set(queryEntities);
+  const firstHopWeights = new Map<string, number>();
+  const firstHopPaths = new Map<string, string[]>();
+  const pushPath = (target: Map<string, string[]>, entity: string, path: string) => {
+    const current = target.get(entity) ?? [];
+    if (!current.includes(path)) {
+      current.push(path);
+      target.set(entity, current.slice(0, 4));
+    }
+  };
+
   edgeRows.forEach((row) => {
     if (queryEntitySet.has(row.source_entity) && !queryEntitySet.has(row.target_entity)) {
-      expandedEntityWeights.set(
+      firstHopWeights.set(
         row.target_entity,
-        Math.max(expandedEntityWeights.get(row.target_entity) ?? 0, row.weight * 0.45),
+        Math.max(firstHopWeights.get(row.target_entity) ?? 0, row.weight * 0.45),
       );
+      pushPath(firstHopPaths, row.target_entity, `${row.source_entity} -${row.relation}-> ${row.target_entity}`);
     }
     if (queryEntitySet.has(row.target_entity) && !queryEntitySet.has(row.source_entity)) {
-      expandedEntityWeights.set(
+      firstHopWeights.set(
         row.source_entity,
-        Math.max(expandedEntityWeights.get(row.source_entity) ?? 0, row.weight * 0.45),
+        Math.max(firstHopWeights.get(row.source_entity) ?? 0, row.weight * 0.45),
       );
+      pushPath(firstHopPaths, row.source_entity, `${row.target_entity} -${row.relation}-> ${row.source_entity}`);
     }
   });
 
-  const boundedExpandedEntities = [...expandedEntityWeights.entries()]
+  const boundedFirstHopEntities = [...firstHopWeights.entries()]
     .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
     .slice(0, 6);
-  const expandedEntityScores = new Map(boundedExpandedEntities);
+  const firstHopEntityScores = new Map(boundedFirstHopEntities);
+  const firstHopEntitySet = new Set(firstHopEntityScores.keys());
+
+  const secondHopWeights = new Map<string, number>();
+  const secondHopPaths = new Map<string, string[]>();
+  edgeRows.forEach((row) => {
+    const traverse = (sourceEntity: string, targetEntity: string) => {
+      if (!firstHopEntitySet.has(sourceEntity) || queryEntitySet.has(targetEntity) || firstHopEntitySet.has(targetEntity)) {
+        return;
+      }
+      const sourceWeight = firstHopEntityScores.get(sourceEntity) ?? 0;
+      if (sourceWeight <= 0) {
+        return;
+      }
+      secondHopWeights.set(
+        targetEntity,
+        Math.max(secondHopWeights.get(targetEntity) ?? 0, Number((sourceWeight * row.weight * 0.72).toFixed(3))),
+      );
+      const seedPaths = firstHopPaths.get(sourceEntity) ?? [];
+      if (seedPaths.length === 0) {
+        pushPath(secondHopPaths, targetEntity, `${sourceEntity} -${row.relation}-> ${targetEntity}`);
+        return;
+      }
+      seedPaths.forEach((seedPath) => {
+        pushPath(secondHopPaths, targetEntity, `${seedPath} -${row.relation}-> ${targetEntity}`);
+      });
+    };
+
+    traverse(row.source_entity, row.target_entity);
+    traverse(row.target_entity, row.source_entity);
+  });
+
+  const boundedSecondHopEntities = [...secondHopWeights.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, 6);
+  const secondHopEntityScores = new Map(boundedSecondHopEntities);
 
   const rows = mapRows<{
     document_id: string;
@@ -2913,9 +2964,11 @@ function readGraphCandidates(
       title: string;
       content: string;
       directGraphScore: number;
-      expansionGraphScore: number;
+      firstHopGraphScore: number;
+      secondHopGraphScore: number;
       graphHints: string[];
       graphExpansionHints: string[];
+      graphPaths: string[];
     }
   >();
   rows.forEach((row) => {
@@ -2924,8 +2977,9 @@ function readGraphCandidates(
     }
 
     const directMatch = queryEntitySet.has(row.normalized_entity);
-    const expansionWeight = expandedEntityScores.get(row.normalized_entity) ?? 0;
-    if (!directMatch && expansionWeight <= 0) {
+    const firstHopWeight = firstHopEntityScores.get(row.normalized_entity) ?? 0;
+    const secondHopWeight = secondHopEntityScores.get(row.normalized_entity) ?? 0;
+    if (!directMatch && firstHopWeight <= 0 && secondHopWeight <= 0) {
       return;
     }
 
@@ -2934,15 +2988,23 @@ function readGraphCandidates(
       if (directMatch) {
         existing.directGraphScore += row.weight;
       }
-      if (expansionWeight > 0) {
-        existing.expansionGraphScore += expansionWeight;
+      if (firstHopWeight > 0) {
+        existing.firstHopGraphScore += firstHopWeight;
+      }
+      if (secondHopWeight > 0) {
+        existing.secondHopGraphScore += secondHopWeight;
       }
       if (directMatch && !existing.graphHints.includes(row.normalized_entity)) {
         existing.graphHints.push(row.normalized_entity);
       }
-      if (expansionWeight > 0 && !existing.graphExpansionHints.includes(row.normalized_entity)) {
+      if ((firstHopWeight > 0 || secondHopWeight > 0) && !existing.graphExpansionHints.includes(row.normalized_entity)) {
         existing.graphExpansionHints.push(row.normalized_entity);
       }
+      [...(firstHopPaths.get(row.normalized_entity) ?? []), ...(secondHopPaths.get(row.normalized_entity) ?? [])].forEach((path) => {
+        if (!existing.graphPaths.includes(path)) {
+          existing.graphPaths.push(path);
+        }
+      });
       return;
     }
 
@@ -2951,9 +3013,11 @@ function readGraphCandidates(
       title: row.title,
       content: row.content,
       directGraphScore: directMatch ? row.weight : 0,
-      expansionGraphScore: expansionWeight,
+      firstHopGraphScore: firstHopWeight,
+      secondHopGraphScore: secondHopWeight,
       graphHints: directMatch ? [row.normalized_entity] : [],
-      graphExpansionHints: expansionWeight > 0 ? [row.normalized_entity] : [],
+      graphExpansionHints: firstHopWeight > 0 || secondHopWeight > 0 ? [row.normalized_entity] : [],
+      graphPaths: [...(firstHopPaths.get(row.normalized_entity) ?? []), ...(secondHopPaths.get(row.normalized_entity) ?? [])].slice(0, 4),
     });
   });
 
@@ -2964,11 +3028,13 @@ function readGraphCandidates(
         Math.min(
           1,
           entry.directGraphScore / Math.max(1, queryEntities.length) +
-            Math.min(0.35, entry.expansionGraphScore / Math.max(1, expandedEntityScores.size || 1)),
+            Math.min(0.28, entry.firstHopGraphScore / Math.max(1, firstHopEntityScores.size || 1)) +
+            Math.min(0.18, entry.secondHopGraphScore / Math.max(1, secondHopEntityScores.size || 1)),
         ).toFixed(3),
       ),
       graphHints: entry.graphHints.slice(0, 6),
       graphExpansionHints: entry.graphExpansionHints.slice(0, 6),
+      graphPaths: entry.graphPaths.slice(0, 4),
     }))
     .sort((left, right) => right.graphScore - left.graphScore)
     .slice(0, 8);
@@ -2984,6 +3050,7 @@ function mergeDocumentSearchCandidate(
       ...candidate,
       graphHints: [...(candidate.graphHints ?? [])],
       graphExpansionHints: [...(candidate.graphExpansionHints ?? [])],
+      graphPaths: [...(candidate.graphPaths ?? [])],
     });
     return;
   }
@@ -3010,6 +3077,8 @@ function mergeDocumentSearchCandidate(
     ...(candidate.graphExpansionHints ?? []),
   ]);
   existing.graphExpansionHints = [...graphExpansionHints].slice(0, 6);
+  const graphPaths = new Set([...(existing.graphPaths ?? []), ...(candidate.graphPaths ?? [])]);
+  existing.graphPaths = [...graphPaths].slice(0, 4);
 }
 
 async function collectDocumentCandidates(
@@ -3132,6 +3201,7 @@ function shapeRetrievedDocumentResults(
         content: compressedContent,
         graphHints: row.graphHints ?? [],
         graphExpansionHints: row.graphExpansionHints ?? [],
+        graphPaths: row.graphPaths ?? [],
         supportScore: support.score,
         supportLabel: support.label,
         matchedTerms: support.matchedTerms,

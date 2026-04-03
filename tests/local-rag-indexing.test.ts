@@ -439,6 +439,76 @@ test('searchDocumentsInDatabase uses graph-neighborhood expansion to surface sec
 
     assert.ok(neighborResult);
     assert.ok((neighborResult?.graphExpansionHints?.length ?? 0) > 0);
+    assert.ok((neighborResult?.graphPaths?.length ?? 0) > 0);
+  } finally {
+    database.close();
+  }
+});
+
+test('searchDocumentsInDatabase carries two-hop graph paths into results', async () => {
+  const database = await createSearchDatabase();
+
+  try {
+    database.run(`
+      CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        document_id UNINDEXED,
+        title,
+        content
+      );
+    `);
+
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      [
+        'doc_bridge',
+        'Branch Handoff Guide',
+        'Branch handoff uses `parent_topic_id` to route findings to the parent thread.',
+      ],
+    );
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      [
+        'doc_link',
+        'Parent Topic Id Audit Link',
+        '`parent_topic_id` connects to `review_audit_record` entries used for review metadata.',
+      ],
+    );
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      [
+        'doc_target',
+        'Handoff Audit Reference',
+        '`review_audit_record` stores review status for approval workflows.',
+      ],
+    );
+
+    indexDocumentChunks(database, {
+      id: 'doc_bridge',
+      title: 'Branch Handoff Guide',
+      content: 'Branch handoff uses `parent_topic_id` to route findings to the parent thread.',
+    });
+    indexDocumentChunks(database, {
+      id: 'doc_link',
+      title: 'Parent Topic Id Audit Link',
+      content: '`parent_topic_id` connects to `review_audit_record` entries used for review metadata.',
+    });
+    indexDocumentChunks(database, {
+      id: 'doc_target',
+      title: 'Handoff Audit Reference',
+      content: '`review_audit_record` stores review status for approval workflows.',
+    });
+
+    const results = await searchDocumentsInDatabase(database, 'branch handoff');
+    const targetResult = results.find((result) => result.id === 'doc_target');
+
+    assert.ok(targetResult);
+    assert.ok((targetResult?.graphExpansionHints ?? []).includes('review audit record'));
+    assert.ok(
+      (targetResult?.graphPaths ?? []).some(
+        (path) => path.includes('parent topic id') && path.includes('review audit record'),
+      ),
+    );
   } finally {
     database.close();
   }

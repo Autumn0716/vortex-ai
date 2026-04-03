@@ -54,6 +54,7 @@ export function formatKnowledgeBaseToolPayload(results: KnowledgeDocumentSearchR
       graph: {
         directHints: result.graphHints ?? [],
         expansionHints: result.graphExpansionHints ?? [],
+        paths: result.graphPaths ?? [],
       },
     })),
   };

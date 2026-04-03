@@ -19,6 +19,7 @@ test('formatKnowledgeBaseToolPayload returns evidence summary and stable result 
       matchedTerms: ['branch', 'handoff'],
       graphHints: ['branch handoff'],
       graphExpansionHints: ['parent topic id'],
+      graphPaths: ['branch handoff -cooccurs-> parent topic id'],
       retrievalStage: 'hybrid',
     } satisfies KnowledgeDocumentSearchResult,
     {
@@ -42,6 +43,7 @@ test('formatKnowledgeBaseToolPayload returns evidence summary and stable result 
   assert.equal(payload.results[0]?.support.label, 'high');
   assert.equal(payload.results[0]?.retrievalStage, 'hybrid');
   assert.deepEqual(payload.results[0]?.graph.expansionHints, ['parent topic id']);
+  assert.deepEqual(payload.results[0]?.graph.paths, ['branch handoff -cooccurs-> parent topic id']);
 });
 
 test('buildGroundedSystemPrompt appends compact evidence guidance when tools are enabled', () => {
