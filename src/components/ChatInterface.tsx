@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import {
+  House,
   ChevronDown,
   ChevronRight,
   Cloud,
@@ -350,6 +351,12 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     config.providers.find((provider) => provider.id === activeProviderId) ?? null;
   const activeProviderName =
     activeProvider?.name ?? 'Model';
+  const activeProviderProtocolLabel =
+    activeProvider?.protocol === 'openai_responses_compatible'
+      ? 'Responses'
+      : activeProvider?.protocol === 'anthropic_native'
+        ? 'Anthropic'
+        : 'Chat';
   const activeModel = workspace?.runtime.model ?? workspace?.agent.model ?? config.activeModel;
   const activeModelFeatures = workspace?.runtime.modelFeatures ?? getDefaultTopicModelFeatures();
   const isResponsesProvider = activeProvider?.protocol === 'openai_responses_compatible';
@@ -1586,12 +1593,13 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       />
 
       <div className="z-30 flex w-16 flex-shrink-0 flex-col items-center gap-4 border-r border-white/5 bg-[#0A0A0F] py-4">
-        <div
-          className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-gradient-brand font-bold text-white shadow-lg"
+        <button
           onClick={onBack}
+          className="group flex h-10 w-10 items-center justify-center rounded-full bg-gradient-brand text-white shadow-lg transition-transform hover:scale-[1.03]"
+          title="返回主页"
         >
-          FA
-        </div>
+          <House size={17} className="transition-transform group-hover:-translate-y-[1px]" />
+        </button>
 
         <button
           onClick={() => setActiveTab('chat')}
@@ -1905,6 +1913,15 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
               <div className="flex items-center gap-2">
                 <button
+                  onClick={onBack}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/72 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <span className="flex items-center gap-2">
+                    <House size={14} />
+                    主页
+                  </span>
+                </button>
+                <button
                   onClick={() => {
                     if (workspace) {
                       handleOpenSessionSettings();
@@ -1918,6 +1935,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                     {activeProviderName}
                     {' · '}
                     {activeModel}
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-black/20 px-1.5 py-0.5 text-[10px] text-white/55">
+                    {activeProviderProtocolLabel}
                   </span>
                   <ChevronDown size={14} className="text-white/45" />
                 </button>

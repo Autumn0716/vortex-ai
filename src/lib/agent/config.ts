@@ -546,11 +546,19 @@ function mergeProvider(defaultProvider: ModelProvider, provider?: Partial<ModelP
 }
 
 function inferProviderProtocol(
-  provider: Partial<Pick<ModelProvider, 'protocol' | 'baseUrl' | 'type'>> | undefined,
+  provider: Partial<Pick<ModelProvider, 'id' | 'name' | 'protocol' | 'baseUrl' | 'type'>> | undefined,
   fallback: ProviderProtocol,
 ): ProviderProtocol {
   if (provider?.protocol) {
     return provider.protocol;
+  }
+
+  const normalizedIdentity = `${provider?.id ?? ''} ${provider?.name ?? ''}`.toLowerCase();
+  if (/\bresponses\b/.test(normalizedIdentity)) {
+    return 'openai_responses_compatible';
+  }
+  if (/\bchat\b/.test(normalizedIdentity)) {
+    return 'openai_chat_compatible';
   }
 
   const normalizedBaseUrl = provider?.baseUrl?.trim().replace(/\/+$/, '').toLowerCase() ?? '';

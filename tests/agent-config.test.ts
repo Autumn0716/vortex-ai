@@ -225,3 +225,24 @@ test('normalizeAgentConfig preserves explicitly saved provider protocol values',
     'openai_responses_compatible',
   );
 });
+
+test('normalizeAgentConfig infers responses protocol from provider id or name when legacy protocol field is missing', () => {
+  const config = normalizeAgentConfig({
+    providers: [
+      {
+        id: 'custom_qwen_responses_abc123',
+        name: 'Qwen · Responses',
+        enabled: true,
+        apiKey: 'test',
+        baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        models: ['qwen-plus'],
+        type: 'custom_openai',
+      },
+    ],
+  } as Partial<AgentConfig>);
+
+  assert.equal(
+    config.providers.find((provider) => provider.id === 'custom_qwen_responses_abc123')?.protocol,
+    'openai_responses_compatible',
+  );
+});
