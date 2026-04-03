@@ -942,6 +942,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       }
 
       try {
+        await refreshLibrary();
         await bootstrapWorkspace();
       } finally {
         if (!cancelled) {
