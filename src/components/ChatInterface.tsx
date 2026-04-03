@@ -1913,15 +1913,6 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={onBack}
-                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/72 transition-colors hover:bg-white/10 hover:text-white"
-                >
-                  <span className="flex items-center gap-2">
-                    <House size={14} />
-                    主页
-                  </span>
-                </button>
-                <button
                   onClick={() => {
                     if (workspace) {
                       handleOpenSessionSettings();
