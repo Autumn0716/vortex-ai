@@ -220,6 +220,51 @@ function estimateTokenCount(input: string) {
   return Math.max(1, Math.round(cjkCount + latinWordCount + punctuationCount * 0.35));
 }
 
+function stringifyMessageForEstimate(message: TopicMessage) {
+  const attachmentSummary = message.attachments?.length
+    ? message.attachments
+        .map((attachment) => {
+          const estimatedImageTokens = Math.max(
+            256,
+            Math.min(2000, Math.round((attachment.dataUrl?.length ?? 0) / 24)),
+          );
+          return `[image:${attachment.name || attachment.mimeType || 'attachment'} ~${estimatedImageTokens} tokens]`;
+        })
+        .join(' ')
+    : '';
+  return [message.role.toUpperCase(), message.content, attachmentSummary].filter(Boolean).join(' ');
+}
+
+function buildToolContextEstimate(input: {
+  requestMode: 'chat' | 'responses';
+  webSearchEnabled: boolean;
+  responsesTools: TopicModelFeatures['responsesTools'];
+  enableCustomFunctionCalling: boolean;
+}) {
+  if (input.requestMode === 'responses') {
+    const tools: string[] = [];
+    if (input.responsesTools.webSearch) tools.push('web_search');
+    if (input.responsesTools.webSearchImage) tools.push('web_search_image');
+    if (input.responsesTools.webExtractor) tools.push('web_extractor');
+    if (input.responsesTools.codeInterpreter) tools.push('code_interpreter');
+    if (input.responsesTools.imageSearch) tools.push('image_search');
+    if (input.responsesTools.mcp) tools.push('mcp');
+    if (input.enableCustomFunctionCalling) {
+      tools.push('function:search_knowledge_base', 'function:execute_code');
+      if (input.webSearchEnabled) {
+        tools.push('function:search_web');
+      }
+    }
+    return tools.length ? `TOOLS ${tools.join(' ')}` : '';
+  }
+
+  const tools = ['search_knowledge_base', 'execute_code'];
+  if (input.webSearchEnabled) {
+    tools.push('search_web');
+  }
+  return `TOOLS ${tools.join(' ')}`;
+}
+
 function formatMetricsTimestamp(value: string) {
   const date = new Date(value);
   const month = `${date.getMonth() + 1}`.padStart(2, '0');
@@ -1518,13 +1563,27 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           .filter(Boolean)
           .join('\n\n'),
       });
+      const toolContextEstimate = buildToolContextEstimate({
+        requestMode: runtimeRequestMode,
+        webSearchEnabled: composerWebSearchEnabled,
+        responsesTools: modelFeatures.responsesTools,
+        enableCustomFunctionCalling: modelFeatures.enableCustomFunctionCalling,
+      });
       aggregatedInputText = [
         configSnapshot.systemPrompt,
         memoryContext,
         skillContext,
         workspaceSnapshot.runtime.systemPrompt,
-        ...messageHistory.map((message) => message.content),
+        toolContextEstimate,
+        ...messageHistory.map((message) => stringifyMessageForEstimate(message)),
         userContent,
+        ...composerImageAttachments.map(
+          (attachment) =>
+            `[current-image:${attachment.name || attachment.mimeType || 'attachment'} ~${Math.max(
+              256,
+              Math.min(2000, Math.round((attachment.dataUrl?.length ?? 0) / 24)),
+            )} tokens]`,
+        ),
       ]
         .filter(Boolean)
         .join('\n');
