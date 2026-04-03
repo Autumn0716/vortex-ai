@@ -271,11 +271,19 @@ export async function inspectOfficialModelMetadata(
     return null;
   }
 
-  return requestApi<OfficialModelMetadataResponse>(
-    settings,
-    `/api/model-inspector?providerName=${encodeURIComponent(providerName)}&model=${encodeURIComponent(model)}`,
-    {},
-  );
+  try {
+    return await requestApi<OfficialModelMetadataResponse>(
+      settings,
+      `/api/model-inspector?providerName=${encodeURIComponent(providerName)}&model=${encodeURIComponent(model)}`,
+      {},
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('HTTP 404')) {
+      throw new Error('当前本地 API Server 版本过旧，缺少 /api/model-inspector。请重启 `npm run api-server` 或 `npm run dev`。');
+    }
+    throw error;
+  }
 }
 
 function createMemoryTemplate(agentName: string) {

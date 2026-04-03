@@ -71,6 +71,7 @@ import {
   ensureAgentMemoryFile,
   getApiServerHealth,
   getNightlyArchiveStatus,
+  inspectOfficialModelMetadata,
   listAgentMemoryFiles,
   readAgentMemoryFile,
   resolveApiServerBaseUrl,
@@ -79,6 +80,7 @@ import {
   writeAgentMemoryFile,
   type AgentMemoryFileEntry,
   type NightlyArchiveStatus,
+  type OfficialModelMetadataResponse,
 } from '../../lib/agent-memory-api';
 import {
   buildModelGroups,
@@ -318,6 +320,14 @@ function downloadText(content: string, filename: string) {
   downloadBlob(new Blob([content], { type: 'text/markdown;charset=utf-8' }), filename);
 }
 
+function formatInspectorTokenValue(value?: number) {
+  return value ? value.toLocaleString() : '未识别';
+}
+
+function formatInspectorPriceValue(value?: number) {
+  return value != null ? `${value} 元 / 1M` : '未识别';
+}
+
 async function readFileAsText(file: File) {
   return file.text();
 }
@@ -457,6 +467,9 @@ export const SettingsView = ({
   const [collapsedModelSeries, setCollapsedModelSeries] = useState<Record<string, boolean>>({});
   const [stats, setStats] = useState<DataStats | null>(null);
   const [providerChecks, setProviderChecks] = useState<Record<string, string>>({});
+  const [providerModelMetadata, setProviderModelMetadata] = useState<
+    Record<string, Record<string, OfficialModelMetadataResponse>>
+  >({});
   const [providerLoadingId, setProviderLoadingId] = useState<string | null>(null);
   const [showAddProviderDialog, setShowAddProviderDialog] = useState(false);
   const [addProviderDraft, setAddProviderDraft] = useState<AddProviderDraft>({
@@ -655,6 +668,9 @@ export const SettingsView = ({
   );
 
   const activeProvider = draft.providers.find((provider) => provider.id === activeProviderId);
+  const activeProviderModelMetadata = activeProvider
+    ? providerModelMetadata[activeProvider.id] ?? {}
+    : {};
   const activeSearchProvider = draft.search.providers.find(
     (provider) => provider.id === activeSearchProviderId,
   );
@@ -1049,45 +1065,76 @@ export const SettingsView = ({
     );
   };
 
-  const validateProviderConfig = async (provider: ModelProvider) => {
-    if (!provider.apiKey.trim()) {
+  const inspectProviderModels = async (provider: ModelProvider) => {
+    if (!draft.apiServer.enabled) {
       setProviderChecks((current) => ({
         ...current,
-        [provider.id]: '尚未配置 API Key。',
+        [provider.id]: '需要先启用本地 API Server，模型检测才能抓取官方规格。',
       }));
       return;
     }
 
-    const candidates = buildProviderModelListCandidates(provider);
-    if (candidates.length === 0) {
+    if (provider.models.length === 0) {
       setProviderChecks((current) => ({
         ...current,
-        [provider.id]: '请先填写 API 地址。',
+        [provider.id]: '当前厂商还没有入库模型，先获取或添加模型后再检测。',
       }));
       return;
     }
 
-    const response = await fetch(candidates[0]!, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${provider.apiKey.trim()}`,
-        'Content-Type': 'application/json',
-      },
-    }).catch((error: Error) => {
-      throw new Error(error.message);
-    });
-
-    const payload = await response.json().catch(() => ({}));
-    const summary = response.ok
-      ? `连接成功，当前记录 ${provider.models.length} 个模型。`
-      : `${response.status} ${response.statusText} · ${
-          payload?.error?.message || payload?.message || '请求失败'
-        }`;
-
+    setProviderLoadingId(provider.id);
     setProviderChecks((current) => ({
       ...current,
-      [provider.id]: summary,
+      [provider.id]: `正在检测 ${provider.models.length} 个模型的规格与费用信息...`,
     }));
+
+    const nextResults: Record<string, OfficialModelMetadataResponse> = {};
+    let successCount = 0;
+    let failureCount = 0;
+    let firstError = '';
+
+    for (const model of provider.models) {
+      try {
+        const result = await inspectOfficialModelMetadata(draft.apiServer, provider.name, model);
+        if (
+          result &&
+          (
+            result.contextWindow ||
+            result.maxInputTokens ||
+            result.longestReasoningTokens ||
+            result.maxOutputTokens ||
+            result.inputCostPerMillion != null ||
+            result.outputCostPerMillion != null
+          )
+        ) {
+          nextResults[model] = result;
+          successCount += 1;
+        } else {
+          failureCount += 1;
+          if (!firstError) {
+            firstError = `${model} 未识别到有效规格字段`;
+          }
+        }
+      } catch (error) {
+        failureCount += 1;
+        if (!firstError) {
+          firstError = error instanceof Error ? error.message : `${model} 检测失败`;
+        }
+      }
+    }
+
+    setProviderModelMetadata((current) => ({
+      ...current,
+      [provider.id]: nextResults,
+    }));
+    setProviderChecks((current) => ({
+      ...current,
+      [provider.id]:
+        failureCount === 0
+          ? `模型检测完成：已识别 ${successCount} / ${provider.models.length} 个模型。`
+          : `模型检测完成：已识别 ${successCount} / ${provider.models.length} 个模型；失败 ${failureCount} 个。${firstError ? ` ${firstError}` : ''}`,
+    }));
+    setProviderLoadingId(null);
   };
 
   const addMcpServer = async (template?: (typeof MCP_LIBRARY)[number]) => {
@@ -3451,10 +3498,10 @@ export const SettingsView = ({
                               </button>
                             </div>
                             <button
-                              onClick={() => validateProviderConfig(activeProvider)}
+                              onClick={() => inspectProviderModels(activeProvider)}
                               className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
                             >
-                              检测
+                              模型检测
                             </button>
                           </div>
                           <p className="mt-2 text-right text-[11px] text-white/40">多个密钥可用逗号分隔</p>
@@ -3556,6 +3603,72 @@ export const SettingsView = ({
                             />
                           </div>
                         </div>
+
+                        {Object.keys(activeProviderModelMetadata).length > 0 ? (
+                          <div className="space-y-3 rounded-2xl border border-sky-400/12 bg-sky-400/[0.04] p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-medium text-white/90">已检测模型规格</div>
+                                <div className="text-[11px] text-white/45">
+                                  当前厂商已识别 {Object.keys(activeProviderModelMetadata).length} / {activeProvider.models.length} 个模型。
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="space-y-3">
+                              {activeProvider.models.map((model) => {
+                                const metadata = activeProviderModelMetadata[model];
+                                if (!metadata) {
+                                  return null;
+                                }
+
+                                return (
+                                  <div
+                                    key={`${activeProvider.id}-${model}`}
+                                    className="rounded-2xl border border-white/8 bg-black/20 p-3"
+                                  >
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                      <div>
+                                        <div className="text-sm font-medium text-white/90">{model}</div>
+                                        <div className="mt-1 text-[11px] text-white/45">
+                                          {metadata.providerName}
+                                          {metadata.versionLabel ? ` · ${metadata.versionLabel}` : ''}
+                                          {metadata.modeLabel ? ` · ${metadata.modeLabel}` : ''}
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        {[
+                                          `上下文 ${formatInspectorTokenValue(metadata.contextWindow)}`,
+                                          `最大输入 ${formatInspectorTokenValue(metadata.maxInputTokens)}`,
+                                          metadata.longestReasoningTokens
+                                            ? `思维链 ${formatInspectorTokenValue(metadata.longestReasoningTokens)}`
+                                            : null,
+                                          `最大输出 ${formatInspectorTokenValue(metadata.maxOutputTokens)}`,
+                                          `输入 ${formatInspectorPriceValue(metadata.inputCostPerMillion)}`,
+                                          `输出 ${formatInspectorPriceValue(metadata.outputCostPerMillion)}`,
+                                        ]
+                                          .filter(Boolean)
+                                          .map((label) => (
+                                            <span
+                                              key={label}
+                                              className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-white/65"
+                                            >
+                                              {label}
+                                            </span>
+                                          ))}
+                                      </div>
+                                    </div>
+                                    {metadata.pricingNote ? (
+                                      <div className="mt-3 text-[11px] leading-5 text-white/52">
+                                        {metadata.pricingNote}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : null}
 
                         {modelGroups.groups.length === 0 ? (
                           <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-8 text-center text-sm text-white/40">

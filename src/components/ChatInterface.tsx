@@ -389,6 +389,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [modelInspectorLoading, setModelInspectorLoading] = useState(false);
   const [modelInspectorError, setModelInspectorError] = useState('');
   const [modelInspectorResult, setModelInspectorResult] = useState<OfficialModelMetadataResponse | null>(null);
+  const [modelMetadataCache, setModelMetadataCache] = useState<Record<string, OfficialModelMetadataResponse>>({});
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [modelPickerTarget, setModelPickerTarget] = useState<ModelPickerTarget>('global');
   const [settingsInitialCategory, setSettingsInitialCategory] =
@@ -486,7 +487,13 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     ? messageMetricsById[latestAssistantMessageId]
     : undefined;
   const currentContextTokens = activeRunState?.currentInputTokens ?? latestAssistantMetrics?.inputTokens;
-  const composerFooterNotice = composerNotice || 'FlowAgent can make mistakes. Verify important output before shipping.';
+  const activeModelMetadataKey = `${activeProviderName}::${activeModel}`.toLowerCase();
+  const activeModelMetadata = modelMetadataCache[activeModelMetadataKey] ?? null;
+  const currentContextWindow = activeModelMetadata?.contextWindow;
+  const currentContextUsagePercentage =
+    currentContextTokens && currentContextWindow
+      ? Math.min(100, (currentContextTokens / currentContextWindow) * 100)
+      : null;
   const officialModelResourceLinks = useMemo(
     () => getOfficialModelResourceLinks(activeProviderName, activeModel),
     [activeModel, activeProviderName],
@@ -1108,6 +1115,23 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         activeProviderName,
         activeModel,
       );
+      if (
+        !result ||
+        !(
+          result.contextWindow ||
+          result.maxInputTokens ||
+          result.longestReasoningTokens ||
+          result.maxOutputTokens ||
+          result.inputCostPerMillion != null ||
+          result.outputCostPerMillion != null
+        )
+      ) {
+        throw new Error('没有从官方页面识别到可用的模型规格信息，请检查该厂商页面结构或稍后重试。');
+      }
+      setModelMetadataCache((current) => ({
+        ...current,
+        [`${result.providerName}::${result.model}`.toLowerCase()]: result,
+      }));
       setModelInspectorResult(result);
     } catch (error) {
       setModelInspectorError(error instanceof Error ? error.message : '模型检测失败。');
@@ -1874,6 +1898,47 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     });
   }, [config.search.defaultProviderId, enabledSearchProviders]);
 
+  useEffect(() => {
+    if (!config.apiServer.enabled || !activeProviderName || !activeModel) {
+      return;
+    }
+
+    const cacheKey = `${activeProviderName}::${activeModel}`.toLowerCase();
+    if (modelMetadataCache[cacheKey]) {
+      return;
+    }
+
+    let cancelled = false;
+    void inspectOfficialModelMetadataViaApi(config.apiServer, activeProviderName, activeModel)
+      .then((result) => {
+        if (
+          cancelled ||
+          !result ||
+          !(
+            result.contextWindow ||
+            result.maxInputTokens ||
+            result.longestReasoningTokens ||
+            result.maxOutputTokens ||
+            result.inputCostPerMillion != null ||
+            result.outputCostPerMillion != null
+          )
+        ) {
+          return;
+        }
+        setModelMetadataCache((current) => ({
+          ...current,
+          [cacheKey]: result,
+        }));
+      })
+      .catch(() => {
+        // Keep footer silent; explicit errors are shown in the inspector dialog.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeModel, activeProviderName, config.apiServer, modelMetadataCache]);
+
   return (
     <div className="app-shell relative z-10 flex h-screen w-full overflow-hidden font-sans text-white">
       <input
@@ -2633,11 +2698,17 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 text-[11px] text-white/35">
                   <span>{selectedAgent?.name ?? 'Agent'} · Shared knowledge base</span>
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className="max-w-[60ch] truncate">{composerFooterNotice}</span>
                     {currentContextTokens != null ? (
                       <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/58">
-                        当前上下文 {currentContextTokens} tokens
+                        当前会话上下文 {currentContextTokens.toLocaleString()} tokens
+                        {currentContextWindow ? ` / ${currentContextWindow.toLocaleString()}` : ''}
+                        {currentContextUsagePercentage != null
+                          ? ` · ${currentContextUsagePercentage.toFixed(currentContextUsagePercentage >= 10 ? 0 : 1)}%`
+                          : ''}
                       </span>
+                    ) : null}
+                    {composerNotice ? (
+                      <span className="max-w-[60ch] truncate">{composerNotice}</span>
                     ) : null}
                   </div>
                 </div>
