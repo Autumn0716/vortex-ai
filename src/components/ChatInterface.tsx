@@ -232,6 +232,40 @@ function formatMetricsDuration(durationMs?: number) {
   return `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)}s`;
 }
 
+interface OfficialModelResourceLink {
+  label: string;
+  href: string;
+}
+
+function getOfficialModelResourceLinks(providerName: string, model: string): OfficialModelResourceLink[] {
+  const normalizedProvider = providerName.toLowerCase();
+  const normalizedModel = model.toLowerCase();
+
+  if (normalizedProvider.includes('openai') || normalizedModel.startsWith('gpt') || normalizedModel.startsWith('o1') || normalizedModel.startsWith('o3') || normalizedModel.startsWith('o4')) {
+    return [
+      { label: '官方模型页', href: 'https://platform.openai.com/docs/models' },
+      { label: '官方价格页', href: 'https://platform.openai.com/docs/pricing/' },
+      { label: '模型对比页', href: 'https://platform.openai.com/docs/models/compare' },
+    ];
+  }
+
+  if (normalizedProvider.includes('anthropic') || normalizedModel.startsWith('claude')) {
+    return [
+      { label: '官方模型页', href: 'https://docs.anthropic.com/en/docs/about-claude/models' },
+      { label: 'Token 统计说明', href: 'https://docs.anthropic.com/en/docs/build-with-claude/token-counting' },
+    ];
+  }
+
+  if (normalizedProvider.includes('qwen') || normalizedProvider.includes('dashscope') || normalizedModel.startsWith('qwen')) {
+    return [
+      { label: '官方模型页', href: 'https://help.aliyun.com/zh/model-studio/models' },
+      { label: 'Responses 兼容说明', href: 'https://www.alibabacloud.com/help/en/model-studio/compatibility-with-openai-responses-api' },
+    ];
+  }
+
+  return [];
+}
+
 function buildLangChainMessageContent(message: TopicMessage) {
   if (message.role !== 'user' || !message.attachments?.length) {
     return message.content;
@@ -271,6 +305,7 @@ interface TopicRunState {
   reasoningContent?: string;
   turnStartedAt?: number;
   reasoningStartedAt?: number;
+  currentInputTokens?: number;
 }
 
 interface MessageRunMetrics {
@@ -434,11 +469,12 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const latestAssistantMetrics = latestAssistantMessageId
     ? messageMetricsById[latestAssistantMessageId]
     : undefined;
-  const currentContextTokens =
-    activeRunState?.draftAssistantMessage || activeRunState?.isGenerating
-      ? latestAssistantMetrics?.inputTokens
-      : latestAssistantMetrics?.inputTokens;
+  const currentContextTokens = activeRunState?.currentInputTokens ?? latestAssistantMetrics?.inputTokens;
   const composerFooterNotice = composerNotice || 'FlowAgent can make mistakes. Verify important output before shipping.';
+  const officialModelResourceLinks = useMemo(
+    () => getOfficialModelResourceLinks(activeProviderName, activeModel),
+    [activeModel, activeProviderName],
+  );
   const enabledSearchProviders = useMemo(
     () => config.search.providers.filter((provider) => provider.enabled),
     [config.search.providers],
@@ -533,6 +569,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         reasoningContent: next.reasoningContent ?? '',
         turnStartedAt: next.turnStartedAt,
         reasoningStartedAt: next.reasoningStartedAt,
+        currentInputTokens: next.currentInputTokens,
       };
 
       if (
@@ -542,7 +579,8 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         !merged.reasoningPreview &&
         !merged.reasoningContent &&
         !merged.turnStartedAt &&
-        !merged.reasoningStartedAt
+        !merged.reasoningStartedAt &&
+        !merged.currentInputTokens
       ) {
         if (!(topicId in previous)) {
           return previous;
@@ -1273,6 +1311,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       reasoningContent: '',
       turnStartedAt: Date.now(),
       reasoningStartedAt: undefined,
+      currentInputTokens: undefined,
     }));
     await addTopicMessages([userMessage]);
     await maybeAutoTitleTopic(workspaceSnapshot.topic.id, userContent);
@@ -1429,6 +1468,17 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       ]
         .filter(Boolean)
         .join('\n');
+      const estimatedCurrentInputTokens = estimateTokenCount(aggregatedInputText);
+      setTopicRunState(workspaceSnapshot.topic.id, (previous) => ({
+        isGenerating: true,
+        composerNotice: previous?.composerNotice ?? '',
+        draftAssistantMessage: previous?.draftAssistantMessage,
+        reasoningPreview: previous?.reasoningPreview ?? '',
+        reasoningContent: previous?.reasoningContent ?? '',
+        turnStartedAt: previous?.turnStartedAt ?? turnStartedAt,
+        reasoningStartedAt: previous?.reasoningStartedAt,
+        currentInputTokens: estimatedCurrentInputTokens,
+      }));
 
       const stream = await runtime.stream(
         { messages: lcMessages },
@@ -1448,6 +1498,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             reasoningContent: `${previous?.reasoningContent ?? ''}${event.delta}`,
             turnStartedAt: previous?.turnStartedAt ?? turnStartedAt,
             reasoningStartedAt: previous?.reasoningStartedAt ?? nextReasoningStartedAt,
+            currentInputTokens: previous?.currentInputTokens ?? estimatedCurrentInputTokens,
           }));
           continue;
         }
@@ -1492,6 +1543,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
           reasoningContent: previous?.reasoningContent ?? '',
           turnStartedAt: previous?.turnStartedAt ?? turnStartedAt,
           reasoningStartedAt: previous?.reasoningStartedAt,
+          currentInputTokens: previous?.currentInputTokens ?? estimatedCurrentInputTokens,
         }));
         setWorkspace((previous) =>
           previous?.topic.id === workspaceSnapshot.topic.id
@@ -1645,6 +1697,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       reasoningContent: '',
       turnStartedAt: Date.now(),
       reasoningStartedAt: undefined,
+      currentInputTokens: undefined,
     }));
 
     await executeAssistantTurn({
@@ -3039,16 +3092,43 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       <div className="mt-2 text-sm text-white/85">
                         {activeProviderName} · {activeModel}
                       </div>
+                      {officialModelResourceLinks.length ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {officialModelResourceLinks.map((link) => (
+                            <a
+                              key={link.href}
+                              href={link.href}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/65 transition-colors hover:bg-white/10 hover:text-white"
+                            >
+                              {link.label}
+                            </a>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                    <button
-                      onClick={() => {
-                        setShowModelFeaturesDialog(false);
-                        handleOpenSessionSettings();
-                      }}
-                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/85 transition-colors hover:bg-white/10"
-                    >
-                      去会话设置切换模型
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setShowModelFeaturesDialog(false);
+                          handleOpenSessionSettings();
+                        }}
+                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/85 transition-colors hover:bg-white/10"
+                      >
+                        去会话设置切换模型
+                      </button>
+                      {officialModelResourceLinks[0] ? (
+                        <a
+                          href={officialModelResourceLinks[0].href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-xl border border-sky-400/20 bg-sky-400/10 px-3 py-2 text-sm text-sky-100 transition-colors hover:bg-sky-400/15"
+                        >
+                          模型检测
+                        </a>
+                      ) : null}
+                    </div>
                   </div>
 
                   {isResponsesProvider ? (
