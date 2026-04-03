@@ -34,6 +34,7 @@ import {
   createBranchTopicFromTopic,
   createQuickTopic,
   createTopic,
+  deleteTopicMessage,
   deleteAgentMemoryDocument,
   ensureAgentWorkspaceBootstrap,
   getAgentMemoryContext,
@@ -433,9 +434,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const latestAssistantMetrics = latestAssistantMessageId
     ? messageMetricsById[latestAssistantMessageId]
     : undefined;
-  const composerFooterNotice = latestAssistantMetrics
-    ? `输入 ${latestAssistantMetrics.inputTokens} / 输出 ${latestAssistantMetrics.outputTokens} / 总计 ${latestAssistantMetrics.totalTokens} tokens · 输出 ${formatMetricsDuration(latestAssistantMetrics.streamDurationMs)} · ${formatMetricsTimestamp(latestAssistantMetrics.completedAt)}`
-    : composerNotice || 'FlowAgent can make mistakes. Verify important output before shipping.';
+  const currentContextTokens =
+    activeRunState?.draftAssistantMessage || activeRunState?.isGenerating
+      ? latestAssistantMetrics?.inputTokens
+      : latestAssistantMetrics?.inputTokens;
+  const composerFooterNotice = composerNotice || 'FlowAgent can make mistakes. Verify important output before shipping.';
   const enabledSearchProviders = useMemo(
     () => config.search.providers.filter((provider) => provider.enabled),
     [config.search.providers],
@@ -1681,6 +1684,59 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     }
   };
 
+  const handleDeleteAssistantMessage = async (message: TopicMessage) => {
+    if (!workspace || message.role !== 'assistant') {
+      return;
+    }
+
+    setWorkspace((previous) => {
+      if (!previous || previous.topic.id !== workspace.topic.id) {
+        return previous;
+      }
+
+      const nextMessages = previous.messages.filter((entry) => entry.id !== message.id);
+      const lastMessage = nextMessages[nextMessages.length - 1];
+      return {
+        ...previous,
+        messages: nextMessages,
+        topic: {
+          ...previous.topic,
+          preview:
+            lastMessage?.content.replace(/\s+/g, ' ').trim() || previous.topic.preview,
+          updatedAt: new Date().toISOString(),
+          lastMessageAt: lastMessage?.createdAt ?? previous.topic.lastMessageAt,
+          messageCount: nextMessages.length,
+        },
+      };
+    });
+    setMessageMetricsById((previous) => {
+      if (!(message.id in previous)) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[message.id];
+      return next;
+    });
+    setMessageReasoningById((previous) => {
+      if (!(message.id in previous)) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[message.id];
+      return next;
+    });
+
+    try {
+      await deleteTopicMessage(message.id);
+      await hydrateTopic(workspace.topic.id);
+      setShellNotice('Assistant message deleted.');
+    } catch (error) {
+      console.error('Failed to delete assistant message:', error);
+      await hydrateTopic(workspace.topic.id);
+      setShellNotice('Delete failed. Restored current topic state.');
+    }
+  };
+
   const enabledProviders = config.providers.filter((provider) => provider.enabled);
   const filteredModelPickerProviders = useMemo(
     () => buildProviderGroups(enabledProviders, modelPickerProviderQuery),
@@ -2223,6 +2279,13 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                       scrollKey={workspace.topic.id}
                       latestAssistantMessageId={latestAssistantMessageId}
                       onCopyMessage={handleCopyMessage}
+                      onDeleteAssistantMessage={(messageId) => {
+                        const targetMessage = workspace.messages.find((entry) => entry.id === messageId);
+                        if (!targetMessage) {
+                          return;
+                        }
+                        handleDeleteAssistantMessage(targetMessage).catch(console.error);
+                      }}
                       onRegenerateAssistantMessage={(messageId) => {
                         const targetMessage = workspace.messages.find((entry) => entry.id === messageId);
                         if (!targetMessage) {
@@ -2468,7 +2531,14 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                 </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 text-[11px] text-white/35">
                   <span>{selectedAgent?.name ?? 'Agent'} · Shared knowledge base</span>
-                  <span className="max-w-[90ch] truncate">{composerFooterNotice}</span>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="max-w-[60ch] truncate">{composerFooterNotice}</span>
+                    {currentContextTokens != null ? (
+                      <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/58">
+                        当前上下文 {currentContextTokens} tokens
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
               </div>
             </div>

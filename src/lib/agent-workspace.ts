@@ -2353,6 +2353,76 @@ export async function addTopicMessages(messages: TopicMessageInput[]): Promise<v
   await persistAndMaybeRebuildFts(database);
 }
 
+export async function deleteTopicMessage(messageId: string): Promise<void> {
+  const database = await ensureAgentSchema();
+  const messageRow = mapRows<{
+    id: string;
+    topic_id: string;
+    created_at: string;
+  }>(
+    database.exec(
+      `
+        SELECT id, topic_id, created_at
+        FROM topic_messages
+        WHERE id = ?
+      `,
+      [messageId],
+    ),
+  )[0];
+
+  if (!messageRow) {
+    return;
+  }
+
+  database.run('BEGIN');
+  try {
+    database.run('DELETE FROM topic_messages WHERE id = ?', [messageId]);
+
+    const topicMeta = mapRows<{
+      last_message_at: string | null;
+      preview: string | null;
+    }>(
+      database.exec(
+        `
+          SELECT
+            MAX(created_at) AS last_message_at,
+            (
+              SELECT TRIM(content)
+              FROM topic_messages
+              WHERE topic_id = ?
+              ORDER BY created_at DESC
+              LIMIT 1
+            ) AS preview
+          FROM topic_messages
+          WHERE topic_id = ?
+        `,
+        [messageRow.topic_id, messageRow.topic_id],
+      ),
+    )[0];
+
+    const nextLastMessageAt = topicMeta?.last_message_at ?? nowIso();
+    const nextPreview = formatTopicPreview(topicMeta?.preview ?? '') || DEFAULT_TOPIC_PREVIEW;
+    database.run(
+      `
+        UPDATE topics
+        SET
+          updated_at = ?,
+          last_message_at = ?,
+          preview = ?
+        WHERE id = ?
+      `,
+      [nowIso(), nextLastMessageAt, nextPreview, messageRow.topic_id],
+    );
+
+    database.run('COMMIT');
+  } catch (error) {
+    database.run('ROLLBACK');
+    throw error;
+  }
+
+  await persistAndMaybeRebuildFts(database);
+}
+
 export async function maybeAutoTitleTopic(topicId: string, input: string): Promise<void> {
   const database = await ensureAgentSchema();
   const topic = mapRows<{ title_source: string; title: string }>(

@@ -1,7 +1,7 @@
 import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, ChevronDown, ChevronLeft, ChevronRight, Copy, RefreshCcw, User, Zap } from 'lucide-react';
+import { Bot, ChevronDown, ChevronLeft, ChevronRight, Copy, RefreshCcw, Trash2, User, Zap } from 'lucide-react';
 import type { StoredToolRun } from '../../lib/db';
 import type { TopicMessageAttachment } from '../../lib/agent-workspace';
 import { estimateMessageCardHeight } from '../../lib/pretext';
@@ -75,6 +75,7 @@ export interface AgentLaneColumnProps {
   scrollKey?: string;
   latestAssistantMessageId?: string;
   onCopyMessage?: (message: MessageLike) => void;
+  onDeleteAssistantMessage?: (messageId: string) => void;
   onRegenerateAssistantMessage?: (messageId: string) => void;
 }
 
@@ -152,6 +153,7 @@ function AgentLaneColumnComponent({
   scrollKey,
   latestAssistantMessageId,
   onCopyMessage,
+  onDeleteAssistantMessage,
   onRegenerateAssistantMessage,
 }: AgentLaneColumnProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -378,6 +380,7 @@ function AgentLaneColumnComponent({
                 message.id === latestAssistantMessageId &&
                 typeof onRegenerateAssistantMessage === 'function';
               const canCopy = typeof onCopyMessage === 'function';
+              const canDelete = !isUser && typeof onDeleteAssistantMessage === 'function';
               const reasoningText = !isUser ? messageReasoningById[message.id] ?? '' : '';
               const metrics = !isUser ? messageMetricsById[message.id] : undefined;
               const reasoningCollapsed = collapsedReasoningById[message.id] ?? false;
@@ -441,24 +444,6 @@ function AgentLaneColumnComponent({
                               <ChevronRight size={12} />
                             </button>
                           </div>
-                        ) : null}
-                        {canCopy ? (
-                          <button
-                            onClick={() => onCopyMessage?.(message)}
-                            className="ml-1 rounded-full border border-transparent p-1 text-white/35 transition-all hover:border-white/10 hover:bg-white/10 hover:text-white"
-                            title="Copy message"
-                          >
-                            <Copy size={12} />
-                          </button>
-                        ) : null}
-                        {canRegenerate ? (
-                          <button
-                            onClick={() => onRegenerateAssistantMessage?.(message.id)}
-                            className="rounded-full border border-transparent p-1 text-white/35 transition-all hover:border-white/10 hover:bg-white/10 hover:text-white"
-                            title="Regenerate output"
-                          >
-                            <RefreshCcw size={12} />
-                          </button>
                         ) : null}
                       </div>
 
@@ -563,6 +548,47 @@ function AgentLaneColumnComponent({
                           </ReactMarkdown>
                         </div>
                       </div>
+                      {!isUser ? (
+                        <div className="flex w-full items-center justify-between gap-3 px-1 pt-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {canCopy ? (
+                              <button
+                                onClick={() => onCopyMessage?.(message)}
+                                className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] text-white/55 transition-colors hover:bg-white/10 hover:text-white"
+                                title="Copy message"
+                              >
+                                <Copy size={11} />
+                                复制
+                              </button>
+                            ) : null}
+                            {canDelete ? (
+                              <button
+                                onClick={() => onDeleteAssistantMessage?.(message.id)}
+                                className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] text-white/55 transition-colors hover:border-red-400/25 hover:bg-red-400/12 hover:text-red-100"
+                                title="Delete message"
+                              >
+                                <Trash2 size={11} />
+                                删除
+                              </button>
+                            ) : null}
+                            {canRegenerate ? (
+                              <button
+                                onClick={() => onRegenerateAssistantMessage?.(message.id)}
+                                className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] text-white/55 transition-colors hover:bg-white/10 hover:text-white"
+                                title="Regenerate output"
+                              >
+                                <RefreshCcw size={11} />
+                                重写
+                              </button>
+                            ) : null}
+                          </div>
+                          {metrics ? (
+                            <div className="text-right text-[10px] text-white/42">
+                              输入 {metrics.inputTokens} · 输出 {metrics.outputTokens} · 总计 {metrics.totalTokens}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -656,6 +682,7 @@ function areLanePropsEqual(previous: AgentLaneColumnProps, next: AgentLaneColumn
     previous.messageReasoningById === next.messageReasoningById &&
     previous.scrollKey === next.scrollKey &&
     previous.latestAssistantMessageId === next.latestAssistantMessageId &&
+    previous.onDeleteAssistantMessage === next.onDeleteAssistantMessage &&
     previous.lane.id === next.lane.id &&
     previous.lane.name === next.lane.name &&
     previous.lane.description === next.lane.description &&
