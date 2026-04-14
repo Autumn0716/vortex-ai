@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
+  resolveElectronBootstrapFileSource,
   resolveElectronConfigImportSource,
   resolveElectronProjectRoot,
   resolveElectronRendererEntry,
@@ -121,11 +122,37 @@ async function maybeBootstrapProjectConfig(projectRoot) {
   });
 }
 
+async function maybeBootstrapProjectFile(projectRoot, filename) {
+  const targetPath = path.join(projectRoot, filename);
+  try {
+    await stat(targetPath);
+    return false;
+  } catch {
+    // Only import when the target file does not exist yet.
+  }
+
+  const sourcePath = resolveElectronBootstrapFileSource(app, sourceRoot, filename);
+  if (!sourcePath || path.resolve(sourcePath) === path.resolve(targetPath)) {
+    return false;
+  }
+
+  await mkdir(projectRoot, { recursive: true });
+  await copyFile(sourcePath, targetPath);
+  return true;
+}
+
 async function ensureHostBridge() {
   const projectRoot = resolveElectronProjectRoot(app, sourceRoot);
   fs.mkdirSync(projectRoot, { recursive: true });
   updateHostState({ rootDir: projectRoot });
   await maybeBootstrapProjectConfig(projectRoot);
+  if (await maybeBootstrapProjectFile(projectRoot, 'model-metadata.json')) {
+    updateHostState({
+      message: hostState.message
+        ? `${hostState.message} Imported model-metadata.json.`
+        : 'Imported model-metadata.json.',
+    });
+  }
 
   if (!shouldManageHost) {
     updateHostState({

@@ -28,18 +28,19 @@ export function resolveElectronProjectRoot(app, sourceRoot) {
   return path.join(app.getPath('userData'), 'workspace');
 }
 
-export function resolveElectronConfigImportSource(app, sourceRoot, options = {}) {
+export function resolveElectronBootstrapFileSource(app, sourceRoot, filename, options = {}) {
   if (!app.isPackaged) {
     return null;
   }
 
   const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
-  const explicit = env.FLOWAGENT_DESKTOP_IMPORT_CONFIG?.trim();
+  const explicit =
+    filename === 'config.json' ? env.FLOWAGENT_DESKTOP_IMPORT_CONFIG?.trim() : '';
   const candidates = [
     explicit ? path.resolve(explicit) : null,
-    path.join(cwd, 'config.json'),
-    path.join(sourceRoot, 'config.json'),
+    path.join(cwd, filename),
+    path.join(sourceRoot, filename),
   ].filter(Boolean);
 
   for (const candidate of candidates) {
@@ -49,6 +50,10 @@ export function resolveElectronConfigImportSource(app, sourceRoot, options = {})
   }
 
   return null;
+}
+
+export function resolveElectronConfigImportSource(app, sourceRoot, options = {}) {
+  return resolveElectronBootstrapFileSource(app, sourceRoot, 'config.json', options);
 }
 
 export function resolveElectronRendererEntry(app, sourceRoot) {

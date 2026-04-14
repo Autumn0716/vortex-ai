@@ -4,7 +4,11 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { resolveElectronConfigImportSource, resolveElectronProjectRoot } from '../electron/app-paths.mjs';
+import {
+  resolveElectronBootstrapFileSource,
+  resolveElectronConfigImportSource,
+  resolveElectronProjectRoot,
+} from '../electron/app-paths.mjs';
 
 const tempRoots = [];
 
@@ -103,5 +107,38 @@ test('resolveElectronConfigImportSource prefers explicit env, then cwd, then sou
       env: {},
     }),
     sourceConfig,
+  );
+});
+
+test('resolveElectronBootstrapFileSource resolves non-config bootstrap files from cwd then sourceRoot', async () => {
+  const root = await createTempRoot('flowagent-electron-bootstrap-');
+  const cwdDir = path.join(root, 'cwd');
+  const sourceDir = path.join(root, 'source');
+  await Promise.all([mkdir(cwdDir, { recursive: true }), mkdir(sourceDir, { recursive: true })]);
+
+  const cwdMetadata = path.join(cwdDir, 'model-metadata.json');
+  const sourceMetadata = path.join(sourceDir, 'model-metadata.json');
+  await writeFile(cwdMetadata, '{}', 'utf8');
+  await writeFile(sourceMetadata, '{}', 'utf8');
+
+  const app = {
+    isPackaged: true,
+  };
+
+  assert.equal(
+    resolveElectronBootstrapFileSource(app, sourceDir, 'model-metadata.json', {
+      cwd: cwdDir,
+      env: {},
+    }),
+    cwdMetadata,
+  );
+
+  await rm(cwdMetadata, { force: true });
+  assert.equal(
+    resolveElectronBootstrapFileSource(app, sourceDir, 'model-metadata.json', {
+      cwd: cwdDir,
+      env: {},
+    }),
+    sourceMetadata,
   );
 });
