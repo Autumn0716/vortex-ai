@@ -2320,8 +2320,7 @@ export async function importWorkspaceData(payload: {
     : [];
   let shouldSeedConversation = false;
 
-  database.run('BEGIN');
-  try {
+  await runDatabaseTransaction(database, async () => {
     [
       'messages',
       'chat_messages',
@@ -2515,12 +2514,7 @@ export async function importWorkspaceData(payload: {
 
     const conversationCount = Number(getScalar(database, 'SELECT COUNT(*) FROM conversations') ?? 0);
     shouldSeedConversation = conversationCount === 0;
-
-    database.run('COMMIT');
-  } catch (error) {
-    database.run('ROLLBACK');
-    throw error;
-  }
+  });
 
   if (shouldSeedConversation) {
     await seedInitialConversation(database);
