@@ -140,6 +140,26 @@ test('buildTopicSessionSummary only compresses dialogue outside the live history
   assert.doesNotMatch(summary?.content ?? '', /后续还要补上删除和 handoff 后的摘要刷新/);
 });
 
+test('buildTopicSessionSummary moves token-budget overflow into the summary source', () => {
+  const messages = Array.from({ length: 10 }, (_, index) => ({
+    id: `budget_m${index + 1}`,
+    topicId: 'topic_summary_budget',
+    agentId: 'agent_summary_budget',
+    role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+    authorName: index % 2 === 0 ? 'You' : 'FlowAgent',
+    content: `budget marker ${index + 1} with repeated details`,
+    createdAt: `2026-04-14T09:${String(index).padStart(2, '0')}:00.000Z`,
+  }));
+
+  const summary = buildTopicSessionSummary(messages, 10, 1);
+
+  assert.ok(summary);
+  assert.equal(summary?.sourceMessageCount, 10);
+  assert.match(summary?.content ?? '', /Compressed summary from 9 earlier turns/);
+  assert.match(summary?.content ?? '', /budget marker 9/);
+  assert.doesNotMatch(summary?.content ?? '', /budget marker 10/);
+});
+
 test('quick topics resolve to session-scoped runtime overrides with agent features disabled by default', async () => {
   localforageState.clear();
   const agentId = createAgentId('agent_session_runtime');

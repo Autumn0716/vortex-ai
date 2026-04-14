@@ -33,6 +33,7 @@ import {
   type TaskGraphCompilerStrategy,
 } from './task-graph-compiler';
 import { cosineSimilarity } from './vector-search-model';
+import { estimateMessageTokens, splitBudgetedRecentItems } from './session-context-budget';
 
 const ACTIVE_AGENT_KEY = 'flowagent_active_agent_id_v2';
 const ACTIVE_TOPIC_KEY = 'flowagent_active_topic_id_v2';
@@ -2499,6 +2500,7 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
 export async function refreshTopicSessionSummary(
   topicId: string,
   historyWindow: number,
+  tokenBudget?: number,
 ): Promise<TopicSessionSummary | null> {
   const database = await ensureAgentSchema();
   const messageRows = mapRows<{
@@ -2533,7 +2535,7 @@ export async function refreshTopicSessionSummary(
   );
 
   const messages = messageRows.map(toTopicMessage);
-  const nextSummary = buildTopicSessionSummary(messages, historyWindow);
+  const nextSummary = buildTopicSessionSummary(messages, historyWindow, tokenBudget);
   const current = mapRows<{
     session_summary: string | null;
     session_summary_updated_at: string | null;
@@ -3030,12 +3032,15 @@ function extractSessionOpenLoops(messages: TopicMessage[]) {
     .map((message) => `- ${message.content.replace(/\s+/g, ' ').trim().slice(0, 180)}`);
 }
 
-export function buildTopicSessionSummary(messages: TopicMessage[], historyWindow: number) {
+export function buildTopicSessionSummary(messages: TopicMessage[], historyWindow: number, tokenBudget?: number) {
   const dialogueMessages = messages.filter(
     (message) => message.role === 'user' || message.role === 'assistant',
   );
-  const safeWindow = Math.max(0, historyWindow);
-  const olderMessages = safeWindow > 0 ? dialogueMessages.slice(0, -safeWindow) : dialogueMessages;
+  const { summarySourceItems: olderMessages } = splitBudgetedRecentItems<TopicMessage>(dialogueMessages, {
+    maxItems: Math.max(0, historyWindow),
+    tokenBudget,
+    estimateTokens: estimateMessageTokens,
+  });
 
   if (olderMessages.length <= 6) {
     return null;

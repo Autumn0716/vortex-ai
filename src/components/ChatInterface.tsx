@@ -84,6 +84,13 @@ import { buildModelGroups, buildProviderGroups, getProviderProtocolMeta } from '
 import { subscribeProjectKnowledgeEvents } from '../lib/project-knowledge-api';
 import { getRelevantSkillContext, syncAgentSkillDocuments } from '../lib/agent-skills';
 import {
+  estimateAttachmentTokens,
+  estimateTextTokens,
+  estimateMessageTokens,
+  splitBudgetedRecentItems,
+  stringifyMessageForTokenEstimate,
+} from '../lib/session-context-budget';
+import {
   WEB_RUNTIME_CAPABILITIES,
   type RuntimeCapabilityProfile,
 } from '../lib/runtime-capabilities';
@@ -186,10 +193,28 @@ function upsertWorkspaceMessage(
   };
 }
 
-function buildMessageHistoryForGeneration(messages: TopicMessage[], historyWindow: number) {
-  return messages
+function resolveMessageHistoryTokenBudget(input?: { maxInputTokens?: number; contextWindow?: number }) {
+  const sourceLimit = input?.maxInputTokens ?? input?.contextWindow;
+  if (!sourceLimit || sourceLimit <= 0) {
+    return undefined;
+  }
+  const ratio = input?.maxInputTokens ? 0.6 : 0.45;
+  return Math.max(2000, Math.floor(sourceLimit * ratio));
+}
+
+function buildMessageHistoryForGeneration(
+  messages: TopicMessage[],
+  historyWindow: number,
+  tokenBudget?: number,
+) {
+  const windowedMessages = messages
     .filter((message) => message.role === 'user' || message.role === 'assistant')
     .slice(-historyWindow);
+  return splitBudgetedRecentItems<TopicMessage>(windowedMessages, {
+    maxItems: historyWindow,
+    tokenBudget,
+    estimateTokens: estimateMessageTokens,
+  }).liveItems;
 }
 
 function readFileAsDataUrl(file: File) {
@@ -212,34 +237,10 @@ function buildUserMessagePrompt(content: string, attachments: TopicMessageAttach
 }
 
 function estimateTokenCount(input: string) {
-  const normalized = input.replace(/\s+/g, ' ').trim();
-  if (!normalized) {
-    return 0;
-  }
-
-  const cjkCount = (normalized.match(/[\u4e00-\u9fff]/g) ?? []).length;
-  const latinWordCount = normalized
-    .replace(/[\u4e00-\u9fff]/g, ' ')
-    .split(/[^A-Za-z0-9_]+/)
-    .filter(Boolean).length;
-  const punctuationCount = (normalized.match(/[^\w\s\u4e00-\u9fff]/g) ?? []).length;
-  return Math.max(1, Math.round(cjkCount + latinWordCount + punctuationCount * 0.35));
+  return estimateTextTokens(input);
 }
 
-function stringifyMessageForEstimate(message: TopicMessage) {
-  const attachmentSummary = message.attachments?.length
-    ? message.attachments
-        .map((attachment) => {
-          const estimatedImageTokens = Math.max(
-            256,
-            Math.min(2000, Math.round((attachment.dataUrl?.length ?? 0) / 24)),
-          );
-          return `[image:${attachment.name || attachment.mimeType || 'attachment'} ~${estimatedImageTokens} tokens]`;
-        })
-        .join(' ')
-    : '';
-  return [message.role.toUpperCase(), message.content, attachmentSummary].filter(Boolean).join(' ');
-}
+const stringifyMessageForEstimate = stringifyMessageForTokenEstimate;
 
 function buildToolContextEstimate(input: {
   requestMode: 'chat' | 'responses';
@@ -535,6 +536,8 @@ export const ChatInterface: React.FC<{
   const latestAssistantMetrics = latestAssistantMessageId
     ? messageMetricsById[latestAssistantMessageId]
     : undefined;
+  const activeModelMetadataKey = `${activeProviderId}::${activeModel}`.toLowerCase();
+  const activeModelMetadata = modelMetadataCache[activeModelMetadataKey] ?? null;
   const currentContextTokens = useMemo(() => {
     if (activeRunState?.isGenerating) {
       const streamedOutputTokens = estimateTokenCount(activeRunState.draftAssistantMessage?.content ?? '');
@@ -560,11 +563,16 @@ export const ChatInterface: React.FC<{
     const sessionMessages = buildMessageHistoryForGeneration(
       workspace.messages,
       config.memory.historyWindow,
+      resolveMessageHistoryTokenBudget({
+        maxInputTokens: activeModelMetadata?.maxInputTokens,
+        contextWindow: activeModelMetadata?.contextWindow,
+      }),
     );
 
     return estimateTokenCount(
       [
         config.systemPrompt,
+        workspace.sessionSummary?.content,
         workspace.runtime.systemPrompt,
         toolContextEstimate,
         ...sessionMessages.map((message) => stringifyMessageForEstimate(message)),
@@ -579,14 +587,14 @@ export const ChatInterface: React.FC<{
     activeRunState?.currentInputTokens,
     activeRunState?.draftAssistantMessage?.content,
     activeRunState?.isGenerating,
+    activeModelMetadata?.contextWindow,
+    activeModelMetadata?.maxInputTokens,
     composerWebSearchEnabled,
     config.memory.historyWindow,
     config.systemPrompt,
     latestAssistantMetrics?.totalTokens,
     workspace,
   ]);
-  const activeModelMetadataKey = `${activeProviderId}::${activeModel}`.toLowerCase();
-  const activeModelMetadata = modelMetadataCache[activeModelMetadataKey] ?? null;
   const currentContextWindow = activeModelMetadata?.contextWindow;
   const currentContextUsagePercentage =
     currentContextTokens && currentContextWindow
@@ -1160,6 +1168,10 @@ export const ChatInterface: React.FC<{
     if (!workspace?.topic.parentTopicId) {
       return;
     }
+    const messageHistoryTokenBudget = resolveMessageHistoryTokenBudget({
+      maxInputTokens: activeModelMetadata?.maxInputTokens,
+      contextWindow: activeModelMetadata?.contextWindow,
+    });
 
     setBranchHandoffSaving(true);
     try {
@@ -1168,11 +1180,11 @@ export const ChatInterface: React.FC<{
         note: branchHandoffDraft?.note?.trim(),
       });
       await Promise.all([
-        refreshTopicSessionSummary(workspace.topic.id, config.memory.historyWindow).catch((error) => {
+        refreshTopicSessionSummary(workspace.topic.id, config.memory.historyWindow, messageHistoryTokenBudget).catch((error) => {
           console.warn('Failed to refresh branch session summary after handoff:', error);
           return null;
         }),
-        refreshTopicSessionSummary(result.parentTopic.id, config.memory.historyWindow).catch((error) => {
+        refreshTopicSessionSummary(result.parentTopic.id, config.memory.historyWindow, messageHistoryTokenBudget).catch((error) => {
           console.warn('Failed to refresh parent session summary after handoff:', error);
           return null;
         }),
@@ -1503,6 +1515,10 @@ export const ChatInterface: React.FC<{
     const userContent = buildUserMessagePrompt(content, attachmentsSnapshot);
     const workspaceSnapshot = workspace;
     const configSnapshot = config;
+    const messageHistoryTokenBudget = resolveMessageHistoryTokenBudget({
+      maxInputTokens: activeModelMetadata?.maxInputTokens,
+      contextWindow: activeModelMetadata?.contextWindow,
+    });
     const timestamp = new Date().toISOString();
     const userMessage: TopicMessageInput = {
       id: createLocalId('message'),
@@ -1530,7 +1546,7 @@ export const ChatInterface: React.FC<{
     await addTopicMessages([userMessage]);
     await maybeAutoTitleTopic(workspaceSnapshot.topic.id, userContent);
     const sessionSummary =
-      await refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow).catch(
+      await refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow, messageHistoryTokenBudget).catch(
         (error) => {
           console.warn('Failed to refresh topic session summary before send:', error);
           return null;
@@ -1543,8 +1559,10 @@ export const ChatInterface: React.FC<{
       messageHistory: buildMessageHistoryForGeneration(
         [...workspaceSnapshot.messages, optimisticUserMessage],
         configSnapshot.memory.historyWindow,
+        messageHistoryTokenBudget,
       ),
       sessionSummary: sessionSummary?.content,
+      messageHistoryTokenBudget,
       attachments: attachmentsSnapshot,
       webSearchEnabled: webSearchEnabledSnapshot,
       searchProviderId: searchProviderIdSnapshot,
@@ -1557,6 +1575,7 @@ export const ChatInterface: React.FC<{
     userContent,
     messageHistory,
     sessionSummary,
+    messageHistoryTokenBudget,
     attachments,
     webSearchEnabled,
     searchProviderId,
@@ -1566,6 +1585,7 @@ export const ChatInterface: React.FC<{
     userContent: string;
     messageHistory: TopicMessage[];
     sessionSummary?: string;
+    messageHistoryTokenBudget?: number;
     attachments: TopicMessageAttachment[];
     webSearchEnabled: boolean;
     searchProviderId?: string;
@@ -1709,9 +1729,8 @@ export const ChatInterface: React.FC<{
         userContent,
         ...attachments.map(
           (attachment) =>
-            `[current-image:${attachment.name || attachment.mimeType || 'attachment'} ~${Math.max(
-              256,
-              Math.min(2000, Math.round((attachment.dataUrl?.length ?? 0) / 24)),
+            `[current-image:${attachment.name || attachment.mimeType || 'attachment'} ~${estimateAttachmentTokens(
+              attachment,
             )} tokens]`,
         ),
       ]
@@ -1818,7 +1837,7 @@ export const ChatInterface: React.FC<{
 
       setWorkspace((previous) => upsertWorkspaceMessage(previous, toTopicMessage(assistantMessage)));
       await addTopicMessages([assistantMessage]);
-      void refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow).catch(
+      void refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow, messageHistoryTokenBudget).catch(
         (error) => {
           console.warn('Failed to refresh topic session summary after assistant reply:', error);
         },
@@ -1868,7 +1887,7 @@ export const ChatInterface: React.FC<{
           };
           setWorkspace((previous) => upsertWorkspaceMessage(previous, toTopicMessage(partialMessage)));
           await addTopicMessages([partialMessage]);
-          void refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow).catch(
+          void refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow, messageHistoryTokenBudget).catch(
             (error) => {
               console.warn('Failed to refresh topic session summary after partial reply:', error);
             },
@@ -1915,7 +1934,7 @@ export const ChatInterface: React.FC<{
       };
       setWorkspace((previous) => mergeWorkspaceMessages(previous, [toTopicMessage(fallbackMessage)]));
       await addTopicMessages([fallbackMessage]);
-      void refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow).catch(
+      void refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow, messageHistoryTokenBudget).catch(
         (error) => {
           console.warn('Failed to refresh topic session summary after fallback reply:', error);
         },
@@ -1954,6 +1973,10 @@ export const ChatInterface: React.FC<{
 
     const workspaceSnapshot = workspace;
     const configSnapshot = config;
+    const messageHistoryTokenBudget = resolveMessageHistoryTokenBudget({
+      maxInputTokens: activeModelMetadata?.maxInputTokens,
+      contextWindow: activeModelMetadata?.contextWindow,
+    });
     setTopicRunState(workspaceSnapshot.topic.id, () => ({
       isGenerating: true,
       composerNotice: 'Regenerating response…',
@@ -1971,11 +1994,14 @@ export const ChatInterface: React.FC<{
       messageHistory: buildMessageHistoryForGeneration(
         workspaceSnapshot.messages.slice(0, anchorUserIndex + 1),
         configSnapshot.memory.historyWindow,
+        messageHistoryTokenBudget,
       ),
       sessionSummary: buildTopicSessionSummary(
         workspaceSnapshot.messages.slice(0, anchorUserIndex + 1),
         configSnapshot.memory.historyWindow,
+        messageHistoryTokenBudget,
       )?.content,
+      messageHistoryTokenBudget,
       attachments: anchorUserMessage.attachments ?? [],
       webSearchEnabled: composerWebSearchEnabled,
       searchProviderId: composerSearchProvider?.id,
@@ -2052,7 +2078,14 @@ export const ChatInterface: React.FC<{
 
     try {
       await deleteTopicMessage(message.id);
-      await refreshTopicSessionSummary(workspace.topic.id, config.memory.historyWindow).catch((error) => {
+      await refreshTopicSessionSummary(
+        workspace.topic.id,
+        config.memory.historyWindow,
+        resolveMessageHistoryTokenBudget({
+          maxInputTokens: activeModelMetadata?.maxInputTokens,
+          contextWindow: activeModelMetadata?.contextWindow,
+        }),
+      ).catch((error) => {
         console.warn('Failed to refresh topic session summary after delete:', error);
         return null;
       });

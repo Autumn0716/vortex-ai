@@ -249,7 +249,7 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 当前仍待继续：
 1. ⬜ 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开
 2. ⬜ 第一版“自然语言任务 -> 持久化 task graph / planner-dispatcher-worker-reviewer workflow”已落地，branch handoff 已能推进 worker 节点到 `completed`，所有 worker 完成后会自动生成 `review_ready` 汇总并创建 reviewer branch，worker 节点可创建 retry branch 重新执行；仍缺真正后台模型执行
-3. ⬜ 第一版会话级 `session summary` 已落地，但目前仍是确定性摘要；后续还需补上更高质量的 LLM 摘要、摘要分段更新策略，以及与消息级 token 预算联动
+3. ⬜ 第一版会话级 `session summary` 已落地，并已完成与消息级 token 预算联动；后续还需补上更高质量的 LLM 摘要与摘要分段更新策略
 4. ✅ daily 日志条目已升级为更细粒度记录：保留 user / assistant / system / tool 回合类型、更长工具调用结果、附件摘要与显式任务状态变更，再由夜间 lifecycle 统一压缩到 `warm/cold` 替身
 
 进度汇报（2026-04-14，Electron 第一阶段启动）:
@@ -327,3 +327,9 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 如果重试发生在 reviewer 已生成之后，会清空 `topic_task_graphs.reviewer_branch_topic_id` 和 reviewer node 的 branch 引用，并把 graph 状态退回 `ready`，避免旧 reviewer 输出继续代表新执行状态
 - ✅ old branch 与 parent topic 都会记录 `Workflow Retry` system note，便于追踪重试链路；重试 branch 再次 handoff 后会重新生成 review-ready rollup 与新的 reviewer branch
 - ✅ 已补上回归测试覆盖 retry、旧 reviewer 失效、新 retry branch handoff 后重新进入 review-ready，并通过 `node --import tsx --test tests/session-runtime-model.test.ts`、`npm run lint`、`npm run build`
+
+进度汇报（2026-04-14，会话级 Agent 第十二次更新）:
+- ✅ 已补上会话上下文预算联动：发送给模型的 live message history 和 `session summary` 的摘要源现在使用同一套 token budget 边界，超出预算的较早消息会进入摘要源，不再被静默丢弃
+- ✅ 已抽出共享消息 token 估算 helper，前端发送路径与 workspace 摘要构建都会统一计算文本、图片附件和工具调用摘要，避免两条路径因为估算口径不同产生边界漂移
+- ✅ 当前上下文估算已纳入持久化 `Session summary` 与预算后的近窗消息；后续仍保留 LLM 摘要与摘要分段更新作为独立待办
+- ✅ 已补上回归测试覆盖预算 splitter、附件/工具估算、以及 `buildTopicSessionSummary()` 的 token-budget overflow 路径，并通过 `node --import tsx --test tests/session-context-budget.test.ts`、`node --import tsx --test tests/session-runtime-model.test.ts`、`npm run lint`、`npm run build`
