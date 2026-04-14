@@ -410,3 +410,37 @@ test('task graph compiler uses /chat/completions payload for chat-compatible pro
     globalThis.fetch = originalFetch;
   }
 });
+
+test('task graph compiler falls back deterministically when provider request fails', async () => {
+  const config = buildConfig({
+    id: 'openai_chat',
+    name: 'OpenAI Chat',
+    baseUrl: 'https://api.example.com/v1',
+    models: ['gpt-4.1'],
+    protocol: 'openai_chat_compatible',
+  });
+
+  const originalFetch = globalThis.fetch;
+  const originalWarn = console.warn;
+  globalThis.fetch = (async () => {
+    throw new Error('connect ECONNREFUSED');
+  }) as typeof fetch;
+  console.warn = () => {};
+
+  try {
+    const graph = await compileTaskGraphFromGoal({
+      config,
+      providerId: 'openai_chat',
+      model: 'gpt-4.1',
+      goal: '先查询日志；再生成修复建议。',
+      title: 'Fallback Workflow',
+    });
+
+    assert.equal(graph.compilerStrategy, 'fallback');
+    assert.equal(graph.title, 'Fallback Workflow');
+    assert.ok(graph.nodes.some((node) => node.type === 'worker'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.warn = originalWarn;
+  }
+});

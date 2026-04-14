@@ -1,5 +1,6 @@
 import { type AgentConfig, resolveModelSelection } from './agent/config';
 import { getProviderRequestMode, normalizeBaseUrl } from './provider-compatibility';
+import { err, isErr, ok, type Result } from './result';
 
 export type TaskGraphNodeType = 'planner' | 'dispatcher' | 'worker' | 'reviewer';
 export type TaskGraphCompilerStrategy = 'llm' | 'fallback';
@@ -231,6 +232,27 @@ function extractResponsesOutputText(payload: any) {
   return typeof content?.text === 'string' ? content.text : '';
 }
 
+async function requestCompilerPayload(
+  url: string,
+  init: RequestInit,
+): Promise<Result<Record<string, any>, Error>> {
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return err(new Error(detail));
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const reason = payload?.error?.message || payload?.message || `HTTP ${response.status}`;
+    return err(new Error(reason));
+  }
+
+  return ok(payload);
+}
+
 async function requestTaskPlanViaProvider(input: {
   config: AgentConfig;
   providerId?: string;
@@ -251,7 +273,7 @@ async function requestTaskPlanViaProvider(input: {
   let rawContent = '';
 
   if (requestMode === 'responses') {
-    const response = await fetch(`${baseUrl}/responses`, {
+    const payloadResult = await requestCompilerPayload(`${baseUrl}/responses`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${provider.apiKey}`,
@@ -270,16 +292,13 @@ async function requestTaskPlanViaProvider(input: {
         },
       }),
     });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const reason = payload?.error?.message || payload?.message || `HTTP ${response.status}`;
-      throw new Error(reason);
+    if (isErr(payloadResult)) {
+      throw payloadResult.error;
     }
 
-    rawContent = extractResponsesOutputText(payload);
+    rawContent = extractResponsesOutputText(payloadResult.value);
   } else {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const payloadResult = await requestCompilerPayload(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${provider.apiKey}`,
@@ -298,14 +317,11 @@ async function requestTaskPlanViaProvider(input: {
         },
       }),
     });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const reason = payload?.error?.message || payload?.message || `HTTP ${response.status}`;
-      throw new Error(reason);
+    if (isErr(payloadResult)) {
+      throw payloadResult.error;
     }
 
-    rawContent = String(payload?.choices?.[0]?.message?.content ?? '');
+    rawContent = String(payloadResult.value?.choices?.[0]?.message?.content ?? '');
   }
 
   const parsed = JSON.parse(rawContent) as Partial<CompilerPlanPayload>;
