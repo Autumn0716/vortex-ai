@@ -35,6 +35,7 @@ import {
 import { cosineSimilarity } from './vector-search-model';
 import { estimateMessageTokens, splitBudgetedRecentItems } from './session-context-budget';
 import { createFts5Tables } from './db-fts5-helpers';
+import { runDatabaseTransaction } from './db-transaction';
 
 const ACTIVE_AGENT_KEY = 'flowagent_active_agent_id_v2';
 const ACTIVE_TOPIC_KEY = 'flowagent_active_topic_id_v2';
@@ -1345,8 +1346,7 @@ export async function saveAgent(
   const slug = workspaceRelpath.replace(/^agents\//, '') || id;
   const exists = Number(getScalar(database, 'SELECT COUNT(*) FROM agents WHERE id = ?', [id]) ?? 0);
 
-  database.run('BEGIN');
-  try {
+  await runDatabaseTransaction(database, () => {
     if (draft.isDefault) {
       database.run('UPDATE agents SET is_default = 0');
     }
@@ -1418,11 +1418,7 @@ export async function saveAgent(
       );
     }
 
-    database.run('COMMIT');
-  } catch (error) {
-    database.run('ROLLBACK');
-    throw error;
-  }
+  });
 
   await persistAndMaybeRebuildFts(database);
   const agent = getAgentRow(database, id);
@@ -2141,8 +2137,7 @@ export async function retryWorkflowBranchTask(options: { branchTopicId: string; 
 
   const timestamp = nowIso();
   const updateDatabase = await ensureAgentSchema();
-  updateDatabase.run('BEGIN');
-  try {
+  await runDatabaseTransaction(updateDatabase, () => {
     updateDatabase.run(
       `
         UPDATE topic_task_nodes
@@ -2175,11 +2170,7 @@ export async function retryWorkflowBranchTask(options: { branchTopicId: string; 
       `,
       [timestamp, taskRow.graph_id],
     );
-    updateDatabase.run('COMMIT');
-  } catch (error) {
-    updateDatabase.run('ROLLBACK');
-    throw error;
-  }
+  });
   await saveDB();
 
   await addTopicMessages([
@@ -3273,8 +3264,7 @@ export async function addTopicMessages(messages: TopicMessageInput[]): Promise<v
   }
 
   const database = await ensureAgentSchema();
-  database.run('BEGIN');
-  try {
+  await runDatabaseTransaction(database, () => {
     messages.forEach((message) => {
       const createdAt = message.createdAt ?? nowIso();
       database.run(
@@ -3317,11 +3307,7 @@ export async function addTopicMessages(messages: TopicMessageInput[]): Promise<v
       );
     });
     recordMemoryFromMessages(database, messages);
-    database.run('COMMIT');
-  } catch (error) {
-    database.run('ROLLBACK');
-    throw error;
-  }
+  });
 
   await persistAndMaybeRebuildFts(database);
 }
@@ -3347,8 +3333,7 @@ export async function deleteTopicMessage(messageId: string): Promise<void> {
     return;
   }
 
-  database.run('BEGIN');
-  try {
+  await runDatabaseTransaction(database, () => {
     database.run('DELETE FROM topic_messages WHERE id = ?', [messageId]);
 
     const topicMeta = mapRows<{
@@ -3386,12 +3371,7 @@ export async function deleteTopicMessage(messageId: string): Promise<void> {
       `,
       [nowIso(), nextLastMessageAt, nextPreview, messageRow.topic_id],
     );
-
-    database.run('COMMIT');
-  } catch (error) {
-    database.run('ROLLBACK');
-    throw error;
-  }
+  });
 
   await persistAndMaybeRebuildFts(database);
 }
