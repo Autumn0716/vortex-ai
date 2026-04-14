@@ -261,7 +261,7 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已完成第一版桌面 capability gating：Electron preload 会返回 host/filesystem/sandbox 能力，前端统一生成 runtime capability profile，并在聊天头部、Sandbox 面板和 API Server 设置页显示当前运行模式；Phase 1 仍保持 WebContainer 沙盒优先，host shell 默认关闭
 - ✅ 已完成第一版 unsigned macOS `.app` 打包：新增 `desktop:build`，本地生成 `release/mac-arm64/FlowAgent.app`；packaged app 已实测可自动启动内置 host bridge，并把数据根目录切到 `~/Library/Application Support/FlowAgent/workspace`
 - ✅ 已完成第一版 host bridge 预编译：新增 `build:host`，把 `server/api-server.ts` 打成 `dist-host/api-server.mjs`；Electron 会优先启动该 bundle，packaged app 不再需要携带 `src/` / `server/` TS 源码或依赖 `tsx` 运行 host
-5. ⬜ 仍待继续：应用图标、签名与公证
+5. ⬜ 仍待继续：签名与公证
 
 进度汇报（2026-04-14，Electron 第一阶段第二次更新）:
 - ✅ 已完成聊天壳层第一轮瘦身：左侧窄轨、topic 侧栏、聊天头部和模型选择区已统一收紧 padding / badge / icon / 字号占位，主对话画布的横向空间占比更高
@@ -277,3 +277,8 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已启用 `asar` 打包，并将 `dist-host/api-server.mjs` 收口到 `asarUnpack`；`desktop:build` 不再出现 `asar usage is disabled` 告警
 - ✅ 已修复 packaged app 在 `asar` 模式下的 host bridge 启动问题：打包态不再拿 `app.asar` 作为子进程工作目录，避免 `spawn ENOTDIR`
 - ✅ 已完成实机验证：`release/mac-arm64/FlowAgent.app` 启动后可正常拉起内置 host bridge，`/health` 返回正常，数据根目录仍落在 `~/Library/Application Support/FlowAgent/workspace`
+
+进度汇报（2026-04-14，Electron 第一阶段第五次更新）:
+- ✅ 已生成并接入第一版 macOS 应用图标：新增 `electron/assets/icon-base.png`、`electron/assets/icon.icns`，风格对齐当前深色蓝紫品牌主题
+- ✅ `desktop:build` 已不再出现 `default Electron icon is used` 告警，说明打包产物已使用自定义 app icon
+- ✅ Electron 第一阶段目前仅剩发布链路相关收口：macOS 签名与公证

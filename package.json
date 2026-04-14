@@ -85,6 +85,7 @@
         "dir"
       ],
       "category": "public.app-category.productivity",
+      "icon": "electron/assets/icon.icns",
       "identity": null
     }
   }
