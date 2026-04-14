@@ -248,7 +248,7 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 
 当前仍待继续：
 1. ⬜ 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开
-2. ⬜ 第一版“自然语言任务 -> 持久化 task graph / planner-dispatcher-worker-reviewer workflow”已落地，但仍缺自动 dispatcher / reviewer 执行、节点重试与状态推进，以及 branch 输出的自动汇总闭环
+2. ⬜ 第一版“自然语言任务 -> 持久化 task graph / planner-dispatcher-worker-reviewer workflow”已落地，branch handoff 已能推进 worker 节点到 `completed`；仍缺自动 dispatcher / reviewer 执行、节点重试与完整自动汇总闭环
 3. ⬜ 第一版会话级 `session summary` 已落地，但目前仍是确定性摘要；后续还需补上更高质量的 LLM 摘要、摘要分段更新策略，以及与消息级 token 预算联动
 4. ✅ daily 日志条目已升级为更细粒度记录：保留 user / assistant / system / tool 回合类型、更长工具调用结果、附件摘要与显式任务状态变更，再由夜间 lifecycle 统一压缩到 `warm/cold` 替身
 
@@ -305,3 +305,8 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已升级 `daily` source log 的单条记录结构：在保留原有首行格式的基础上，新增 `Turn: user_request / assistant_response / system_event / tool_event` 子行，便于后续 warm/cold 压缩识别回合类型
 - ✅ 工具调用摘要现在保留更长的结果预览，并新增 `Task State: blocked / completed / tool_failed / tool_running`，让显式任务状态变更能进入 Markdown 真源和派生 RAG 索引
 - ✅ 该改动只落在 `buildConversationMemoryEntry` 模型层，不改变 `upsertDailyMemoryLog` 持久化链路；已通过 `node --import tsx --test tests/knowledge-memory-model.test.ts`、`npm run lint`、`npm run build`
+
+进度汇报（2026-04-14，会话级 Agent 第八次更新）:
+- ✅ 已补上 workflow branch handoff 的第一段状态推进：当 worker branch 把结果回传 parent topic 时，会自动把匹配的 `topic_task_nodes.branch_topic_id` 节点标记为 `completed`
+- ✅ `handoffBranchTopicToParent()` 现在会返回 `completedTaskNodes`，为后续 UI 展示、dispatcher 汇总和 reviewer 启动提供稳定数据入口
+- ✅ 已补上回归测试覆盖“编译 workflow -> 创建 worker branch -> handoff -> worker node completed”的闭环，并通过 `node --import tsx --test tests/session-runtime-model.test.ts`、`npm run lint`、`npm run build`

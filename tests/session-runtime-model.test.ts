@@ -6,6 +6,7 @@ import localforage from 'localforage';
 import {
   addTopicMessages,
   buildTopicSessionSummary,
+  compileTaskGraphFromTopic,
   createBranchTopicFromTopic,
   createQuickTopic,
   createTopic,
@@ -513,4 +514,46 @@ test('branch topics can hand off findings back to the parent topic', async () =>
   const lastBranchMessage = branchWorkspace?.messages[branchWorkspace.messages.length - 1];
   assert.equal(lastBranchMessage?.role, 'system');
   assert.match(lastBranchMessage?.content ?? '', /Sent a branch handoff to parent topic "Main Thread"/);
+});
+
+test('workflow branch handoff marks the matching worker node completed', async () => {
+  localforageState.clear();
+  const agentId = createAgentId('agent_workflow_handoff');
+  await saveAgent({
+    id: agentId,
+    name: 'Workflow Agent',
+    description: 'Agent used to verify workflow status handoff',
+    systemPrompt: 'Template prompt.',
+    accentColor: 'from-amber-500/20 to-orange-500/20',
+    workspaceRelpath: `agents/${agentId}`,
+  });
+
+  const parentTopic = await createTopic({ agentId, title: 'Workflow Parent' });
+  const graphResult = await compileTaskGraphFromTopic({
+    sourceTopicId: parentTopic.id,
+    title: 'Workflow Status Test',
+    goal: '实现 schema 状态推进；补充回归测试',
+  });
+  const branchTopic = graphResult.branchTopics[0];
+  assert.ok(branchTopic);
+
+  await addTopicMessages([
+    {
+      topicId: branchTopic.id,
+      agentId,
+      role: 'assistant',
+      authorName: 'Workflow Agent',
+      content: 'Worker result is ready for parent review.',
+    },
+  ]);
+
+  const handoffResult = await handoffBranchTopicToParent({
+    branchTopicId: branchTopic.id,
+    note: 'Worker branch completed.',
+    includeRecentMessages: 3,
+  });
+
+  assert.equal(handoffResult.completedTaskNodes.length, 1);
+  assert.equal(handoffResult.completedTaskNodes[0]?.branchTopicId, branchTopic.id);
+  assert.equal(handoffResult.completedTaskNodes[0]?.status, 'completed');
 });

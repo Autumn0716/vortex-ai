@@ -188,7 +188,7 @@ export interface TopicTaskGraphNode extends CompiledTaskGraphNode {
   topicId: string;
   agentId: string;
   branchTopicId?: string;
-  status: 'pending' | 'ready' | 'failed';
+  status: 'pending' | 'ready' | 'completed' | 'failed';
   createdAt: string;
   updatedAt: string;
 }
@@ -2045,6 +2045,7 @@ export async function handoffBranchTopicToParent(options: {
       createdAt: timestamp,
     },
   ]);
+  const completedTaskNodes = await markBranchTaskNodesCompleted(branchWorkspace.topic.id, timestamp);
 
   const [updatedParent, updatedBranch] = await Promise.all([
     getTopicWorkspace(parentWorkspace.topic.id),
@@ -2058,6 +2059,7 @@ export async function handoffBranchTopicToParent(options: {
   return {
     parentTopic: updatedParent.topic,
     branchTopic: updatedBranch.topic,
+    completedTaskNodes,
   };
 }
 
@@ -2509,6 +2511,115 @@ function buildTaskGraphCompiledMessage(
     workerLines.length ? `Worker branches:\n${workerLines.join('\n')}` : 'Worker branches: none',
     'Use the generated worker branches to run focused subtasks in parallel, then merge or hand off the results.',
   ].join('\n\n');
+}
+
+type TopicTaskGraphNodeRow = {
+  id: string;
+  graph_id: string;
+  topic_id: string;
+  agent_id: string;
+  node_key: string;
+  node_type: CompiledTaskGraphNode['type'];
+  title: string;
+  objective: string;
+  acceptance_criteria: string;
+  depends_on_json: string;
+  branch_topic_id: string | null;
+  status: TopicTaskGraphNode['status'];
+  created_at: string;
+  updated_at: string;
+};
+
+function parseJsonArray<T>(value: string): T[] {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function toTopicTaskGraphNode(row: TopicTaskGraphNodeRow): TopicTaskGraphNode {
+  return {
+    id: row.id,
+    graphId: row.graph_id,
+    topicId: row.topic_id,
+    agentId: row.agent_id,
+    key: row.node_key,
+    type: row.node_type,
+    title: row.title,
+    objective: row.objective,
+    acceptanceCriteria: row.acceptance_criteria,
+    dependsOn: parseJsonArray<string>(row.depends_on_json),
+    branchTopicId: row.branch_topic_id ?? undefined,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function markBranchTaskNodesCompleted(branchTopicId: string, completedAt: string) {
+  const database = await ensureAgentSchema();
+  const rows = mapRows<TopicTaskGraphNodeRow>(
+    database.exec(
+      `
+        SELECT
+          id,
+          graph_id,
+          topic_id,
+          agent_id,
+          node_key,
+          node_type,
+          title,
+          objective,
+          acceptance_criteria,
+          depends_on_json,
+          branch_topic_id,
+          status,
+          created_at,
+          updated_at
+        FROM topic_task_nodes
+        WHERE branch_topic_id = ?
+        ORDER BY sort_order ASC
+      `,
+      [branchTopicId],
+    ),
+  );
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  database.run('BEGIN');
+  try {
+    database.run(
+      `
+        UPDATE topic_task_nodes
+        SET
+          status = 'completed',
+          updated_at = ?
+        WHERE branch_topic_id = ?
+      `,
+      [completedAt, branchTopicId],
+    );
+    const graphIds = [...new Set(rows.map((row) => row.graph_id))];
+    graphIds.forEach((graphId) => {
+      database.run('UPDATE topic_task_graphs SET updated_at = ? WHERE id = ?', [completedAt, graphId]);
+    });
+    database.run('COMMIT');
+  } catch (error) {
+    database.run('ROLLBACK');
+    throw error;
+  }
+
+  await saveDB();
+  return rows.map((row) =>
+    toTopicTaskGraphNode({
+      ...row,
+      status: 'completed',
+      updated_at: completedAt,
+    }),
+  );
 }
 
 function formatSessionSummaryLine(message: TopicMessage) {
