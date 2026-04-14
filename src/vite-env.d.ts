@@ -12,6 +12,7 @@ interface FlowAgentDesktopInfo {
     status: 'starting' | 'external' | 'ready' | 'failed' | 'stopped';
     url: string;
     rootDir: string;
+    sourceRoot?: string;
     message: string;
     startedAt?: string | null;
     readyAt?: string | null;

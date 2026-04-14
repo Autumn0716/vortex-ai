@@ -256,4 +256,5 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已加入 Electron 第一版桌面壳：新增 `electron/main.mjs` 与 `electron/preload.mjs`，renderer 仍复用现有 React/Vite 应用，主进程负责窗口与 host bridge 生命周期
 - ✅ 已新增 `desktop:dev` 与 `desktop:preview` 脚本；`desktop:preview` 会用 Electron build mode 构建相对资源路径，并在预览时自动拉起本地 `api-server`
 - ✅ 已补上 Electron preload 状态桥：renderer 现在可以通过安全 preload 读取桌面平台、Electron/Chrome/Node 版本和 host bridge 状态，后续 UI gating 不需要开启 Node integration
-5. ⬜ 仍待继续：正式 `.app` 打包、Application Support 数据路径、桌面 capability gating、UI 图标瘦身与输入性能第二轮优化
+- ✅ 已补上 Electron 数据路径解析：开发态继续使用仓库根目录，打包态可默认切到 macOS Application Support 下的 `FlowAgent/workspace`，后续正式 `.app` 不再强依赖源码目录
+5. ⬜ 仍待继续：正式 `.app` 打包、桌面 capability gating、UI 图标瘦身与输入性能第二轮优化

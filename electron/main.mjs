@@ -3,11 +3,11 @@ import { spawn } from 'node:child_process';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { resolveElectronProjectRoot, resolveElectronRendererEntry } from './app-paths.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(__dirname, '..');
+const sourceRoot = path.resolve(__dirname, '..');
 const preloadPath = path.join(__dirname, 'preload.mjs');
-const rendererUrl = process.env.FLOWAGENT_RENDERER_URL?.trim() ?? '';
 const shouldManageHost = process.env.FLOWAGENT_ELECTRON_MANAGE_HOST !== 'false';
 const hostPort = Number(process.env.FLOWAGENT_API_PORT ?? 3850);
 const hostUrl = `http://127.0.0.1:${hostPort}`;
@@ -16,7 +16,8 @@ const hostState = {
   managed: shouldManageHost,
   status: shouldManageHost ? 'starting' : 'external',
   url: hostUrl,
-  rootDir: projectRoot,
+  rootDir: '',
+  sourceRoot,
   message: '',
   startedAt: null,
   readyAt: null,
@@ -54,6 +55,9 @@ async function waitForUrl(url, timeoutMs = 30_000) {
 }
 
 async function ensureHostBridge() {
+  const projectRoot = resolveElectronProjectRoot(app, sourceRoot);
+  updateHostState({ rootDir: projectRoot });
+
   if (!shouldManageHost) {
     updateHostState({
       managed: false,
@@ -79,7 +83,7 @@ async function ensureHostBridge() {
     startedAt: new Date().toISOString(),
   });
   hostProcess = spawn(npmCommand, ['run', 'api-server'], {
-    cwd: projectRoot,
+    cwd: sourceRoot,
     stdio: 'inherit',
     env: {
       ...process.env,
@@ -120,6 +124,7 @@ async function ensureHostBridge() {
 }
 
 function createMainWindow() {
+  const rendererEntry = resolveElectronRendererEntry(app, sourceRoot);
   const window = new BrowserWindow({
     width: 1360,
     height: 900,
@@ -142,10 +147,10 @@ function createMainWindow() {
     return { action: 'deny' };
   });
 
-  if (rendererUrl) {
-    void window.loadURL(rendererUrl);
+  if (rendererEntry.type === 'url') {
+    void window.loadURL(rendererEntry.value);
   } else {
-    void window.loadURL(pathToFileURL(path.join(projectRoot, 'dist/index.html')).toString());
+    void window.loadURL(pathToFileURL(rendererEntry.value).toString());
   }
 
   if (process.env.FLOWAGENT_ELECTRON_DEVTOOLS === 'true') {

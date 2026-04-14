@@ -71,3 +71,4 @@
 - Increased daily memory log granularity so conversation-log entries now persist richer block-level details including role labels, attachment summaries, tool result summaries, and explicit `open_loop` / `decision` signals before nightly warm/cold compression runs.
 - Added the first Electron desktop shell for macOS-oriented local use, including a main/preload boundary, `desktop:dev` and `desktop:preview` scripts, automatic host bridge startup in preview mode, and an Electron-specific Vite build mode with relative asset paths.
 - Exposed Electron desktop runtime status through the preload bridge so the renderer can read platform/version details and host bridge state without enabling Node integration.
+- Added Electron data-root resolution so development mode keeps using the repository root while packaged desktop mode can default local config, model metadata, and memory files under the macOS application data workspace.
