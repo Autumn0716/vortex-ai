@@ -359,9 +359,9 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 当前在 `api-server.ts`、`nightly-memory-archive.ts`、`project-knowledge-store.ts` 三处重复
 → 已提取到 `server/lib/fs-utils.ts`
 
-⬜ **7. 修复 scripts/dev-all.mjs 循环引用**
+✅ **7. 修复 scripts/dev-all.mjs 循环引用**
 `dev-all.mjs` 内部调用 `npm run dev:all` 形成隐式循环
-→ 明确职责分离，只做进程编排
+→ 已确认 `dev-all.mjs` 当前不存在自调用；`desktop-dev.mjs` 已改为直接通过 Node 启动 `scripts/dev-all.mjs`，避免依赖 `dev:all` npm alias
 
 ### P1 — 质量与稳定性
 
@@ -427,6 +427,11 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已把三处重复的 `walkDirectory(directoryPath)` 收口到 `server/lib/fs-utils.ts`，保留原有递归遍历、返回文件路径、不内置排序/过滤、错误向上抛出的语义
 - ✅ `server/api-server.ts`、`server/nightly-memory-archive.ts`、`server/project-knowledge-store.ts` 已改为复用同一个 helper，调用方仍各自负责 `.md` 过滤、相对路径转换和排序
 - ✅ 已新增 `tests/fs-utils.test.ts` 覆盖嵌套目录递归与“只返回文件不返回目录”的基础行为，并通过相关 API / nightly / project knowledge 测试、`npm run lint` 与 `npm run build`
+
+进度汇报（2026-04-14，架构优化第二次更新）:
+- ✅ 已检查 `scripts/dev-all.mjs` 启动链路，当前文件只负责启动 `api-server` 与 `dev:web`，没有内部调用 `npm run dev:all`
+- ✅ 已把 `scripts/desktop-dev.mjs` 从 `npm run dev:all` 改为直接执行 `node scripts/dev-all.mjs`，减少 npm alias 改动带来的隐式递归风险
+- ✅ 已通过脚本语法检查与项目级 `npm run lint`、`npm run build`
 
 ### P3 — 深层产品功能 (brainstorm 补充)
 

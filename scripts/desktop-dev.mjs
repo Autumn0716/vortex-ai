@@ -61,7 +61,7 @@ process.on('SIGTERM', () => {
   process.exit();
 });
 
-start('dev-all', npmCommand, ['run', 'dev:all']);
+start('dev-all', process.execPath, ['scripts/dev-all.mjs']);
 const rendererPort = await waitForRendererPort();
 const rendererUrl = `http://127.0.0.1:${rendererPort}`;
 
