@@ -94,6 +94,7 @@ import {
   WEB_RUNTIME_CAPABILITIES,
   type RuntimeCapabilityProfile,
 } from '../lib/runtime-capabilities';
+import { buildAgentMemoryContextRequest } from '../lib/chat-runtime-memory';
 
 const TerminalPanel = lazy(() =>
   import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
@@ -1623,20 +1624,10 @@ export const ChatInterface: React.FC<{
           : new AIMessage(message.content),
       );
 
-      const includeAgentSharedShortTerm =
-        workspaceSnapshot.runtime.enableAgentSharedShortTerm || configSnapshot.memory.enableAgentSharedShortTerm;
-      const memoryContext =
-        workspaceSnapshot.runtime.enableMemory && configSnapshot.memory.enableAgentLongTerm
-          ? (
-              await getAgentMemoryContext(workspaceSnapshot.agent.id, {
-                includeRecentMemorySnapshot: configSnapshot.memory.includeRecentMemorySnapshot,
-                query: userContent,
-                topicId: workspaceSnapshot.topic.id,
-                includeSessionMemory: configSnapshot.memory.enableSessionMemory,
-                includeAgentSharedShortTerm,
-              })
-            ).slice(0, 4000)
-          : '';
+      const memoryContextRequest = buildAgentMemoryContextRequest(workspaceSnapshot, configSnapshot, userContent);
+      const memoryContext = memoryContextRequest
+        ? (await getAgentMemoryContext(memoryContextRequest.agentId, memoryContextRequest.options)).slice(0, 4000)
+        : '';
       if (workspaceSnapshot.runtime.enableSkills && configSnapshot.apiServer.enabled) {
         await syncAgentSkillDocuments(workspaceSnapshot.agent.id, configSnapshot.apiServer).catch((error) => {
           console.warn('Agent skill sync failed before send:', error);
