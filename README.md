@@ -82,7 +82,7 @@ npm run desktop:build
 - `config.json`、`model-metadata.json`、`memory/agents/...` 继续作为文件真源
 - host shell 权限默认关闭；终端页仍是 WebContainer 纯沙盒
 - `api-server` 会在打包前预编译为 `dist-host/api-server.mjs`，packaged app 不再依赖 TS 源码或 `tsx` 来启动 host
-- 当前 `.app` 未签名/未公证；Phase 1 仍暂时关闭 asar，后续再做 `asarUnpack` 与 host 二进制化优化
+- 当前 `.app` 未签名/未公证；Phase 1 已启用 `asar`，并通过 `asarUnpack` 保留 `dist-host/api-server.mjs` 供 packaged host bridge 启动
 
 ### 本地记忆 API 服务器
 

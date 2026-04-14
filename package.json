@@ -63,7 +63,10 @@
   "build": {
     "appId": "ai.flowagent.desktop",
     "productName": "FlowAgent",
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "dist-host/**/*"
+    ],
     "directories": {
       "output": "release"
     },

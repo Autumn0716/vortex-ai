@@ -31,6 +31,20 @@ function updateHostState(next) {
   Object.assign(hostState, next);
 }
 
+function resolveBundledHostEntryPath() {
+  if (!app.isPackaged) {
+    return path.join(sourceRoot, 'dist-host', 'api-server.mjs');
+  }
+  return path.join(process.resourcesPath, 'app.asar.unpacked', 'dist-host', 'api-server.mjs');
+}
+
+function resolveHostWorkingDirectory(projectRoot) {
+  if (!app.isPackaged) {
+    return sourceRoot;
+  }
+  return process.resourcesPath || projectRoot;
+}
+
 function isPortOpen(port, host = '127.0.0.1') {
   return new Promise((resolve) => {
     const socket = net.connect({ port, host });
@@ -100,7 +114,8 @@ async function ensureHostBridge() {
     return;
   }
 
-  const bundledHostEntryPath = path.join(sourceRoot, 'dist-host', 'api-server.mjs');
+  const bundledHostEntryPath = resolveBundledHostEntryPath();
+  const hostWorkingDirectory = resolveHostWorkingDirectory(projectRoot);
   const usesBundledHost = fs.existsSync(bundledHostEntryPath);
   const tsxCliPath = path.join(sourceRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   const serverEntryPath = path.join(sourceRoot, 'server', 'api-server.ts');
@@ -113,7 +128,7 @@ async function ensureHostBridge() {
     startedAt: new Date().toISOString(),
   });
   hostProcess = spawn(process.execPath, hostArgs, {
-    cwd: sourceRoot,
+    cwd: hostWorkingDirectory,
     stdio: 'inherit',
     env: {
       ...process.env,
@@ -256,7 +271,16 @@ ipcMain.handle('flowagent:get-runtime-diagnostics', async () => {
 });
 
 app.whenReady().then(async () => {
-  await ensureHostBridge();
+  try {
+    await ensureHostBridge();
+  } catch (error) {
+    console.error('Failed to start FlowAgent host bridge:', error);
+    updateHostState({
+      status: 'failed',
+      message: error instanceof Error ? error.message : 'Failed to start host bridge.',
+    });
+  }
+
   createMainWindow();
 
   app.on('activate', () => {

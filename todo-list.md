@@ -261,7 +261,7 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已完成第一版桌面 capability gating：Electron preload 会返回 host/filesystem/sandbox 能力，前端统一生成 runtime capability profile，并在聊天头部、Sandbox 面板和 API Server 设置页显示当前运行模式；Phase 1 仍保持 WebContainer 沙盒优先，host shell 默认关闭
 - ✅ 已完成第一版 unsigned macOS `.app` 打包：新增 `desktop:build`，本地生成 `release/mac-arm64/FlowAgent.app`；packaged app 已实测可自动启动内置 host bridge，并把数据根目录切到 `~/Library/Application Support/FlowAgent/workspace`
 - ✅ 已完成第一版 host bridge 预编译：新增 `build:host`，把 `server/api-server.ts` 打成 `dist-host/api-server.mjs`；Electron 会优先启动该 bundle，packaged app 不再需要携带 `src/` / `server/` TS 源码或依赖 `tsx` 运行 host
-5. ⬜ 仍待继续：UI 图标瘦身、更完整的运行态性能观测、asar/asarUnpack 优化、签名与公证
+5. ⬜ 仍待继续：应用图标、签名与公证
 
 进度汇报（2026-04-14，Electron 第一阶段第二次更新）:
 - ✅ 已完成聊天壳层第一轮瘦身：左侧窄轨、topic 侧栏、聊天头部和模型选择区已统一收紧 padding / badge / icon / 字号占位，主对话画布的横向空间占比更高
@@ -272,3 +272,8 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已补上桌面运行态观测：Electron 主进程新增轻量诊断接口，可返回主进程 PID、RSS/Heap、应用运行时长、系统内存，以及 host bridge 的 PID、最近启动时间、可达性与响应延迟
 - ✅ 设置页 `API 服务器` 已新增紧凑型 `Runtime Diagnostics` 卡片，可随时刷新查看当前桌面壳与 host bridge 状态，无需打开 DevTools 才能定位运行态问题
 - ✅ 已重新通过 `npm run lint`、`npm run build` 与 `npm run desktop:build`；当前仍遗留 `asar disabled / unsigned macOS app` 两项打包告警，作为后续继续收口项保留
+
+进度汇报（2026-04-14，Electron 第一阶段第四次更新）:
+- ✅ 已启用 `asar` 打包，并将 `dist-host/api-server.mjs` 收口到 `asarUnpack`；`desktop:build` 不再出现 `asar usage is disabled` 告警
+- ✅ 已修复 packaged app 在 `asar` 模式下的 host bridge 启动问题：打包态不再拿 `app.asar` 作为子进程工作目录，避免 `spawn ENOTDIR`
+- ✅ 已完成实机验证：`release/mac-arm64/FlowAgent.app` 启动后可正常拉起内置 host bridge，`/health` 返回正常，数据根目录仍落在 `~/Library/Application Support/FlowAgent/workspace`
