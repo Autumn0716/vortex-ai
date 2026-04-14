@@ -1,6 +1,15 @@
 import path from 'node:path';
 import fs from 'node:fs';
 
+function hasProjectMarkers(rootDir) {
+  if (!rootDir) {
+    return false;
+  }
+
+  const markers = ['config.json', 'memory', '.git'];
+  return markers.some((entry) => fs.existsSync(path.join(rootDir, entry)));
+}
+
 export function resolveElectronProjectRoot(app, sourceRoot) {
   const override = process.env.FLOWAGENT_DESKTOP_DATA_ROOT?.trim();
   if (override) {
@@ -9,6 +18,11 @@ export function resolveElectronProjectRoot(app, sourceRoot) {
 
   if (!app.isPackaged) {
     return sourceRoot;
+  }
+
+  const cwd = process.cwd();
+  if (hasProjectMarkers(cwd)) {
+    return path.resolve(cwd);
   }
 
   return path.join(app.getPath('userData'), 'workspace');

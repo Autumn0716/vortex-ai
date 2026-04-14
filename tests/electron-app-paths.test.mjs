@@ -19,6 +19,8 @@ async function createTempRoot(prefix) {
 }
 
 test('resolveElectronProjectRoot uses userData workspace in packaged mode', () => {
+  const originalCwd = process.cwd;
+  process.cwd = () => '/tmp/no-project-markers';
   const app = {
     isPackaged: true,
     getPath(name) {
@@ -27,10 +29,35 @@ test('resolveElectronProjectRoot uses userData workspace in packaged mode', () =
     },
   };
 
-  assert.equal(
-    resolveElectronProjectRoot(app, '/repo/source'),
-    path.join('/tmp/flowagent-userdata', 'workspace'),
-  );
+  try {
+    assert.equal(
+      resolveElectronProjectRoot(app, '/repo/source'),
+      path.join('/tmp/flowagent-userdata', 'workspace'),
+    );
+  } finally {
+    process.cwd = originalCwd;
+  }
+});
+
+test('resolveElectronProjectRoot prefers the packaged launch cwd when project markers exist', async () => {
+  const root = await createTempRoot('flowagent-electron-root-');
+  await writeFile(path.join(root, 'config.json'), '{}', 'utf8');
+
+  const originalCwd = process.cwd;
+  process.cwd = () => root;
+
+  const app = {
+    isPackaged: true,
+    getPath() {
+      return '/tmp/flowagent-userdata';
+    },
+  };
+
+  try {
+    assert.equal(resolveElectronProjectRoot(app, '/repo/source'), root);
+  } finally {
+    process.cwd = originalCwd;
+  }
 });
 
 test('resolveElectronConfigImportSource prefers explicit env, then cwd, then sourceRoot', async () => {
