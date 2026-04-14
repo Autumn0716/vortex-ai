@@ -341,6 +341,48 @@ function formatInspectorPriceValue(value?: number) {
   return value != null ? `${value} 元 / 1M` : '未识别';
 }
 
+function formatBytesCompact(value?: number | null) {
+  if (value == null || !Number.isFinite(value)) {
+    return '未识别';
+  }
+  if (value < 1024 * 1024) {
+    return `${Math.round(value / 1024)} KB`;
+  }
+  return `${(value / (1024 * 1024)).toFixed(value >= 1024 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+function formatDurationShort(seconds?: number | null) {
+  if (seconds == null || !Number.isFinite(seconds)) {
+    return '未识别';
+  }
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+}
+
+function formatTimestampShort(value?: string | null) {
+  if (!value) {
+    return '未记录';
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
 function parseOptionalNumberInput(value: string) {
   const normalized = value.trim().replace(/,/g, '');
   if (!normalized) {
@@ -531,6 +573,9 @@ export const SettingsView = ({
   const [nightlyArchiveTime, setNightlyArchiveTime] = useState('03:00');
   const [nightlyArchiveUseLlmScoring, setNightlyArchiveUseLlmScoring] = useState(false);
   const [nightlyArchiveMessage, setNightlyArchiveMessage] = useState<MemoryFileStatus | null>(null);
+  const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<FlowAgentRuntimeDiagnostics | null>(null);
+  const [runtimeDiagnosticsLoading, setRuntimeDiagnosticsLoading] = useState(false);
+  const [runtimeDiagnosticsError, setRuntimeDiagnosticsError] = useState('');
   const backupRestoreInputRef = useRef<HTMLInputElement>(null);
   const externalImportInputRef = useRef<HTMLInputElement>(null);
   const memoryFilesRequestIdRef = useRef(0);
@@ -595,6 +640,26 @@ export const SettingsView = ({
     setStats(nextStats);
   };
 
+  const loadRuntimeDiagnostics = async () => {
+    if (!window.flowAgentDesktop?.getRuntimeDiagnostics) {
+      setRuntimeDiagnostics(null);
+      setRuntimeDiagnosticsError('当前运行环境不支持桌面运行态诊断。');
+      return;
+    }
+
+    setRuntimeDiagnosticsLoading(true);
+    setRuntimeDiagnosticsError('');
+    try {
+      const diagnostics = await window.flowAgentDesktop.getRuntimeDiagnostics();
+      setRuntimeDiagnostics(diagnostics);
+    } catch (error) {
+      setRuntimeDiagnostics(null);
+      setRuntimeDiagnosticsError(error instanceof Error ? error.message : '读取运行态诊断失败。');
+    } finally {
+      setRuntimeDiagnosticsLoading(false);
+    }
+  };
+
   useEffect(() => {
     setDraft(normalizeAgentConfig(config));
     draftRef.current = normalizeAgentConfig(config);
@@ -631,6 +696,13 @@ export const SettingsView = ({
       loadStats().catch(console.error);
     }
   }, [activeCategory]);
+
+  useEffect(() => {
+    if (activeCategory !== 'api' || runtimeCapabilities.mode !== 'electron') {
+      return;
+    }
+    loadRuntimeDiagnostics().catch(console.error);
+  }, [activeCategory, runtimeCapabilities.mode]);
 
   useEffect(() => {
     const nextAgentId = activeAgentId ?? agents[0]?.id ?? '';
@@ -3090,6 +3162,18 @@ export const SettingsView = ({
             <SectionCard
               title="本地 API Server"
               description="开启后，前端会通过本地 API 直接读写项目里的记忆文件和夜间归档设置。"
+              action={
+                runtimeCapabilities.mode === 'electron' ? (
+                  <button
+                    onClick={() => loadRuntimeDiagnostics().catch(console.error)}
+                    disabled={runtimeDiagnosticsLoading}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RefreshCw size={13} className={runtimeDiagnosticsLoading ? 'animate-spin' : undefined} />
+                    运行态
+                  </button>
+                ) : undefined
+              }
             >
               <div className="space-y-4">
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
@@ -3135,6 +3219,68 @@ export const SettingsView = ({
                   {runtimeCapabilities.hostBridge.rootDir ? (
                     <div className="mt-3 truncate rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/45">
                       {runtimeCapabilities.hostBridge.rootDir}
+                    </div>
+                  ) : null}
+                  {runtimeCapabilities.mode === 'electron' ? (
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
+                            Runtime Diagnostics
+                          </div>
+                          <div className="mt-1 text-xs text-white/45">
+                            主进程、host bridge 与本机资源的轻量观测快照。
+                          </div>
+                        </div>
+                        {runtimeDiagnostics ? (
+                          <div className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white/55">
+                            v{runtimeDiagnostics.appVersion}
+                          </div>
+                        ) : null}
+                      </div>
+                      {runtimeDiagnosticsError ? (
+                        <div className="mt-3 rounded-xl border border-red-400/20 bg-red-400/10 px-3 py-2 text-xs text-red-100/80">
+                          {runtimeDiagnosticsError}
+                        </div>
+                      ) : null}
+                      {runtimeDiagnostics ? (
+                        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                          {[
+                            { label: '主进程 PID', value: String(runtimeDiagnostics.mainProcess.pid) },
+                            { label: '应用运行时长', value: formatDurationShort(runtimeDiagnostics.mainProcess.uptimeSec) },
+                            { label: '主进程 RSS', value: formatBytesCompact(runtimeDiagnostics.mainProcess.rssBytes) },
+                            {
+                              label: 'Heap Used',
+                              value: `${formatBytesCompact(runtimeDiagnostics.mainProcess.heapUsedBytes)} / ${formatBytesCompact(runtimeDiagnostics.mainProcess.heapTotalBytes)}`,
+                            },
+                            { label: 'Host PID', value: runtimeDiagnostics.host.pid ? String(runtimeDiagnostics.host.pid) : '未托管' },
+                            {
+                              label: 'Host Ping',
+                              value: runtimeDiagnostics.host.reachable
+                                ? `${runtimeDiagnostics.host.latencyMs} ms`
+                                : runtimeDiagnostics.host.error || '不可达',
+                            },
+                            {
+                              label: '系统内存',
+                              value: `${formatBytesCompact(runtimeDiagnostics.system.freeMemoryBytes)} free / ${formatBytesCompact(runtimeDiagnostics.system.totalMemoryBytes)}`,
+                            },
+                            {
+                              label: '最近启动',
+                              value: formatTimestampShort(runtimeDiagnostics.host.startedAt ?? runtimeDiagnostics.host.readyAt),
+                            },
+                          ].map((entry) => (
+                            <div
+                              key={entry.label}
+                              className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5"
+                            >
+                              <div className="text-[10px] uppercase tracking-[0.14em] text-white/35">{entry.label}</div>
+                              <div className="mt-1 text-sm font-medium text-white/88">{entry.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : runtimeDiagnosticsLoading ? (
+                        <div className="mt-3 text-xs text-white/45">正在读取桌面运行态信息…</div>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

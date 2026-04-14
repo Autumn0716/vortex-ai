@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolveElectronProjectRoot, resolveElectronRendererEntry } from './app-paths.mjs';
@@ -22,6 +23,8 @@ const hostState = {
   message: '',
   startedAt: null,
   readyAt: null,
+  pid: null,
+  lastExitCode: null,
 };
 
 function updateHostState(next) {
@@ -53,6 +56,25 @@ async function waitForUrl(url, timeoutMs = 30_000) {
     await new Promise((resolve) => setTimeout(resolve, 350));
   }
   return false;
+}
+
+async function probeHostHealth() {
+  const startedAt = Date.now();
+  try {
+    const response = await fetch(`${hostUrl}/health`);
+    return {
+      reachable: response.ok,
+      latencyMs: Date.now() - startedAt,
+      statusCode: response.status,
+    };
+  } catch (error) {
+    return {
+      reachable: false,
+      latencyMs: Date.now() - startedAt,
+      statusCode: null,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
 }
 
 async function ensureHostBridge() {
@@ -100,6 +122,10 @@ async function ensureHostBridge() {
       FLOWAGENT_DESKTOP: '1',
     },
   });
+  updateHostState({
+    pid: hostProcess.pid ?? null,
+    lastExitCode: null,
+  });
 
   hostProcess.on('exit', (code) => {
     if (code && code !== 0) {
@@ -107,11 +133,15 @@ async function ensureHostBridge() {
       updateHostState({
         status: 'failed',
         message: `Host bridge exited with code ${code}.`,
+        pid: null,
+        lastExitCode: code,
       });
     } else {
       updateHostState({
         status: 'stopped',
         message: 'Host bridge stopped.',
+        pid: null,
+        lastExitCode: code ?? 0,
       });
     }
     hostProcess = null;
@@ -190,6 +220,40 @@ ipcMain.handle('flowagent:get-desktop-info', () => ({
   },
   host: { ...hostState },
 }));
+
+ipcMain.handle('flowagent:get-runtime-diagnostics', async () => {
+  const hostProbe = await probeHostHealth();
+  const memoryUsage = process.memoryUsage();
+
+  return {
+    appVersion: app.getVersion(),
+    platform: process.platform,
+    versions: {
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node,
+    },
+    mainProcess: {
+      pid: process.pid,
+      uptimeSec: Math.round(process.uptime()),
+      rssBytes: memoryUsage.rss,
+      heapUsedBytes: memoryUsage.heapUsed,
+      heapTotalBytes: memoryUsage.heapTotal,
+    },
+    system: {
+      totalMemoryBytes: os.totalmem(),
+      freeMemoryBytes: os.freemem(),
+      loadAverage: os.loadavg(),
+    },
+    host: {
+      ...hostState,
+      reachable: hostProbe.reachable,
+      latencyMs: hostProbe.latencyMs,
+      statusCode: hostProbe.statusCode,
+      error: hostProbe.error ?? '',
+    },
+  };
+});
 
 app.whenReady().then(async () => {
   await ensureHostBridge();

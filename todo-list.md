@@ -267,3 +267,8 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已完成聊天壳层第一轮瘦身：左侧窄轨、topic 侧栏、聊天头部和模型选择区已统一收紧 padding / badge / icon / 字号占位，主对话画布的横向空间占比更高
 - ✅ 已把运行中视觉噪音进一步压低：`Running / Streaming` 等状态标签收口为更短的 `Live`，保留状态信息但减少头部与列表拥挤感
 - ✅ 已通过前端校验：当前 UI 收口改动已重新通过 `npm run lint` 与 `npm run build`
+
+进度汇报（2026-04-14，Electron 第一阶段第三次更新）:
+- ✅ 已补上桌面运行态观测：Electron 主进程新增轻量诊断接口，可返回主进程 PID、RSS/Heap、应用运行时长、系统内存，以及 host bridge 的 PID、最近启动时间、可达性与响应延迟
+- ✅ 设置页 `API 服务器` 已新增紧凑型 `Runtime Diagnostics` 卡片，可随时刷新查看当前桌面壳与 host bridge 状态，无需打开 DevTools 才能定位运行态问题
+- ✅ 已重新通过 `npm run lint`、`npm run build` 与 `npm run desktop:build`；当前仍遗留 `asar disabled / unsigned macOS app` 两项打包告警，作为后续继续收口项保留

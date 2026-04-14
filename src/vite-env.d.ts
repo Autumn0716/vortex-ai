@@ -25,11 +25,42 @@ interface FlowAgentDesktopInfo {
     message: string;
     startedAt?: string | null;
     readyAt?: string | null;
+    pid?: number | null;
+    lastExitCode?: number | null;
+  };
+}
+
+interface FlowAgentRuntimeDiagnostics {
+  appVersion: string;
+  platform: NodeJS.Platform;
+  versions: {
+    electron?: string;
+    chrome?: string;
+    node?: string;
+  };
+  mainProcess: {
+    pid: number;
+    uptimeSec: number;
+    rssBytes: number;
+    heapUsedBytes: number;
+    heapTotalBytes: number;
+  };
+  system: {
+    totalMemoryBytes: number;
+    freeMemoryBytes: number;
+    loadAverage: number[];
+  };
+  host: FlowAgentDesktopInfo['host'] & {
+    reachable: boolean;
+    latencyMs: number;
+    statusCode: number | null;
+    error?: string;
   };
 }
 
 interface Window {
   flowAgentDesktop?: {
     getDesktopInfo: () => Promise<FlowAgentDesktopInfo>;
+    getRuntimeDiagnostics: () => Promise<FlowAgentRuntimeDiagnostics>;
   };
 }
