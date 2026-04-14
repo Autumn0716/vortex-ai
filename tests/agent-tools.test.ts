@@ -87,3 +87,39 @@ test('createAgentTools includes search_web when web search is enabled', () => {
 
   assert.ok(tools.map((tool) => String(tool.name)).includes('search_web'));
 });
+
+test('search_web returns a stable provider error when tavily is unreachable', async () => {
+  const tool = createAgentTools(
+    {
+      ...DEFAULT_CONFIG,
+      search: {
+        ...DEFAULT_CONFIG.search,
+        enableWebSearch: true,
+        defaultProviderId: 'search_tavily',
+        providers: DEFAULT_CONFIG.search.providers.map((provider) =>
+          provider.id === 'search_tavily'
+            ? { ...provider, enabled: true, apiKey: 'test-key', baseUrl: 'https://api.tavily.com' }
+            : provider,
+        ),
+      },
+    },
+    {
+      webSearchEnabled: true,
+      searchProviderId: 'search_tavily',
+    },
+  ).find((entry) => String(entry.name) === 'search_web');
+
+  assert.ok(tool);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    throw new Error('connect ECONNREFUSED');
+  }) as typeof fetch;
+
+  try {
+    const result = await tool!.invoke({ query: 'latest langgraph updates' });
+    assert.match(String(result), /Error searching the web with Tavily: connect ECONNREFUSED/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

@@ -6,6 +6,7 @@ import {
 } from '../db';
 import type { AgentConfig, SearchProviderConfig } from './config';
 import { runSnippetInSandbox } from '../webcontainer';
+import { err, isErr, ok, type Result } from '../result';
 
 export function formatKnowledgeBaseToolPayload(results: KnowledgeDocumentSearchResult[]) {
   const supportCounts = results.reduce(
@@ -97,29 +98,31 @@ async function performTavilySearch(provider: SearchProviderConfig, query: string
     throw new Error(`${provider.name} API Key 缺失。请先在 Settings -> Search 中配置。`);
   }
 
-  const response = await fetch(`${provider.baseUrl?.replace(/\/+$/, '') ?? 'https://api.tavily.com'}/search`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
+  const payloadResult = await requestSearchProviderPayload(
+    `${provider.baseUrl?.replace(/\/+$/, '') ?? 'https://api.tavily.com'}/search`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        api_key: provider.apiKey.trim(),
+        query,
+        max_results: 5,
+        search_depth: 'advanced',
+        include_answer: true,
+      }),
     },
-    body: JSON.stringify({
-      api_key: provider.apiKey.trim(),
-      query,
-      max_results: 5,
-      search_depth: 'advanced',
-      include_answer: true,
-    }),
-  });
-
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message =
+    (payload, status) =>
       payload && typeof payload === 'object' && 'detail' in payload
         ? String(payload.detail)
-        : `Tavily request failed with HTTP ${response.status}.`;
-    throw new Error(message);
+        : `Tavily request failed with HTTP ${status}.`,
+  );
+  if (isErr(payloadResult)) {
+    throw payloadResult.error;
   }
 
+  const payload = payloadResult.value;
   return {
     provider: provider.name,
     answer:
@@ -136,36 +139,59 @@ async function performTavilySearch(provider: SearchProviderConfig, query: string
   };
 }
 
+async function requestSearchProviderPayload(
+  url: string,
+  init: RequestInit,
+  readFailureMessage: (payload: unknown, status: number) => string,
+): Promise<Result<any, Error>> {
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return err(new Error(detail));
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    return err(new Error(readFailureMessage(payload, response.status)));
+  }
+
+  return ok(payload);
+}
+
 async function performExaSearch(provider: SearchProviderConfig, query: string) {
   if (!provider.apiKey.trim()) {
     throw new Error(`${provider.name} API Key 缺失。请先在 Settings -> Search 中配置。`);
   }
 
-  const response = await fetch(`${provider.baseUrl?.replace(/\/+$/, '') ?? 'https://api.exa.ai'}/search`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': provider.apiKey.trim(),
-    },
-    body: JSON.stringify({
-      query,
-      numResults: 5,
-      type: 'auto',
-      contents: {
-        text: true,
+  const payloadResult = await requestSearchProviderPayload(
+    `${provider.baseUrl?.replace(/\/+$/, '') ?? 'https://api.exa.ai'}/search`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': provider.apiKey.trim(),
       },
-    }),
-  });
-
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    const message =
+      body: JSON.stringify({
+        query,
+        numResults: 5,
+        type: 'auto',
+        contents: {
+          text: true,
+        },
+      }),
+    },
+    (payload, status) =>
       payload && typeof payload === 'object' && 'error' in payload
         ? String(payload.error)
-        : `Exa request failed with HTTP ${response.status}.`;
-    throw new Error(message);
+        : `Exa request failed with HTTP ${status}.`,
+  );
+  if (isErr(payloadResult)) {
+    throw payloadResult.error;
   }
 
+  const payload = payloadResult.value;
   return {
     provider: provider.name,
     answer: '',
