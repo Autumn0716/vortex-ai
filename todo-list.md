@@ -383,6 +383,12 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - Electron IPC 桥测试
 - Query Router 完整路径测试
 
+进度汇报（2026-04-14，第一次更新）:
+- 已补上第一批 Provider 兼容性 E2E：新增 `tests/provider-runtime-integration.test.ts`
+- 当前覆盖了 `provider.protocol -> request mode -> 实际 endpoint/payload` 两条关键链路：`createAgentRuntime()` 的 `/responses` 流式请求，以及 `compileTaskGraphFromGoal()` 的 `/responses` / `/chat/completions` 分流请求
+- 同时补了一个 Responses 结构化输出保护断言：当 `structuredOutput.mode !== text` 时，runtime 不再继续透传 thinking，避免和官方 JSON/Schema 输出模式冲突
+- 该项仍未完成；混合搜索、Electron IPC、Query Router 的核心集成测试还需要继续补
+
 ### P2 — 产品功能增强
 
 ⬜ **12. Memory Inspector 视图**
