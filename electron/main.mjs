@@ -78,14 +78,19 @@ async function ensureHostBridge() {
     return;
   }
 
+  const bundledHostEntryPath = path.join(sourceRoot, 'dist-host', 'api-server.mjs');
+  const usesBundledHost = fs.existsSync(bundledHostEntryPath);
   const tsxCliPath = path.join(sourceRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
   const serverEntryPath = path.join(sourceRoot, 'server', 'api-server.ts');
+  const hostArgs = usesBundledHost ? [bundledHostEntryPath] : [tsxCliPath, serverEntryPath];
   updateHostState({
     status: 'starting',
-    message: 'Starting the local FlowAgent host bridge.',
+    message: usesBundledHost
+      ? 'Starting the bundled FlowAgent host bridge.'
+      : 'Starting the local FlowAgent host bridge.',
     startedAt: new Date().toISOString(),
   });
-  hostProcess = spawn(process.execPath, [tsxCliPath, serverEntryPath], {
+  hostProcess = spawn(process.execPath, hostArgs, {
     cwd: sourceRoot,
     stdio: 'inherit',
     env: {

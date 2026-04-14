@@ -1,4 +1,5 @@
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
+import { mkdirSync } from 'node:fs';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -115,6 +116,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
   const rootDir = path.resolve(options.rootDir ?? process.env.FLOWAGENT_PROJECT_ROOT ?? process.cwd());
   const authToken = (options.authToken ?? process.env.FLOWAGENT_API_TOKEN ?? '').trim();
   const memoryRootDir = path.resolve(rootDir, 'memory/agents');
+  mkdirSync(memoryRootDir, { recursive: true });
   const nightlyArchiveScheduler = createNightlyMemoryArchiveScheduler({
     rootDir,
     now: options.nightlyArchiveNow,

@@ -81,7 +81,8 @@ npm run desktop:build
 - 打包态数据根目录默认是 `~/Library/Application Support/FlowAgent/workspace`
 - `config.json`、`model-metadata.json`、`memory/agents/...` 继续作为文件真源
 - host shell 权限默认关闭；终端页仍是 WebContainer 纯沙盒
-- 当前 `.app` 未签名/未公证，且为了让 TS host bridge 可直接运行，Phase 1 暂时关闭 asar
+- `api-server` 会在打包前预编译为 `dist-host/api-server.mjs`，packaged app 不再依赖 TS 源码或 `tsx` 来启动 host
+- 当前 `.app` 未签名/未公证；Phase 1 仍暂时关闭 asar，后续再做 `asarUnpack` 与 host 二进制化优化
 
 ### 本地记忆 API 服务器
 
