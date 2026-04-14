@@ -2083,6 +2083,146 @@ export async function handoffBranchTopicToParent(options: {
   };
 }
 
+export async function retryWorkflowBranchTask(options: { branchTopicId: string; reason?: string }) {
+  const previousWorkspace = await getTopicWorkspace(options.branchTopicId);
+  if (!previousWorkspace) {
+    throw new Error('Branch topic not found.');
+  }
+  if (!previousWorkspace.topic.parentTopicId) {
+    throw new Error('Only workflow branch topics can be retried.');
+  }
+
+  const database = await ensureAgentSchema();
+  const taskRow = mapRows<
+    TopicTaskGraphNodeRow & {
+      graph_title: string;
+    }
+  >(
+    database.exec(
+      `
+        SELECT
+          n.id,
+          n.graph_id,
+          n.topic_id,
+          n.agent_id,
+          n.node_key,
+          n.node_type,
+          n.title,
+          n.objective,
+          n.acceptance_criteria,
+          n.depends_on_json,
+          n.branch_topic_id,
+          n.status,
+          n.created_at,
+          n.updated_at,
+          g.title AS graph_title
+        FROM topic_task_nodes n
+        JOIN topic_task_graphs g ON g.id = n.graph_id
+        WHERE n.branch_topic_id = ?
+        LIMIT 1
+      `,
+      [options.branchTopicId],
+    ),
+  )[0];
+
+  if (!taskRow) {
+    throw new Error('No workflow task node is linked to this branch.');
+  }
+  if (taskRow.node_type !== 'worker') {
+    throw new Error('Only worker branch tasks can be retried.');
+  }
+
+  const retryBranchTopic = await createBranchTopicFromTopic({
+    sourceTopicId: taskRow.topic_id,
+    title: `${taskRow.graph_title} · ${taskRow.title} · Retry`,
+    branchGoal: [
+      `Retry worker task: ${taskRow.title}`,
+      `Objective: ${taskRow.objective}`,
+      `Acceptance criteria: ${taskRow.acceptance_criteria}`,
+      options.reason?.trim() ? `Retry reason: ${options.reason.trim()}` : '',
+      `Previous branch: ${previousWorkspace.topic.title}`,
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+    includeRecentMessages: 8,
+  });
+
+  const timestamp = nowIso();
+  const updateDatabase = await ensureAgentSchema();
+  updateDatabase.run('BEGIN');
+  try {
+    updateDatabase.run(
+      `
+        UPDATE topic_task_nodes
+        SET
+          branch_topic_id = ?,
+          status = 'ready',
+          updated_at = ?
+        WHERE id = ?
+      `,
+      [retryBranchTopic.id, timestamp, taskRow.id],
+    );
+    updateDatabase.run(
+      `
+        UPDATE topic_task_nodes
+        SET
+          branch_topic_id = NULL,
+          updated_at = ?
+        WHERE graph_id = ? AND node_type = 'reviewer'
+      `,
+      [timestamp, taskRow.graph_id],
+    );
+    updateDatabase.run(
+      `
+        UPDATE topic_task_graphs
+        SET
+          status = 'ready',
+          reviewer_branch_topic_id = NULL,
+          updated_at = ?
+        WHERE id = ?
+      `,
+      [timestamp, taskRow.graph_id],
+    );
+    updateDatabase.run('COMMIT');
+  } catch (error) {
+    updateDatabase.run('ROLLBACK');
+    throw error;
+  }
+  await saveDB();
+
+  await addTopicMessages([
+    {
+      topicId: previousWorkspace.topic.id,
+      agentId: previousWorkspace.agent.id,
+      role: 'system',
+      authorName: 'Workflow Retry',
+      content: `Retried workflow task "${taskRow.title}" in branch "${retryBranchTopic.title}".${
+        options.reason?.trim() ? ` Reason: ${options.reason.trim()}` : ''
+      }`,
+      createdAt: timestamp,
+    },
+    {
+      topicId: taskRow.topic_id,
+      agentId: taskRow.agent_id,
+      role: 'system',
+      authorName: 'Workflow Retry',
+      content: `Workflow task retried: ${taskRow.title}\nNew branch: ${retryBranchTopic.title}\nPrevious branch: ${previousWorkspace.topic.title}`,
+      createdAt: timestamp,
+    },
+  ]);
+
+  return {
+    previousBranchTopic: previousWorkspace.topic,
+    retryBranchTopic,
+    retriedTaskNode: toTopicTaskGraphNode({
+      ...taskRow,
+      branch_topic_id: retryBranchTopic.id,
+      status: 'ready',
+      updated_at: timestamp,
+    }),
+  };
+}
+
 export async function updateTopicTitle(topicId: string, title: string): Promise<void> {
   const database = await ensureAgentSchema();
   const normalizedTitle = title.trim() || DEFAULT_TOPIC_TITLE;

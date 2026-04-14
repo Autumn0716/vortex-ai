@@ -15,6 +15,7 @@ import {
   getTopicWorkspace,
   handoffBranchTopicToParent,
   listTopics,
+  retryWorkflowBranchTask,
   saveAgent,
   saveAgentMemoryDocument,
   updateTopicModelFeatures,
@@ -643,4 +644,33 @@ test('workflow writes a review-ready rollup after all worker branches hand off',
   assert.equal(reviewerWorkspace?.topic.title, 'Workflow Rollup Test · Reviewer');
   assert.equal(reviewerWorkspace?.messages[0]?.role, 'system');
   assert.match(reviewerWorkspace?.messages[0]?.content ?? '', /Review the completed worker branch handoffs/);
+
+  const retryResult = await retryWorkflowBranchTask({
+    branchTopicId: graphResult.branchTopics[0]!.id,
+    reason: 'First worker output needs another pass.',
+  });
+  assert.equal(retryResult.previousBranchTopic.id, graphResult.branchTopics[0]!.id);
+  assert.equal(retryResult.retriedTaskNode.status, 'ready');
+  assert.equal(retryResult.retriedTaskNode.branchTopicId, retryResult.retryBranchTopic.id);
+  assert.match(retryResult.retryBranchTopic.title, /Retry$/);
+
+  const oldBranchAfterRetry = await getTopicWorkspace(graphResult.branchTopics[0]!.id);
+  assert.match(oldBranchAfterRetry?.messages.at(-1)?.content ?? '', /Retried workflow task/);
+
+  await addTopicMessages([
+    {
+      topicId: retryResult.retryBranchTopic.id,
+      agentId,
+      role: 'assistant',
+      authorName: 'Workflow Rollup Agent',
+      content: 'Retried dispatcher branch is complete.',
+    },
+  ]);
+  const retryHandoff = await handoffBranchTopicToParent({
+    branchTopicId: retryResult.retryBranchTopic.id,
+    note: 'Retry branch complete.',
+    includeRecentMessages: 2,
+  });
+  assert.equal(retryHandoff.reviewReadyWorkflows.length, 1);
+  assert.notEqual(retryHandoff.reviewReadyWorkflows[0]?.reviewerBranchTopic?.id, reviewerBranchTopic.id);
 });
