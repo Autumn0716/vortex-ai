@@ -94,3 +94,15 @@ test('project knowledge API exposes shared docs and SKILL.md snapshots with chan
     await server.close();
   }
 });
+
+test('project knowledge API reports the local API url when the server is unreachable', async () => {
+  await assert.rejects(
+    () =>
+      getProjectKnowledgeStatus({
+        enabled: true,
+        baseUrl: 'http://127.0.0.1:1',
+        authToken: '',
+      }),
+    /Failed to reach local API server at http:\/\/127\.0\.0\.1:1\/api\/project-knowledge\/status/,
+  );
+});

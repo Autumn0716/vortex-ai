@@ -1,6 +1,7 @@
 import type { ApiServerSettings } from './agent/config';
 import { resolveApiServerBaseUrl } from './agent-memory-api';
 import type { ProjectKnowledgeRecord } from './project-knowledge-model';
+import { err, isErr, ok, type Result } from './result';
 
 export interface ProjectKnowledgeStatus {
   version: string;
@@ -27,19 +28,46 @@ function readErrorMessage(payload: unknown, fallback: string) {
   return fallback;
 }
 
+async function fetchProjectKnowledgeResponse(
+  requestUrl: string,
+  settings: ApiServerSettings,
+): Promise<Result<Response, Error>> {
+  try {
+    return ok(
+      await fetch(requestUrl, {
+        headers: buildApiHeaders(settings),
+      }),
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return err(new Error(`Failed to reach local API server at ${requestUrl}: ${detail}`));
+  }
+}
+
+async function parseProjectKnowledgePayload<T>(response: Response): Promise<Result<T, Error>> {
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    return err(new Error(readErrorMessage(payload, `API request failed with HTTP ${response.status}.`)));
+  }
+  return ok(payload as T);
+}
+
 async function requestProjectKnowledgeApi<T>(settings: ApiServerSettings, path: string) {
   if (!settings.enabled) {
     return null;
   }
 
-  const response = await fetch(`${resolveApiServerBaseUrl(settings)}${path}`, {
-    headers: buildApiHeaders(settings),
-  });
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(readErrorMessage(payload, `API request failed with HTTP ${response.status}.`));
+  const requestUrl = `${resolveApiServerBaseUrl(settings)}${path}`;
+  const responseResult = await fetchProjectKnowledgeResponse(requestUrl, settings);
+  if (isErr(responseResult)) {
+    throw responseResult.error;
   }
-  return payload as T;
+
+  const payloadResult = await parseProjectKnowledgePayload<T>(responseResult.value);
+  if (isErr(payloadResult)) {
+    throw payloadResult.error;
+  }
+  return payloadResult.value;
 }
 
 export async function getProjectKnowledgeStatus(settings: ApiServerSettings) {
