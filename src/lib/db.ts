@@ -20,6 +20,7 @@ import {
   normalizeKnowledgeTags,
   type KnowledgeDocumentSourceType,
 } from './knowledge-document-model';
+import { createFts5Table, hasFts5Table } from './db-fts5-helpers';
 import {
   buildEmbeddingContentHash,
   createEmbeddings,
@@ -1032,18 +1033,18 @@ async function ensureSchema(database: Database) {
     CREATE INDEX IF NOT EXISTS idx_document_chunk_embeddings_doc ON document_chunk_embeddings(document_id, updated_at DESC);
   `);
 
-  try {
-    database.run(`
-      CREATE VIRTUAL TABLE IF NOT EXISTS document_chunks_fts USING fts5(
-        chunk_id UNINDEXED,
-        document_id UNINDEXED,
-        title,
-        content
-      );
-    `);
-  } catch (error) {
-    console.warn('FTS5 document index unavailable, falling back to LIKE search:', error);
-  }
+  createFts5Table(
+    database,
+    {
+      tableName: 'document_chunks_fts',
+      columns: ['chunk_id UNINDEXED', 'document_id UNINDEXED', 'title', 'content'],
+    },
+    {
+      onError: (error) => {
+        console.warn('FTS5 document index unavailable, falling back to LIKE search:', error);
+      },
+    },
+  );
 
   await seedAssistants(database);
   await seedPromptSnippets(database);
@@ -1052,14 +1053,7 @@ async function ensureSchema(database: Database) {
 }
 
 export function getDocumentFtsEnabled(database: Database): boolean {
-  try {
-    const rows = mapRows<{ name: string }>(
-      database.exec("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'document_chunks_fts'"),
-    );
-    return rows.length > 0;
-  } catch {
-    return false;
-  }
+  return hasFts5Table(database, 'document_chunks_fts');
 }
 
 function clearDocumentChunks(database: Database, documentId: string) {

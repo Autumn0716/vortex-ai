@@ -34,6 +34,7 @@ import {
 } from './task-graph-compiler';
 import { cosineSimilarity } from './vector-search-model';
 import { estimateMessageTokens, splitBudgetedRecentItems } from './session-context-budget';
+import { createFts5Tables } from './db-fts5-helpers';
 
 const ACTIVE_AGENT_KEY = 'flowagent_active_agent_id_v2';
 const ACTIVE_TOPIC_KEY = 'flowagent_active_topic_id_v2';
@@ -859,26 +860,16 @@ async function ensureAgentSchema(): Promise<Database> {
       try {
         ensureAgentWorkspaceSchema(database);
 
-        try {
-          database.run(`
-            CREATE VIRTUAL TABLE IF NOT EXISTS topic_title_fts USING fts5(
-              topic_id UNINDEXED,
-              agent_id UNINDEXED,
-              title
-            );
-          `);
-          database.run(`
-            CREATE VIRTUAL TABLE IF NOT EXISTS message_content_fts USING fts5(
-              message_id UNINDEXED,
-              topic_id UNINDEXED,
-              agent_id UNINDEXED,
-              content
-            );
-          `);
-          fts5Available = true;
-        } catch {
-          fts5Available = false;
-        }
+        fts5Available = createFts5Tables(database, [
+          {
+            tableName: 'topic_title_fts',
+            columns: ['topic_id UNINDEXED', 'agent_id UNINDEXED', 'title'],
+          },
+          {
+            tableName: 'message_content_fts',
+            columns: ['message_id UNINDEXED', 'topic_id UNINDEXED', 'agent_id UNINDEXED', 'content'],
+          },
+        ]);
 
         const migrated = await migrateLegacyWorkspace(database);
         const seeded = seedFallbackWorkspace(database);

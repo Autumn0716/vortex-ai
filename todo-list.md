@@ -370,8 +370,8 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - 数据库操作增加事务级错误边界
 - API 响应增加 `error_code` 字段
 
-⬜ **9. FTS5 Schema 逻辑集中化**
-提取 `src/lib/db-fts5-helpers.ts`，统一处理 FTS5 建表和索引
+✅ **9. FTS5 Schema 逻辑集中化**
+已提取 `src/lib/db-fts5-helpers.ts`，统一处理运行时 FTS5 虚拟表建表与可用性检测
 
 ✅ **10. API 请求日志中间件**
 已添加轻量自定义 Express 请求日志中间件，记录 method / path / status / duration，避免输出 query string 中的敏感信息
@@ -437,6 +437,11 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已给本地 `api-server` 增加轻量请求日志中间件，响应完成后输出 `[api] METHOD /path status durationMs`，用于后台排错和运行态观测
 - ✅ 日志使用 `request.path` 而不是 `request.originalUrl`，不会记录 query string，避免 `authToken` 等敏感参数进入日志
 - ✅ `createFlowAgentApiServer()` 已支持注入 logger，测试环境可静默或捕获日志；已补测试覆盖日志格式和 query 脱敏，并通过 `node --import tsx --test tests/agent-memory-api.test.ts`、`npm run lint`、`npm run build`
+
+进度汇报（2026-04-14，架构优化第四次更新）:
+- ✅ 已新增 `src/lib/db-fts5-helpers.ts`，集中提供 `createFts5Table / createFts5Tables / hasFts5Table`，并对内部 FTS5 table identifier 做最小校验
+- ✅ `src/lib/db.ts` 的 `document_chunks_fts` 与 `src/lib/agent-workspace.ts` 的 `topic_title_fts / message_content_fts` 已统一通过 helper 建表，搜索 SQL 和索引写入逻辑保持原状
+- ✅ 已补 `tests/db-fts5-helpers.test.ts` 覆盖建表 SQL、失败回退、sqlite_master 检测和非法 identifier，并通过 FTS/RAG、session runtime、`npm run lint` 与 `npm run build`
 
 ### P3 — 深层产品功能 (brainstorm 补充)
 
