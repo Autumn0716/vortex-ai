@@ -22,6 +22,11 @@ import {
 import { getAgentMemoryFileStore, setAgentMemoryFileStore } from '../src/lib/agent-memory-sync';
 
 const tempRoots: string[] = [];
+const silentLogger = {
+  info() {},
+  warn() {},
+  error() {},
+};
 
 after(async () => {
   setAgentMemoryFileStore(null);
@@ -34,11 +39,17 @@ async function createTempRoot() {
   return root;
 }
 
-async function startServer(rootDir: string, authToken = '', nightlyArchiveNow?: () => string | Date) {
+async function startServer(
+  rootDir: string,
+  authToken = '',
+  nightlyArchiveNow?: () => string | Date,
+  logger?: Pick<Console, 'info' | 'warn' | 'error'>,
+) {
   const { app, nightlyArchiveReady, nightlyArchiveScheduler } = createFlowAgentApiServer({
     rootDir,
     authToken,
     nightlyArchiveNow,
+    logger: logger ?? silentLogger,
   });
   await nightlyArchiveReady;
   const server = await new Promise<Server>((resolve, reject) => {
@@ -108,6 +119,31 @@ test('API server health and file operations work through the registered memory f
 
     const diskContent = await readFile(path.join(rootDir, 'memory/agents/flowagent-core/MEMORY.md'), 'utf8');
     assert.equal(diskContent, '# Memory\n\n默认使用中文输出。');
+  } finally {
+    await server.close();
+  }
+});
+
+test('API server logs request method path status and duration without query strings', async () => {
+  const rootDir = await createTempRoot();
+  const logs: string[] = [];
+  const logger = {
+    info(message: string) {
+      logs.push(message);
+    },
+    warn() {},
+    error() {},
+  };
+  const server = await startServer(rootDir, '', undefined, logger);
+
+  try {
+    const response = await fetch(`${server.baseUrl}/health?authToken=secret-token`);
+    assert.equal(response.status, 200);
+    await response.text();
+
+    assert.equal(logs.length, 1);
+    assert.match(logs[0], /^\[api\] GET \/health 200 \d+ms$/);
+    assert.doesNotMatch(logs[0], /secret-token|authToken/);
   } finally {
     await server.close();
   }

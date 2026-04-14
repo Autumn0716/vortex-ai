@@ -373,8 +373,8 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 ⬜ **9. FTS5 Schema 逻辑集中化**
 提取 `src/lib/db-fts5-helpers.ts`，统一处理 FTS5 建表和索引
 
-⬜ **10. API 请求日志中间件**
-添加 Express morgan 或轻量自定义日志中间件
+✅ **10. API 请求日志中间件**
+已添加轻量自定义 Express 请求日志中间件，记录 method / path / status / duration，避免输出 query string 中的敏感信息
 
 ⬜ **11. 补充核心集成测试**
 - 混合搜索管线端到端测试
@@ -432,6 +432,11 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已检查 `scripts/dev-all.mjs` 启动链路，当前文件只负责启动 `api-server` 与 `dev:web`，没有内部调用 `npm run dev:all`
 - ✅ 已把 `scripts/desktop-dev.mjs` 从 `npm run dev:all` 改为直接执行 `node scripts/dev-all.mjs`，减少 npm alias 改动带来的隐式递归风险
 - ✅ 已通过脚本语法检查与项目级 `npm run lint`、`npm run build`
+
+进度汇报（2026-04-14，架构优化第三次更新）:
+- ✅ 已给本地 `api-server` 增加轻量请求日志中间件，响应完成后输出 `[api] METHOD /path status durationMs`，用于后台排错和运行态观测
+- ✅ 日志使用 `request.path` 而不是 `request.originalUrl`，不会记录 query string，避免 `authToken` 等敏感参数进入日志
+- ✅ `createFlowAgentApiServer()` 已支持注入 logger，测试环境可静默或捕获日志；已补测试覆盖日志格式和 query 脱敏，并通过 `node --import tsx --test tests/agent-memory-api.test.ts`、`npm run lint`、`npm run build`
 
 ### P3 — 深层产品功能 (brainstorm 补充)
 

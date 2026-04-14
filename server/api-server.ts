@@ -23,6 +23,7 @@ export interface FlowAgentApiServerOptions {
   authToken?: string;
   rootDir?: string;
   nightlyArchiveNow?: () => string | Date;
+  logger?: Pick<Console, 'info' | 'warn' | 'error'>;
 }
 
 function normalizeRelativePath(input: string) {
@@ -97,9 +98,20 @@ function applyAuth(app: Express, authToken: string) {
   });
 }
 
+function applyRequestLogging(app: Express, logger: Pick<Console, 'info'>) {
+  app.use((request: Request, response: Response, next: NextFunction) => {
+    const startedAt = Date.now();
+    response.on('finish', () => {
+      logger.info(`[api] ${request.method} ${request.path} ${response.statusCode} ${Date.now() - startedAt}ms`);
+    });
+    next();
+  });
+}
+
 export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}) {
   const rootDir = path.resolve(options.rootDir ?? process.env.FLOWAGENT_PROJECT_ROOT ?? process.cwd());
   const authToken = (options.authToken ?? process.env.FLOWAGENT_API_TOKEN ?? '').trim();
+  const logger = options.logger ?? console;
   const memoryRootDir = path.resolve(rootDir, 'memory/agents');
   mkdirSync(memoryRootDir, { recursive: true });
   const nightlyArchiveScheduler = createNightlyMemoryArchiveScheduler({
@@ -114,6 +126,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
   app.use(express.json({ limit: '2mb' }));
   applyCors(app);
   applyAuth(app, authToken);
+  applyRequestLogging(app, logger);
 
   app.get('/health', async (_request, response) => {
     const nightlyArchive = await nightlyArchiveScheduler.getStatus();
