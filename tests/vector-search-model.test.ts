@@ -12,6 +12,10 @@ test('cosineSimilarity returns 1 for identical vectors', () => {
   assert.equal(cosineSimilarity([1, 2, 3], [1, 2, 3]), 1);
 });
 
+test('cosineSimilarity returns 0 for mismatched vector dimensions', () => {
+  assert.equal(cosineSimilarity([1, 2], [1, 2, 3]), 0);
+});
+
 test('normalizeLexicalScore converts lower bm25 scores into higher relevance', () => {
   assert.ok(normalizeLexicalScore(0.2) > normalizeLexicalScore(2));
 });
@@ -35,6 +39,27 @@ test('hybridScoreDocuments blends lexical and vector signals', () => {
   ]);
 
   assert.equal(ranked[0]?.id, 'balanced_top');
+});
+
+test('hybridScoreDocuments clamps missing or negative vector scores safely', () => {
+  const ranked = hybridScoreDocuments([
+    {
+      id: 'lexical_safe',
+      title: 'Lexical Safe',
+      content: 'lexical candidate',
+      lexicalScore: 0.1,
+      vectorScore: -4,
+    },
+    {
+      id: 'vector_missing',
+      title: 'Vector Missing',
+      content: 'candidate without vector score',
+      lexicalScore: 0.8,
+    },
+  ]);
+
+  assert.equal(ranked[0]?.id, 'lexical_safe');
+  assert.ok((ranked[0]?.hybridScore ?? 0) > (ranked[1]?.hybridScore ?? 0));
 });
 
 test('summarizeEmbeddingVector reports dimensions and preview safely', () => {
