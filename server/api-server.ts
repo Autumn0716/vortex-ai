@@ -79,6 +79,13 @@ function applyCors(app: Express) {
   });
 }
 
+function sendApiError(response: Response, status: number, errorCode: string, message: string) {
+  response.status(status).json({
+    error: message,
+    error_code: errorCode,
+  });
+}
+
 function applyAuth(app: Express, authToken: string) {
   app.use((request: Request, response: Response, next: NextFunction) => {
     if (!authToken) {
@@ -90,7 +97,7 @@ function applyAuth(app: Express, authToken: string) {
     const expected = `Bearer ${authToken}`;
     const queryToken = String(request.query.authToken ?? '').trim();
     if (header !== expected && queryToken !== authToken) {
-      response.status(401).json({ error: 'Unauthorized.' });
+      sendApiError(response, 401, 'AUTH_UNAUTHORIZED', 'Unauthorized.');
       return;
     }
 
@@ -161,9 +168,12 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     try {
       response.json(await readProjectConfig(rootDir));
     } catch (error) {
-      response.status(500).json({
-        error: error instanceof Error ? error.message : 'Failed to read project config.',
-      });
+      sendApiError(
+        response,
+        500,
+        'CONFIG_READ_FAILED',
+        error instanceof Error ? error.message : 'Failed to read project config.',
+      );
     }
   });
 
@@ -174,7 +184,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       const model = String(request.query.model ?? '').trim();
       const refresh = String(request.query.refresh ?? '').trim() === 'true';
       if (!providerId || !providerName || !model) {
-        response.status(400).json({ error: 'providerId, providerName and model are required.' });
+        sendApiError(response, 400, 'MODEL_INSPECTOR_INVALID_REQUEST', 'providerId, providerName and model are required.');
         return;
       }
       if (!refresh) {
@@ -188,9 +198,12 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       const detected = await inspectOfficialModelMetadata(providerName, model);
       response.json(await writeStoredModelMetadata(rootDir, providerId, model, detected));
     } catch (error) {
-      response.status(500).json({
-        error: error instanceof Error ? error.message : 'Failed to inspect official model metadata.',
-      });
+      sendApiError(
+        response,
+        500,
+        'MODEL_INSPECTOR_FAILED',
+        error instanceof Error ? error.message : 'Failed to inspect official model metadata.',
+      );
     }
   });
 
@@ -198,16 +211,19 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     try {
       const providerId = String(request.query.providerId ?? '').trim();
       if (!providerId) {
-        response.status(400).json({ error: 'providerId is required.' });
+        sendApiError(response, 400, 'MODEL_METADATA_INVALID_REQUEST', 'providerId is required.');
         return;
       }
       response.json({
         entries: await listStoredModelMetadata(rootDir, providerId),
       });
     } catch (error) {
-      response.status(500).json({
-        error: error instanceof Error ? error.message : 'Failed to read stored model metadata.',
-      });
+      sendApiError(
+        response,
+        500,
+        'MODEL_METADATA_READ_FAILED',
+        error instanceof Error ? error.message : 'Failed to read stored model metadata.',
+      );
     }
   });
 
@@ -217,16 +233,19 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       const providerName = String(request.body?.providerName ?? '').trim();
       const model = String(request.body?.model ?? '').trim();
       if (!providerId || !providerName || !model) {
-        response.status(400).json({ error: 'providerId, providerName and model are required.' });
+        sendApiError(response, 400, 'MODEL_METADATA_INVALID_REQUEST', 'providerId, providerName and model are required.');
         return;
       }
       response.json(
         await patchStoredModelMetadata(rootDir, providerId, providerName, model, request.body?.metadata ?? {}),
       );
     } catch (error) {
-      response.status(400).json({
-        error: error instanceof Error ? error.message : 'Failed to write stored model metadata.',
-      });
+      sendApiError(
+        response,
+        400,
+        'MODEL_METADATA_WRITE_FAILED',
+        error instanceof Error ? error.message : 'Failed to write stored model metadata.',
+      );
     }
   });
 
@@ -234,9 +253,12 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     try {
       response.json(await writeProjectConfig(rootDir, request.body ?? {}));
     } catch (error) {
-      response.status(400).json({
-        error: error instanceof Error ? error.message : 'Failed to write project config.',
-      });
+      sendApiError(
+        response,
+        400,
+        'CONFIG_WRITE_FAILED',
+        error instanceof Error ? error.message : 'Failed to write project config.',
+      );
     }
   });
 
@@ -244,9 +266,12 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     try {
       response.json(await nightlyArchiveScheduler.getStatus());
     } catch (error) {
-      response.status(500).json({
-        error: error instanceof Error ? error.message : 'Failed to read nightly archive status.',
-      });
+      sendApiError(
+        response,
+        500,
+        'NIGHTLY_ARCHIVE_STATUS_FAILED',
+        error instanceof Error ? error.message : 'Failed to read nightly archive status.',
+      );
     }
   });
 
@@ -260,9 +285,12 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       });
       response.json(nextSettings);
     } catch (error) {
-      response.status(400).json({
-        error: error instanceof Error ? error.message : 'Failed to update nightly archive settings.',
-      });
+      sendApiError(
+        response,
+        400,
+        'NIGHTLY_ARCHIVE_UPDATE_FAILED',
+        error instanceof Error ? error.message : 'Failed to update nightly archive settings.',
+      );
     }
   });
 
@@ -270,9 +298,12 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     try {
       response.json(await projectKnowledgeWatcher.getStatus());
     } catch (error) {
-      response.status(500).json({
-        error: error instanceof Error ? error.message : 'Failed to read project knowledge status.',
-      });
+      sendApiError(
+        response,
+        500,
+        'PROJECT_KNOWLEDGE_STATUS_FAILED',
+        error instanceof Error ? error.message : 'Failed to read project knowledge status.',
+      );
     }
   });
 
@@ -280,9 +311,12 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     try {
       response.json(await readProjectKnowledgeSnapshot(rootDir));
     } catch (error) {
-      response.status(500).json({
-        error: error instanceof Error ? error.message : 'Failed to read project knowledge documents.',
-      });
+      sendApiError(
+        response,
+        500,
+        'PROJECT_KNOWLEDGE_DOCUMENTS_FAILED',
+        error instanceof Error ? error.message : 'Failed to read project knowledge documents.',
+      );
     }
   });
 
@@ -328,7 +362,12 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
 
       response.json({ paths });
     } catch (error) {
-      response.status(400).json({ error: error instanceof Error ? error.message : 'Failed to list memory paths.' });
+      sendApiError(
+        response,
+        400,
+        'MEMORY_PATHS_FAILED',
+        error instanceof Error ? error.message : 'Failed to list memory paths.',
+      );
     }
   });
 
@@ -344,13 +383,18 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       });
 
       if (content === null) {
-        response.status(404).json({ error: 'Memory file not found.' });
+        sendApiError(response, 404, 'MEMORY_FILE_NOT_FOUND', 'Memory file not found.');
         return;
       }
 
       response.json({ content });
     } catch (error) {
-      response.status(400).json({ error: error instanceof Error ? error.message : 'Failed to read memory file.' });
+      sendApiError(
+        response,
+        400,
+        'MEMORY_FILE_READ_FAILED',
+        error instanceof Error ? error.message : 'Failed to read memory file.',
+      );
     }
   });
 
@@ -358,7 +402,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     try {
       const targetPath = String(request.body?.path ?? '');
       if (typeof request.body?.content !== 'string') {
-        response.status(400).json({ error: 'Memory file content must be a string.' });
+        sendApiError(response, 400, 'MEMORY_FILE_INVALID_CONTENT', 'Memory file content must be a string.');
         return;
       }
 
@@ -370,7 +414,12 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
 
       response.json({ ok: true });
     } catch (error) {
-      response.status(400).json({ error: error instanceof Error ? error.message : 'Failed to write memory file.' });
+      sendApiError(
+        response,
+        400,
+        'MEMORY_FILE_WRITE_FAILED',
+        error instanceof Error ? error.message : 'Failed to write memory file.',
+      );
     }
   });
 
@@ -386,7 +435,12 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       });
       response.json({ ok: true });
     } catch (error) {
-      response.status(400).json({ error: error instanceof Error ? error.message : 'Failed to delete memory file.' });
+      sendApiError(
+        response,
+        400,
+        'MEMORY_FILE_DELETE_FAILED',
+        error instanceof Error ? error.message : 'Failed to delete memory file.',
+      );
     }
   });
 

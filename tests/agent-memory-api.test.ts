@@ -211,6 +211,32 @@ test('API file helpers respect auth token protection', async () => {
       () => readAgentMemoryFile('memory/agents/flowagent-core/MEMORY.md', unauthorized),
       /Unauthorized/,
     );
+
+    const unauthorizedResponse = await fetch(
+      `${server.baseUrl}/api/memory/file?path=memory/agents/flowagent-core/MEMORY.md`,
+    );
+    assert.equal(unauthorizedResponse.status, 401);
+    assert.deepEqual(await unauthorizedResponse.json(), {
+      error: 'Unauthorized.',
+      error_code: 'AUTH_UNAUTHORIZED',
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test('API validation errors include stable error_code fields', async () => {
+  const rootDir = await createTempRoot();
+  const server = await startServer(rootDir);
+
+  try {
+    const response = await fetch(`${server.baseUrl}/api/model-metadata`);
+
+    assert.equal(response.status, 400);
+    assert.deepEqual(await response.json(), {
+      error: 'providerId is required.',
+      error_code: 'MODEL_METADATA_INVALID_REQUEST',
+    });
   } finally {
     await server.close();
   }

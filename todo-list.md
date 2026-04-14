@@ -368,7 +368,7 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 ⬜ **8. 统一错误处理策略**
 - 引入 `Result<T, Error>` 类型
 - 数据库操作增加事务级错误边界
-- API 响应增加 `error_code` 字段
+- ✅ API 响应增加 `error_code` 字段
 
 ✅ **9. FTS5 Schema 逻辑集中化**
 已提取 `src/lib/db-fts5-helpers.ts`，统一处理运行时 FTS5 虚拟表建表与可用性检测
@@ -442,6 +442,12 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已新增 `src/lib/db-fts5-helpers.ts`，集中提供 `createFts5Table / createFts5Tables / hasFts5Table`，并对内部 FTS5 table identifier 做最小校验
 - ✅ `src/lib/db.ts` 的 `document_chunks_fts` 与 `src/lib/agent-workspace.ts` 的 `topic_title_fts / message_content_fts` 已统一通过 helper 建表，搜索 SQL 和索引写入逻辑保持原状
 - ✅ 已补 `tests/db-fts5-helpers.test.ts` 覆盖建表 SQL、失败回退、sqlite_master 检测和非法 identifier，并通过 FTS/RAG、session runtime、`npm run lint` 与 `npm run build`
+
+进度汇报（2026-04-14，架构优化第五次更新）:
+- ✅ 已给 `api-server` 增加统一 `sendApiError()`，当前错误响应保持原有 `error` 文本，同时新增稳定 `error_code`
+- ✅ 已覆盖鉴权、参数校验、config、model metadata、nightly archive、project knowledge、memory file 等现有 API 错误路径
+- ✅ 已补测试覆盖 `AUTH_UNAUTHORIZED` 与 `MODEL_METADATA_INVALID_REQUEST`，并确认 query string 不进入请求日志；已通过 `node --import tsx --test tests/agent-memory-api.test.ts`、`npm run lint`、`npm run build`
+- ⬜ 第 8 项剩余：`Result<T, Error>` 类型与数据库事务级错误边界仍未落地
 
 ### P3 — 深层产品功能 (brainstorm 补充)
 
