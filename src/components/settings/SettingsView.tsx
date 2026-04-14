@@ -89,6 +89,10 @@ import {
   buildModelGroups,
   buildProviderGroups,
 } from '../../lib/model-groups';
+import {
+  WEB_RUNTIME_CAPABILITIES,
+  type RuntimeCapabilityProfile,
+} from '../../lib/runtime-capabilities';
 
 const CATEGORIES = [
   { id: 'models', label: '模型服务', icon: Cloud },
@@ -192,6 +196,7 @@ interface SettingsViewProps {
   agents?: AgentProfile[];
   activeAgentId?: string | null;
   initialCategory?: CategoryId;
+  runtimeCapabilities?: RuntimeCapabilityProfile;
   onClose: () => void;
   onConfigSaved?: (config: AgentConfig) => void;
   onMemoryFilesChanged?: (agentId: string) => void | Promise<void>;
@@ -464,6 +469,7 @@ export const SettingsView = ({
   agents = [],
   activeAgentId = null,
   initialCategory = 'models',
+  runtimeCapabilities = WEB_RUNTIME_CAPABILITIES,
   onClose,
   onConfigSaved,
   onMemoryFilesChanged,
@@ -3086,6 +3092,52 @@ export const SettingsView = ({
               description="开启后，前端会通过本地 API 直接读写项目里的记忆文件和夜间归档设置。"
             >
               <div className="space-y-4">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-white/85">{runtimeCapabilities.label}</div>
+                      <div className="mt-1 text-xs text-white/45">
+                        {runtimeCapabilities.mode === 'electron'
+                          ? runtimeCapabilities.hostBridge.message || '桌面模式由 Electron 管理本地宿主能力。'
+                          : '浏览器模式默认不内置宿主桥；如需文件真源编辑，需要手动启用本地 API Server。'}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 text-[10px]">
+                      <span
+                        className={`rounded-full border px-2.5 py-1 ${
+                          runtimeCapabilities.filesystem.configFiles
+                            ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100/80'
+                            : 'border-white/10 bg-black/20 text-white/40'
+                        }`}
+                      >
+                        config.json
+                      </span>
+                      <span
+                        className={`rounded-full border px-2.5 py-1 ${
+                          runtimeCapabilities.filesystem.memoryFiles
+                            ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100/80'
+                            : 'border-white/10 bg-black/20 text-white/40'
+                        }`}
+                      >
+                        memory files
+                      </span>
+                      <span
+                        className={`rounded-full border px-2.5 py-1 ${
+                          runtimeCapabilities.sandbox.hostShell
+                            ? 'border-amber-400/20 bg-amber-400/10 text-amber-100/80'
+                            : 'border-white/10 bg-black/20 text-white/40'
+                        }`}
+                      >
+                        host shell {runtimeCapabilities.sandbox.hostShell ? 'on' : 'off'}
+                      </span>
+                    </div>
+                  </div>
+                  {runtimeCapabilities.hostBridge.rootDir ? (
+                    <div className="mt-3 truncate rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/45">
+                      {runtimeCapabilities.hostBridge.rootDir}
+                    </div>
+                  ) : null}
+                </div>
                 <ToggleCard
                   title="启用本地 API Server"
                   description="开启后，前端会通过本地 API 直接读写项目里的 memory 文件。"

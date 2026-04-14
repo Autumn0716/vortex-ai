@@ -80,6 +80,10 @@ import {
 import { buildModelGroups, buildProviderGroups, getProviderProtocolMeta } from '../lib/model-groups';
 import { subscribeProjectKnowledgeEvents } from '../lib/project-knowledge-api';
 import { getRelevantSkillContext, syncAgentSkillDocuments } from '../lib/agent-skills';
+import {
+  WEB_RUNTIME_CAPABILITIES,
+  type RuntimeCapabilityProfile,
+} from '../lib/runtime-capabilities';
 
 const TerminalPanel = lazy(() =>
   import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
@@ -406,7 +410,10 @@ type TopicModeFilter = 'all' | 'agent' | 'quick';
 const WORKSPACE_BOOT_SOFT_TIMEOUT_MS = 8000;
 const WORKSPACE_BOOT_HARD_TIMEOUT_MS = 45000;
 
-export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+export const ChatInterface: React.FC<{
+  onBack: () => void;
+  runtimeCapabilities?: RuntimeCapabilityProfile;
+}> = ({ onBack, runtimeCapabilities = WEB_RUNTIME_CAPABILITIES }) => {
   const [activeTab, setActiveTab] = useState<ChatTab>('chat');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
@@ -2128,12 +2135,19 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         </button>
         <button
           onClick={() => setActiveTab('sandbox')}
+          disabled={!runtimeCapabilities.sandbox.webContainer}
           className={`rounded-xl p-2.5 transition-all ${
             activeTab === 'sandbox'
               ? 'bg-white/10 text-white shadow-sm'
-              : 'text-white/40 hover:bg-white/5 hover:text-white/80'
+              : runtimeCapabilities.sandbox.webContainer
+                ? 'text-white/40 hover:bg-white/5 hover:text-white/80'
+                : 'cursor-not-allowed text-white/15'
           }`}
-          title="WebContainer Sandbox"
+          title={
+            runtimeCapabilities.sandbox.webContainer
+              ? 'WebContainer Sandbox'
+              : 'Sandbox is unavailable in this runtime'
+          }
         >
           <Terminal size={20} />
         </button>
@@ -2404,6 +2418,18 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               </div>
 
               <div className="flex items-center gap-2">
+                <span
+                  className={`hidden rounded-full border px-2.5 py-1 text-[11px] md:inline-flex ${
+                    runtimeCapabilities.hostBridge.available
+                      ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100/75'
+                      : runtimeCapabilities.mode === 'electron'
+                        ? 'border-amber-400/20 bg-amber-400/10 text-amber-100/75'
+                        : 'border-white/10 bg-white/5 text-white/45'
+                  }`}
+                  title={runtimeCapabilities.hostBridge.message}
+                >
+                  {runtimeCapabilities.label}
+                </span>
                 <button
                   onClick={() => {
                     if (workspace) {
@@ -2670,7 +2696,10 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             }
           >
             <div className="flex flex-1 overflow-hidden">
-              <TerminalPanel onClose={() => setActiveTab('chat')} />
+              <TerminalPanel
+                onClose={() => setActiveTab('chat')}
+                runtimeCapabilities={runtimeCapabilities}
+              />
             </div>
           </Suspense>
         )}
@@ -2685,6 +2714,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
             initialCategory={settingsInitialCategory}
             onClose={() => setShowSettings(false)}
             onConfigSaved={(nextConfig) => setConfig(nextConfig)}
+            runtimeCapabilities={runtimeCapabilities}
             onMemoryFilesChanged={(agentId) => {
               void handleMemoryFilesChanged(agentId);
             }}

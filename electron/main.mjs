@@ -170,6 +170,15 @@ ipcMain.handle('flowagent:get-desktop-info', () => ({
     chrome: process.versions.chrome,
     node: process.versions.node,
   },
+  capabilities: {
+    hostBridge: true,
+    projectFiles: true,
+    configFiles: true,
+    memoryFiles: true,
+    webContainerSandbox: true,
+    hostShell: false,
+    unrestrictedFilesystem: false,
+  },
   host: { ...hostState },
 }));
 

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { 
   Bot, 
@@ -24,6 +24,7 @@ import { ChatInterface } from './components/ChatInterface';
 import { cn } from './lib/utils';
 import { getAgentConfig, normalizeAgentConfig } from './lib/agent/config';
 import { applyThemePreferences } from './lib/theme';
+import { createRuntimeCapabilityProfile } from './lib/runtime-capabilities';
 
 const FeatureCard = ({ icon: Icon, title, description }: { icon: any, title: string, description: string }) => (
   <motion.div 
@@ -41,6 +42,10 @@ const FeatureCard = ({ icon: Icon, title, description }: { icon: any, title: str
 export default function App() {
   const [currentView, setCurrentView] = useState<'landing' | 'chat'>('landing');
   const [desktopInfo, setDesktopInfo] = useState<FlowAgentDesktopInfo | null>(null);
+  const runtimeCapabilities = useMemo(
+    () => createRuntimeCapabilityProfile(desktopInfo),
+    [desktopInfo],
+  );
 
   useEffect(() => {
     getAgentConfig()
@@ -67,7 +72,10 @@ export default function App() {
           <div className="absolute inset-0 pointer-events-none opacity-30">
             <FlowingPixels />
           </div>
-          <ChatInterface onBack={() => setCurrentView('landing')} />
+          <ChatInterface
+            onBack={() => setCurrentView('landing')}
+            runtimeCapabilities={runtimeCapabilities}
+          />
         </div>
       ) : (
         <div className="relative min-h-screen overflow-x-hidden">
@@ -110,9 +118,7 @@ export default function App() {
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
           </span>
-          {desktopInfo
-            ? `DESKTOP · HOST ${desktopInfo.host.status.toUpperCase()}`
-            : 'V1.0 NOW IN BETA'}
+          {desktopInfo ? runtimeCapabilities.label : 'V1.0 NOW IN BETA'}
         </motion.div>
         
         <motion.h1 
