@@ -308,6 +308,34 @@ test('API server exposes official model inspector results', async () => {
   }
 });
 
+test('model inspector 404 is rewritten to a local upgrade hint', async () => {
+  const settings = {
+    enabled: true,
+    baseUrl: 'http://127.0.0.1:3850',
+    authToken: '',
+  };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    if (typeof input === 'string' && input.includes('/api/model-inspector')) {
+      return new Response(JSON.stringify({ error: 'Not found.' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return originalFetch(input);
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      () => inspectOfficialModelMetadata(settings, 'provider_openai', 'OpenAI', 'gpt-4.1-mini'),
+      /当前本地 API Server 版本过旧，缺少 \/api\/model-inspector/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('API server persists detected model metadata and allows manual overrides', async () => {
   const rootDir = await createTempRoot();
   const server = await startServer(rootDir);

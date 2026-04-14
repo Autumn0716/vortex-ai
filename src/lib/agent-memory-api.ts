@@ -12,6 +12,7 @@ import {
   type AgentMemoryFileStore,
   type AgentMemoryLifecycleResult,
 } from './agent-memory-sync';
+import { err, isErr, ok, type Result } from './result';
 
 export const DEFAULT_API_SERVER_BASE_URL = 'http://127.0.0.1:3850';
 
@@ -21,6 +22,10 @@ interface ApiPathsResponse {
 
 interface ApiFileResponse {
   content?: string;
+}
+
+interface ApiRequestError extends Error {
+  status?: number;
 }
 
 export interface OfficialModelMetadataResponse {
@@ -131,6 +136,42 @@ function readErrorMessage(payload: unknown, fallback: string) {
   return fallback;
 }
 
+function createApiRequestError(message: string, status?: number): ApiRequestError {
+  const error = new Error(message) as ApiRequestError;
+  if (typeof status === 'number') {
+    error.status = status;
+  }
+  return error;
+}
+
+async function fetchApiResponse(
+  requestUrl: string,
+  init: RequestInit,
+): Promise<Result<Response, Error>> {
+  try {
+    return ok(await fetch(requestUrl, init));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return err(createApiRequestError(`Failed to reach local API server at ${requestUrl}: ${detail}`));
+  }
+}
+
+async function parseApiPayload<T>(
+  response: Response,
+  options: { allowNotFound?: boolean } = {},
+): Promise<Result<T | null, Error>> {
+  if (options.allowNotFound && response.status === 404) {
+    return ok(null);
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    return err(createApiRequestError(readErrorMessage(payload, `API request failed with HTTP ${response.status}.`), response.status));
+  }
+
+  return ok(payload as T);
+}
+
 async function requestApi<T>(
   settings: ApiServerSettings,
   path: string,
@@ -139,28 +180,20 @@ async function requestApi<T>(
 ): Promise<T | null> {
   const baseUrl = resolveApiServerBaseUrl(settings);
   const requestUrl = `${baseUrl}${path}`;
-  let response: Response;
-
-  try {
-    response = await fetch(requestUrl, {
-      ...init,
-      headers: buildApiHeaders(settings, init.headers),
-    });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to reach local API server at ${requestUrl}: ${detail}`);
+  const responseResult = await fetchApiResponse(requestUrl, {
+    ...init,
+    headers: buildApiHeaders(settings, init.headers),
+  });
+  if (isErr(responseResult)) {
+    throw responseResult.error;
   }
 
-  if (options.allowNotFound && response.status === 404) {
-    return null;
+  const payloadResult = await parseApiPayload<T>(responseResult.value, options);
+  if (isErr(payloadResult)) {
+    throw payloadResult.error;
   }
 
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(readErrorMessage(payload, `API request failed with HTTP ${response.status}.`));
-  }
-
-  return payload as T;
+  return payloadResult.value;
 }
 
 export function resolveApiServerBaseUrl(settings: ApiServerSettings) {
@@ -285,7 +318,7 @@ export async function inspectOfficialModelMetadata(
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('HTTP 404')) {
+    if ((error as ApiRequestError | undefined)?.status === 404 || message.includes('HTTP 404')) {
       throw new Error('当前本地 API Server 版本过旧，缺少 /api/model-inspector。请重启 `npm run api-server` 或 `npm run dev`。');
     }
     throw error;
