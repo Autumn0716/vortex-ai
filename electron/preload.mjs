@@ -1,10 +1,5 @@
-import { contextBridge } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('flowAgentDesktop', {
-  platform: process.platform,
-  versions: {
-    electron: process.versions.electron,
-    chrome: process.versions.chrome,
-    node: process.versions.node,
-  },
+  getDesktopInfo: () => ipcRenderer.invoke('flowagent:get-desktop-info'),
 });

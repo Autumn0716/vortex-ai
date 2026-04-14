@@ -40,6 +40,7 @@ const FeatureCard = ({ icon: Icon, title, description }: { icon: any, title: str
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'landing' | 'chat'>('landing');
+  const [desktopInfo, setDesktopInfo] = useState<FlowAgentDesktopInfo | null>(null);
 
   useEffect(() => {
     getAgentConfig()
@@ -47,6 +48,15 @@ export default function App() {
       .catch((error) => {
         console.error('Failed to load agent config:', error);
         applyThemePreferences(normalizeAgentConfig());
+      });
+  }, []);
+
+  useEffect(() => {
+    window.flowAgentDesktop
+      ?.getDesktopInfo()
+      .then(setDesktopInfo)
+      .catch((error) => {
+        console.warn('Failed to read desktop runtime info:', error);
       });
   }, []);
 
@@ -100,7 +110,9 @@ export default function App() {
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
           </span>
-          V1.0 NOW IN BETA
+          {desktopInfo
+            ? `DESKTOP · HOST ${desktopInfo.host.status.toUpperCase()}`
+            : 'V1.0 NOW IN BETA'}
         </motion.div>
         
         <motion.h1 

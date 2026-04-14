@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import path from 'node:path';
@@ -12,6 +12,19 @@ const shouldManageHost = process.env.FLOWAGENT_ELECTRON_MANAGE_HOST !== 'false';
 const hostPort = Number(process.env.FLOWAGENT_API_PORT ?? 3850);
 const hostUrl = `http://127.0.0.1:${hostPort}`;
 let hostProcess = null;
+const hostState = {
+  managed: shouldManageHost,
+  status: shouldManageHost ? 'starting' : 'external',
+  url: hostUrl,
+  rootDir: projectRoot,
+  message: '',
+  startedAt: null,
+  readyAt: null,
+};
+
+function updateHostState(next) {
+  Object.assign(hostState, next);
+}
 
 function isPortOpen(port, host = '127.0.0.1') {
   return new Promise((resolve) => {
@@ -42,14 +55,29 @@ async function waitForUrl(url, timeoutMs = 30_000) {
 
 async function ensureHostBridge() {
   if (!shouldManageHost) {
+    updateHostState({
+      managed: false,
+      status: 'external',
+      message: 'Host bridge is managed by the development runner.',
+    });
     return;
   }
 
   if (await isPortOpen(hostPort)) {
+    updateHostState({
+      status: 'ready',
+      message: 'Reusing an existing host bridge.',
+      readyAt: new Date().toISOString(),
+    });
     return;
   }
 
   const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  updateHostState({
+    status: 'starting',
+    message: 'Starting the local FlowAgent host bridge.',
+    startedAt: new Date().toISOString(),
+  });
   hostProcess = spawn(npmCommand, ['run', 'api-server'], {
     cwd: projectRoot,
     stdio: 'inherit',
@@ -63,11 +91,32 @@ async function ensureHostBridge() {
   hostProcess.on('exit', (code) => {
     if (code && code !== 0) {
       console.error(`FlowAgent host bridge exited with code ${code}`);
+      updateHostState({
+        status: 'failed',
+        message: `Host bridge exited with code ${code}.`,
+      });
+    } else {
+      updateHostState({
+        status: 'stopped',
+        message: 'Host bridge stopped.',
+      });
     }
     hostProcess = null;
   });
 
-  await waitForUrl(`${hostUrl}/health`);
+  const ready = await waitForUrl(`${hostUrl}/health`);
+  updateHostState(
+    ready
+      ? {
+          status: 'ready',
+          message: 'Host bridge is ready.',
+          readyAt: new Date().toISOString(),
+        }
+      : {
+          status: 'failed',
+          message: `Host bridge did not become ready at ${hostUrl}.`,
+        },
+  );
 }
 
 function createMainWindow() {
@@ -107,6 +156,17 @@ function createMainWindow() {
 }
 
 app.setName('FlowAgent');
+
+ipcMain.handle('flowagent:get-desktop-info', () => ({
+  mode: 'electron',
+  platform: process.platform,
+  versions: {
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+  },
+  host: { ...hostState },
+}));
 
 app.whenReady().then(async () => {
   await ensureHostBridge();
