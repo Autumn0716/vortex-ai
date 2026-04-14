@@ -124,6 +124,7 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
       compiler_model TEXT,
       compiler_strategy TEXT NOT NULL DEFAULT 'fallback',
       status TEXT NOT NULL DEFAULT 'draft',
+      reviewer_branch_topic_id TEXT,
       graph_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -187,6 +188,7 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
     'enable_agent_shared_short_term',
     'enable_agent_shared_short_term INTEGER NOT NULL DEFAULT 0',
   );
+  ensureColumn(database, 'topic_task_graphs', 'reviewer_branch_topic_id', 'reviewer_branch_topic_id TEXT');
 
   database.run(`
     CREATE INDEX IF NOT EXISTS idx_agents_default ON agents(is_default DESC, created_at ASC);

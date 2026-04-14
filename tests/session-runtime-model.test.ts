@@ -14,6 +14,7 @@ import {
   getAgentMemoryContext,
   getTopicWorkspace,
   handoffBranchTopicToParent,
+  listTopics,
   saveAgent,
   saveAgentMemoryDocument,
   updateTopicModelFeatures,
@@ -610,6 +611,9 @@ test('workflow writes a review-ready rollup after all worker branches hand off',
   assert.equal(secondHandoff.reviewReadyWorkflows.length, 1);
   assert.equal(secondHandoff.reviewReadyWorkflows[0]?.title, 'Workflow Rollup Test');
   assert.equal(secondHandoff.reviewReadyWorkflows[0]?.workerNodes.length, 2);
+  const reviewerBranchTopic = secondHandoff.reviewReadyWorkflows[0]?.reviewerBranchTopic;
+  assert.ok(reviewerBranchTopic);
+  assert.equal(reviewerBranchTopic.parentTopicId, parentTopic.id);
 
   const repeatedHandoff = await handoffBranchTopicToParent({
     branchTopicId: graphResult.branchTopics[1]!.id,
@@ -617,6 +621,9 @@ test('workflow writes a review-ready rollup after all worker branches hand off',
     includeRecentMessages: 2,
   });
   assert.equal(repeatedHandoff.reviewReadyWorkflows.length, 0);
+
+  const allTopicsAfterRepeat = await listTopics(agentId);
+  assert.equal(allTopicsAfterRepeat.filter((topic) => topic.title === 'Workflow Rollup Test · Reviewer').length, 1);
 
   const parentWorkspace = await getTopicWorkspace(parentTopic.id);
   assert.ok(parentWorkspace);
@@ -630,4 +637,10 @@ test('workflow writes a review-ready rollup after all worker branches hand off',
   assert.equal(rollupMessages.length, 1);
   assert.match(rollupMessages[0]?.content ?? '', /Completed worker branches/);
   assert.match(rollupMessages[0]?.content ?? '', /Next: review the branch handoffs/);
+
+  const reviewerWorkspace = await getTopicWorkspace(reviewerBranchTopic.id);
+  assert.ok(reviewerWorkspace);
+  assert.equal(reviewerWorkspace?.topic.title, 'Workflow Rollup Test · Reviewer');
+  assert.equal(reviewerWorkspace?.messages[0]?.role, 'system');
+  assert.match(reviewerWorkspace?.messages[0]?.content ?? '', /Review the completed worker branch handoffs/);
 });

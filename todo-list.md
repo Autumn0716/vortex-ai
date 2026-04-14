@@ -248,7 +248,7 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 
 当前仍待继续：
 1. ⬜ 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开
-2. ⬜ 第一版“自然语言任务 -> 持久化 task graph / planner-dispatcher-worker-reviewer workflow”已落地，branch handoff 已能推进 worker 节点到 `completed`，所有 worker 完成后会自动生成 `review_ready` 汇总；仍缺自动 reviewer 执行与节点重试
+2. ⬜ 第一版“自然语言任务 -> 持久化 task graph / planner-dispatcher-worker-reviewer workflow”已落地，branch handoff 已能推进 worker 节点到 `completed`，所有 worker 完成后会自动生成 `review_ready` 汇总并创建 reviewer branch；仍缺节点重试与真正后台模型执行
 3. ⬜ 第一版会话级 `session summary` 已落地，但目前仍是确定性摘要；后续还需补上更高质量的 LLM 摘要、摘要分段更新策略，以及与消息级 token 预算联动
 4. ✅ daily 日志条目已升级为更细粒度记录：保留 user / assistant / system / tool 回合类型、更长工具调用结果、附件摘要与显式任务状态变更，再由夜间 lifecycle 统一压缩到 `warm/cold` 替身
 
@@ -315,3 +315,9 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已补上 workflow 的 deterministic review-ready rollup：当同一 task graph 下所有 worker branch 都完成 handoff 后，graph 状态会从 `ready` 推进到 `review_ready`
 - ✅ parent topic 会自动追加一条 `Workflow Reviewer` system message，列出已完成 worker branches 和下一步 review 指引；重复 handoff 不会重复生成 review-ready rollup
 - ✅ 已补上回归测试覆盖“首个 handoff 不生成 rollup、最后一个 handoff 生成一次 rollup、重复 handoff 不重复生成”的幂等路径，并通过 `node --import tsx --test tests/session-runtime-model.test.ts`、`npm run lint`、`npm run build`
+
+进度汇报（2026-04-14，会话级 Agent 第十次更新）:
+- ✅ 已补上 reviewer branch 自动创建：workflow 进入 `review_ready` 后，会基于 parent topic 自动创建 `<graph title> · Reviewer` 分支，并把 reviewer 节点的 `branch_topic_id` 写回 `topic_task_nodes`
+- ✅ 已新增 `topic_task_graphs.reviewer_branch_topic_id` 作为持久化幂等键，避免重复 handoff 或后续重试时重复创建 reviewer branch
+- ✅ reviewer branch 仍不直接后台调用模型，而是沿用现有 branch topic 隔离架构；后续可在该 topic 中执行 reviewer agent 或做 UI 引导
+- ✅ 已补上 schema 和 workflow 回归测试，并通过 `node --import tsx --test tests/agent-workspace-schema.test.ts`、`node --import tsx --test tests/session-runtime-model.test.ts`、`npm run lint`、`npm run build`
