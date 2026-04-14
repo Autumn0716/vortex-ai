@@ -1080,3 +1080,69 @@ test('getAgentMemoryContext skips cold vector retrieval safely when embedding co
     setAgentMemoryFileStore(null);
   }
 });
+
+test('getAgentMemoryContext keeps explicit_cold routing constrained to cold and global when vector search misses', async () => {
+  const restoreFetch = installEmbeddingFetchMock([
+    { match: 'Alpha cold detail.', embedding: [1, 0, 0] },
+    { match: 'Beta cold detail.', embedding: [0, 1, 0] },
+    { match: '2026-03-02 那天的 Gamma 方案是什么？', embedding: [0, 0, 1] },
+  ]);
+
+  const agentId = 'agent_cold_vector_miss';
+  const slug = 'cold-vector-miss';
+  const hot = buildAgentMemoryPaths(slug, '2026-04-19');
+  const warm = buildAgentMemoryPaths(slug, '2026-04-10');
+  const coldA = buildAgentMemoryPaths(slug, '2026-03-01');
+  const coldB = buildAgentMemoryPaths(slug, '2026-03-02');
+  await setupMemoryContextAgent(
+    agentId,
+    `agents/${slug}`,
+    new Map([
+      ['memory/agents/cold-vector-miss/MEMORY.md', '---\ntitle: "Global Memory"\n---\n\nGlobal preference.'],
+      [hot.dailyFile, '---\ntitle: "2026-04-19 Daily Log"\n---\n\n- Fresh hot detail.'],
+      [warm.dailyFile, '---\ntitle: "2026-04-10 Daily Log"\n---\n\n- Warm bridge detail.'],
+      [coldA.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Alpha cold detail.'],
+      [coldA.coldFile, '---\ntitle: "2026-03-01 Cold Memory"\n---\n\n## Summary\nAlpha cold detail.\n\n## Keywords\n- alpha'],
+      [coldB.dailyFile, '---\ntitle: "2026-03-02 Daily Log"\n---\n\n- Beta cold detail.'],
+      [coldB.coldFile, '---\ntitle: "2026-03-02 Cold Memory"\n---\n\n## Summary\nBeta cold detail.\n\n## Keywords\n- beta'],
+    ]),
+  );
+
+  try {
+    const database = await initDB();
+    await syncAgentMemoryFromStore(database, {
+      agentId,
+      agentSlug: slug,
+      fileStore: new InMemoryFileStore(
+        new Map([
+          ['memory/agents/cold-vector-miss/MEMORY.md', '---\ntitle: "Global Memory"\n---\n\nGlobal preference.'],
+          [hot.dailyFile, '---\ntitle: "2026-04-19 Daily Log"\n---\n\n- Fresh hot detail.'],
+          [warm.dailyFile, '---\ntitle: "2026-04-10 Daily Log"\n---\n\n- Warm bridge detail.'],
+          [coldA.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Alpha cold detail.'],
+          [coldA.coldFile, '---\ntitle: "2026-03-01 Cold Memory"\n---\n\n## Summary\nAlpha cold detail.\n\n## Keywords\n- alpha'],
+          [coldB.dailyFile, '---\ntitle: "2026-03-02 Daily Log"\n---\n\n- Beta cold detail.'],
+          [coldB.coldFile, '---\ntitle: "2026-03-02 Cold Memory"\n---\n\n## Summary\nBeta cold detail.\n\n## Keywords\n- beta'],
+        ]),
+      ),
+      now: '2026-04-20T12:00:00.000Z',
+      embeddingConfig: TEST_EMBEDDING_CONFIG,
+    });
+
+    const context = await getAgentMemoryContext(agentId, {
+      includeRecentMemorySnapshot: false,
+      now: '2026-04-20T12:00:00.000Z',
+      query: '2026-03-02 那天的 Gamma 方案是什么？',
+      embeddingConfig: TEST_EMBEDDING_CONFIG,
+    });
+
+    assert.match(context, /Long-term memory:\n- Global Memory: Global preference\./);
+    assert.match(context, /Cold memory:\n-/);
+    assert.match(context, /2026-03-01 Cold Memory: ## Summary Alpha cold detail\. ## Keywords - alpha/);
+    assert.match(context, /2026-03-02 Cold Memory: ## Summary Beta cold detail\. ## Keywords - beta/);
+    assert.doesNotMatch(context, /Hot memory:\n- 2026-04-19 Daily Log: - Fresh hot detail\./);
+    assert.doesNotMatch(context, /Warm memory:\n- 2026-04-10 Daily Log: - Warm bridge detail\./);
+  } finally {
+    restoreFetch();
+    setAgentMemoryFileStore(null);
+  }
+});

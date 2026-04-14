@@ -69,6 +69,39 @@ test('routeMemoryQuery sends Chinese month-day older than 15 days to cold', () =
   assert.equal(result.matchedTimeExpression, '3月1日');
 });
 
+test('routeMemoryQuery keeps invalid explicit ISO dates on the default path', () => {
+  const result = routeMemoryQuery('2026-02-30 那天的结论是什么？', {
+    now: '2026-04-20T12:00:00.000Z',
+  });
+
+  assert.equal(result.mode, 'default');
+  assert.deepEqual(result.preferredLayers, ['hot', 'warm', 'global']);
+  assert.deepEqual(result.fallbackLayers, ['cold']);
+  assert.equal(result.matchedTimeExpression, undefined);
+});
+
+test('routeMemoryQuery keeps the first explicit time match when multiple dates exist', () => {
+  const result = routeMemoryQuery('2026-03-01 和 2026-04-01 两次方案分别是什么？', {
+    now: '2026-04-20T12:00:00.000Z',
+  });
+
+  assert.equal(result.mode, 'explicit_cold');
+  assert.deepEqual(result.preferredLayers, ['cold', 'global']);
+  assert.deepEqual(result.fallbackLayers, []);
+  assert.equal(result.matchedTimeExpression, '2026-03-01');
+});
+
+test('routeMemoryQuery rolls Chinese month-day references back to the previous year when needed', () => {
+  const result = routeMemoryQuery('12月31日那次会议的结论是什么？', {
+    now: '2026-01-20T12:00:00.000Z',
+  });
+
+  assert.equal(result.mode, 'explicit_cold');
+  assert.deepEqual(result.preferredLayers, ['cold', 'global']);
+  assert.deepEqual(result.fallbackLayers, []);
+  assert.equal(result.matchedTimeExpression, '12月31日');
+});
+
 test('routeMemoryQuery keeps recent explicit dates on the default path', () => {
   const result = routeMemoryQuery('2026-04-15 那天的结论是什么？', {
     now: '2026-04-20T12:00:00.000Z',
