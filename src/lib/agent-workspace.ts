@@ -1896,8 +1896,7 @@ export async function compileTaskGraphFromTopic(options: {
     }
 
     const updateDatabase = await ensureAgentSchema();
-    updateDatabase.run('BEGIN');
-    try {
+    await runDatabaseTransaction(updateDatabase, () => {
       branchTopics.forEach(({ node, topic }) => {
         updateDatabase.run(
           `
@@ -1922,11 +1921,7 @@ export async function compileTaskGraphFromTopic(options: {
         `,
         [nowIso(), graphId],
       );
-      updateDatabase.run('COMMIT');
-    } catch (error) {
-      updateDatabase.run('ROLLBACK');
-      throw error;
-    }
+    });
 
     await persistAndMaybeRebuildFts(updateDatabase);
   } catch (error) {
@@ -2764,8 +2759,7 @@ async function markBranchTaskNodesCompleted(branchTopicId: string, completedAt: 
     return [];
   }
 
-  database.run('BEGIN');
-  try {
+  await runDatabaseTransaction(database, () => {
     database.run(
       `
         UPDATE topic_task_nodes
@@ -2780,11 +2774,7 @@ async function markBranchTaskNodesCompleted(branchTopicId: string, completedAt: 
     graphIds.forEach((graphId) => {
       database.run('UPDATE topic_task_graphs SET updated_at = ? WHERE id = ?', [completedAt, graphId]);
     });
-    database.run('COMMIT');
-  } catch (error) {
-    database.run('ROLLBACK');
-    throw error;
-  }
+  });
 
   await saveDB();
   return rows.map((row) =>
