@@ -259,4 +259,5 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已补上 Electron 数据路径解析：开发态继续使用仓库根目录，打包态可默认切到 macOS Application Support 下的 `FlowAgent/workspace`，后续正式 `.app` 不再强依赖源码目录
 - ✅ 已完成输入性能第二轮优化：聊天输入框已拆成独立 `ChatComposer`，输入文字使用本地状态，发送时再把文本、附件、联网搜索开关和 provider 快照传回父级，避免长对话每次按键触发整个 `ChatInterface` 与消息列表重渲染
 - ✅ 已完成第一版桌面 capability gating：Electron preload 会返回 host/filesystem/sandbox 能力，前端统一生成 runtime capability profile，并在聊天头部、Sandbox 面板和 API Server 设置页显示当前运行模式；Phase 1 仍保持 WebContainer 沙盒优先，host shell 默认关闭
-5. ⬜ 仍待继续：正式 `.app` 打包、UI 图标瘦身与更完整的运行态性能观测
+- ✅ 已完成第一版 unsigned macOS `.app` 打包：新增 `desktop:build`，本地生成 `release/mac-arm64/FlowAgent.app`；packaged app 已实测可自动启动内置 host bridge，并把数据根目录切到 `~/Library/Application Support/FlowAgent/workspace`
+5. ⬜ 仍待继续：UI 图标瘦身、更完整的运行态性能观测、asar/host 编译优化、签名与公证

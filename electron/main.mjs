@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -56,6 +57,7 @@ async function waitForUrl(url, timeoutMs = 30_000) {
 
 async function ensureHostBridge() {
   const projectRoot = resolveElectronProjectRoot(app, sourceRoot);
+  fs.mkdirSync(projectRoot, { recursive: true });
   updateHostState({ rootDir: projectRoot });
 
   if (!shouldManageHost) {
@@ -76,17 +78,19 @@ async function ensureHostBridge() {
     return;
   }
 
-  const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const tsxCliPath = path.join(sourceRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+  const serverEntryPath = path.join(sourceRoot, 'server', 'api-server.ts');
   updateHostState({
     status: 'starting',
     message: 'Starting the local FlowAgent host bridge.',
     startedAt: new Date().toISOString(),
   });
-  hostProcess = spawn(npmCommand, ['run', 'api-server'], {
+  hostProcess = spawn(process.execPath, [tsxCliPath, serverEntryPath], {
     cwd: sourceRoot,
     stdio: 'inherit',
     env: {
       ...process.env,
+      ELECTRON_RUN_AS_NODE: '1',
       FLOWAGENT_PROJECT_ROOT: projectRoot,
       FLOWAGENT_DESKTOP: '1',
     },

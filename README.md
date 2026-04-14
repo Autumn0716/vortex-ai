@@ -58,6 +58,31 @@ npm run dev
 npm run dev:web
 ```
 
+### Electron 桌面模式
+
+当前已提供第一版 macOS Electron 桌面壳，仍复用现有 React/Vite renderer 与本地 `api-server` host bridge。
+
+开发预览：
+
+```bash
+npm run desktop:preview
+```
+
+本地 unsigned `.app` 打包：
+
+```bash
+npm run desktop:build
+```
+
+打包产物默认位于 `release/mac-arm64/FlowAgent.app`。当前 Phase 1 行为：
+
+- Electron 会自动启动本地 host bridge，不再需要用户手动运行 `npm run api-server`
+- 开发态数据根目录默认仍是仓库根目录
+- 打包态数据根目录默认是 `~/Library/Application Support/FlowAgent/workspace`
+- `config.json`、`model-metadata.json`、`memory/agents/...` 继续作为文件真源
+- host shell 权限默认关闭；终端页仍是 WebContainer 纯沙盒
+- 当前 `.app` 未签名/未公证，且为了让 TS host bridge 可直接运行，Phase 1 暂时关闭 asar
+
 ### 本地记忆 API 服务器
 
 前端可以通过本地 API 服务器编辑项目记忆文件。从仓库根目录启动：
