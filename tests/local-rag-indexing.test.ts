@@ -10,6 +10,40 @@ import {
   searchDocumentsInDatabase,
 } from '../src/lib/db';
 
+const TEST_EMBEDDING_CONFIG = {
+  provider: 'openai-compatible' as const,
+  model: 'text-embedding-test',
+  baseUrl: 'https://example.test/v1',
+  apiKey: 'test-key',
+  dimensions: 3,
+};
+
+function installEmbeddingFetchMock(routes: Array<{ match: string; embedding: number[] }>) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input, init) => {
+    const body = JSON.parse(String(init?.body ?? '{}')) as { input?: string | string[] };
+    const input = Array.isArray(body.input) ? body.input.join('\n') : String(body.input ?? '');
+    const route = routes.find((candidate) => input.includes(candidate.match));
+    if (!route) {
+      throw new Error(`No embedding mock configured for input: ${input}`);
+    }
+
+    return {
+      ok: true,
+      async json() {
+        return {
+          data: [{ index: 0, embedding: route.embedding }],
+          model: TEST_EMBEDDING_CONFIG.model,
+        };
+      },
+    } as Response;
+  }) as typeof fetch;
+
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
+
 async function createSearchDatabase() {
   const sqlite3 = await initSqlite();
   const inner = new sqlite3.oo1.DB(':memory:');
@@ -44,6 +78,16 @@ async function createSearchDatabase() {
       source_uri TEXT,
       tags_json TEXT NOT NULL,
       synced_at TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE document_chunk_embeddings (
+      chunk_id TEXT PRIMARY KEY,
+      document_id TEXT NOT NULL,
+      model TEXT NOT NULL,
+      dimensions INTEGER NOT NULL,
+      content_hash TEXT NOT NULL,
+      embedding_json TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
 
@@ -292,6 +336,73 @@ test('searchDocumentsInDatabase attaches deterministic support metadata', async 
   }
 });
 
+test('searchDocumentsInDatabase includes vector-only results in hybrid retrieval without displacing lexical leaders', async () => {
+  const restoreFetch = installEmbeddingFetchMock([
+    {
+      match: 'branch handoff summary with audit notes and parent topic checklist',
+      embedding: [0.6, 0.4, 0],
+    },
+    {
+      match: 'upstream return flow for child workers and review routing metadata',
+      embedding: [1, 0, 0],
+    },
+    {
+      match: 'branch handoff summary',
+      embedding: [1, 0, 0],
+    },
+  ]);
+  const database = await createSearchDatabase();
+
+  try {
+    database.run(`
+      CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        document_id UNINDEXED,
+        title,
+        content
+      );
+    `);
+
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      [
+        'doc_lexical',
+        'Branch Handoff Summary',
+        'branch handoff summary with audit notes and parent topic checklist',
+      ],
+    );
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      [
+        'doc_vector',
+        'Worker Return Routing',
+        'upstream return flow for child workers and review routing metadata',
+      ],
+    );
+
+    indexDocumentChunks(database, {
+      id: 'doc_lexical',
+      title: 'Branch Handoff Summary',
+      content: 'branch handoff summary with audit notes and parent topic checklist',
+    });
+    indexDocumentChunks(database, {
+      id: 'doc_vector',
+      title: 'Worker Return Routing',
+      content: 'upstream return flow for child workers and review routing metadata',
+    });
+
+    const results = await searchDocumentsInDatabase(database, 'branch handoff summary', {
+      embeddingConfig: TEST_EMBEDDING_CONFIG,
+    });
+
+    assert.equal(results[0]?.id, 'doc_lexical');
+    assert.ok(results.some((result) => result.id === 'doc_vector'));
+  } finally {
+    restoreFetch();
+    database.close();
+  }
+});
+
 test('searchDocumentsInDatabase uses graph overlap as an additional ranking signal', async () => {
   const database = await createSearchDatabase();
 
@@ -334,6 +445,55 @@ test('searchDocumentsInDatabase uses graph overlap as an additional ranking sign
     assert.equal(results[0]?.id, 'doc_graph');
     assert.ok((results[0]?.graphHints?.length ?? 0) > 0);
   } finally {
+    database.close();
+  }
+});
+
+test('searchDocumentsInDatabase keeps lexical and hybrid cache entries isolated', async () => {
+  const restoreFetch = installEmbeddingFetchMock([
+    { match: 'branch handoff summary with audit notes and parent topic checklist', embedding: [0.6, 0.4, 0] },
+    { match: 'branch handoff summary', embedding: [1, 0, 0] },
+  ]);
+  const database = await createSearchDatabase();
+
+  try {
+    database.run(`
+      CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        document_id UNINDEXED,
+        title,
+        content
+      );
+    `);
+
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      [
+        'doc_cache',
+        'Branch Handoff Summary',
+        'branch handoff summary with audit notes and parent topic checklist',
+      ],
+    );
+    indexDocumentChunks(database, {
+      id: 'doc_cache',
+      title: 'Branch Handoff Summary',
+      content: 'branch handoff summary with audit notes and parent topic checklist',
+    });
+
+    await searchDocumentsInDatabase(database, 'branch handoff summary');
+    await searchDocumentsInDatabase(database, 'branch handoff summary', {
+      embeddingConfig: TEST_EMBEDDING_CONFIG,
+    });
+
+    const cacheKeys = database
+      .exec('SELECT cache_key FROM document_search_cache ORDER BY cache_key ASC')[0]
+      ?.values.map((row) => String(row[0])) ?? [];
+
+    assert.equal(cacheKeys.length, 2);
+    assert.ok(cacheKeys.some((key) => key.endsWith('::lexical')));
+    assert.ok(cacheKeys.some((key) => key.includes('::hybrid::text-embedding-test')));
+  } finally {
+    restoreFetch();
     database.close();
   }
 });
