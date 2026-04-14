@@ -147,6 +147,13 @@ test('ensureAgentWorkspaceSchema adds session runtime columns to topics', () => 
       sql.includes("ALTER TABLE topics ADD COLUMN enable_agent_shared_short_term INTEGER NOT NULL DEFAULT 0"),
     ),
   );
+  assert.ok(runs.some((sql) => sql.includes('ALTER TABLE topics ADD COLUMN session_summary TEXT')));
+  assert.ok(runs.some((sql) => sql.includes('ALTER TABLE topics ADD COLUMN session_summary_updated_at TEXT')));
+  assert.ok(
+    runs.some((sql) =>
+      sql.includes('ALTER TABLE topics ADD COLUMN session_summary_message_count INTEGER NOT NULL DEFAULT 0'),
+    ),
+  );
 });
 
 test('ensureAgentWorkspaceSchema adds persisted message attachments to topic messages', () => {

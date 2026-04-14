@@ -64,6 +64,9 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
       enable_skills INTEGER NOT NULL DEFAULT 1,
       enable_tools INTEGER NOT NULL DEFAULT 1,
       enable_agent_shared_short_term INTEGER NOT NULL DEFAULT 0,
+      session_summary TEXT,
+      session_summary_updated_at TEXT,
+      session_summary_message_count INTEGER NOT NULL DEFAULT 0,
       title TEXT NOT NULL,
       title_source TEXT NOT NULL DEFAULT 'auto',
       created_at TEXT NOT NULL,
@@ -169,6 +172,14 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
   ensureColumn(database, 'topics', 'enable_memory', 'enable_memory INTEGER NOT NULL DEFAULT 1');
   ensureColumn(database, 'topics', 'enable_skills', 'enable_skills INTEGER NOT NULL DEFAULT 1');
   ensureColumn(database, 'topics', 'enable_tools', 'enable_tools INTEGER NOT NULL DEFAULT 1');
+  ensureColumn(database, 'topics', 'session_summary', 'session_summary TEXT');
+  ensureColumn(database, 'topics', 'session_summary_updated_at', 'session_summary_updated_at TEXT');
+  ensureColumn(
+    database,
+    'topics',
+    'session_summary_message_count',
+    'session_summary_message_count INTEGER NOT NULL DEFAULT 0',
+  );
   ensureColumn(database, 'topic_messages', 'attachments_json', 'attachments_json TEXT');
   ensureColumn(
     database,

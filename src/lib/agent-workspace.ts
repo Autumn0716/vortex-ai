@@ -173,6 +173,13 @@ export interface TopicWorkspace {
   runtime: TopicRuntimeProfile;
   messages: TopicMessage[];
   memoryDocuments: AgentMemoryDocument[];
+  sessionSummary?: TopicSessionSummary;
+}
+
+export interface TopicSessionSummary {
+  content: string;
+  updatedAt: string;
+  sourceMessageCount: number;
 }
 
 export interface TopicTaskGraphNode extends CompiledTaskGraphNode {
@@ -1578,13 +1585,16 @@ export async function createTopic(options: {
         enable_skills,
         enable_tools,
         enable_agent_shared_short_term,
+        session_summary,
+        session_summary_updated_at,
+        session_summary_message_count,
         title,
         title_source,
         created_at,
         updated_at,
         last_message_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       topicId,
@@ -1600,6 +1610,9 @@ export async function createTopic(options: {
       enableSkills ? 1 : 0,
       enableTools ? 1 : 0,
       enableAgentSharedShortTerm ? 1 : 0,
+      null,
+      null,
+      0,
       title,
       titleSource,
       timestamp,
@@ -1623,6 +1636,9 @@ export async function createTopic(options: {
     enable_skills: number | null;
     enable_tools: number | null;
     enable_agent_shared_short_term: number | null;
+    session_summary: string | null;
+    session_summary_updated_at: string | null;
+    session_summary_message_count: number | null;
     title: string;
     title_source: 'auto' | 'manual';
     preview: string | null;
@@ -1647,6 +1663,9 @@ export async function createTopic(options: {
           enable_skills,
           enable_tools,
           enable_agent_shared_short_term,
+          session_summary,
+          session_summary_updated_at,
+          session_summary_message_count,
           title,
           title_source,
           '' AS preview,
@@ -2168,6 +2187,9 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
     enable_skills: number | null;
     enable_tools: number | null;
     enable_agent_shared_short_term: number | null;
+    session_summary: string | null;
+    session_summary_updated_at: string | null;
+    session_summary_message_count: number | null;
     title: string;
     title_source: 'auto' | 'manual';
     preview: string | null;
@@ -2192,6 +2214,9 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
           t.enable_skills,
           t.enable_tools,
           t.enable_agent_shared_short_term,
+          t.session_summary,
+          t.session_summary_updated_at,
+          t.session_summary_message_count,
           t.title,
           t.title_source,
           (
@@ -2298,7 +2323,111 @@ export async function getTopicWorkspace(topicId: string): Promise<TopicWorkspace
     runtime: resolveTopicRuntimeProfile(topic, agent),
     messages: messageRows.map(toTopicMessage),
     memoryDocuments: memoryRows.map(toAgentMemoryDocument),
+    sessionSummary:
+      typeof topicRow.session_summary === 'string' && topicRow.session_summary.trim()
+        ? {
+            content: topicRow.session_summary,
+            updatedAt: topicRow.session_summary_updated_at ?? topic.updatedAt,
+            sourceMessageCount: Number(topicRow.session_summary_message_count) || 0,
+          }
+        : undefined,
   };
+}
+
+export async function refreshTopicSessionSummary(
+  topicId: string,
+  historyWindow: number,
+): Promise<TopicSessionSummary | null> {
+  const database = await ensureAgentSchema();
+  const messageRows = mapRows<{
+    id: string;
+    topic_id: string;
+    agent_id: string;
+    role: TopicMessage['role'];
+    author_name: string;
+    content: string;
+    attachments_json: string | null;
+    tools_json: string | null;
+    created_at: string;
+  }>(
+    database.exec(
+      `
+        SELECT
+          id,
+          topic_id,
+          agent_id,
+          role,
+          author_name,
+          content,
+          attachments_json,
+          tools_json,
+          created_at
+        FROM topic_messages
+        WHERE topic_id = ?
+        ORDER BY created_at ASC
+      `,
+      [topicId],
+    ),
+  );
+
+  const messages = messageRows.map(toTopicMessage);
+  const nextSummary = buildTopicSessionSummary(messages, historyWindow);
+  const current = mapRows<{
+    session_summary: string | null;
+    session_summary_updated_at: string | null;
+    session_summary_message_count: number | null;
+  }>(
+    database.exec(
+      `
+        SELECT
+          session_summary,
+          session_summary_updated_at,
+          session_summary_message_count
+        FROM topics
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [topicId],
+    ),
+  )[0];
+
+  const nextContent = nextSummary?.content ?? null;
+  const nextCount = nextSummary?.sourceMessageCount ?? 0;
+  const currentContent = current?.session_summary ?? null;
+  const currentCount = Number(current?.session_summary_message_count) || 0;
+
+  if (currentContent === nextContent && currentCount === nextCount) {
+    return nextSummary
+      ? {
+          content: nextSummary.content,
+          updatedAt: current?.session_summary_updated_at ?? nowIso(),
+          sourceMessageCount: nextSummary.sourceMessageCount,
+        }
+      : null;
+  }
+
+  const updatedAt = nowIso();
+  database.run(
+    `
+      UPDATE topics
+      SET
+        session_summary = ?,
+        session_summary_updated_at = ?,
+        session_summary_message_count = ?,
+        updated_at = ?
+      WHERE id = ?
+    `,
+    [nextContent, nextSummary ? updatedAt : null, nextCount, updatedAt, topicId],
+  );
+  await saveDB();
+
+  return nextSummary
+    ? {
+        content: nextSummary.content,
+        updatedAt,
+        sourceMessageCount: nextSummary.sourceMessageCount,
+      }
+    : null;
 }
 
 function appendMemoryLine(existingContent: string, line: string) {
@@ -2380,6 +2509,69 @@ function buildTaskGraphCompiledMessage(
     workerLines.length ? `Worker branches:\n${workerLines.join('\n')}` : 'Worker branches: none',
     'Use the generated worker branches to run focused subtasks in parallel, then merge or hand off the results.',
   ].join('\n\n');
+}
+
+function formatSessionSummaryLine(message: TopicMessage) {
+  const label = message.role === 'user' ? 'User' : 'Assistant';
+  const attachmentSuffix =
+    message.attachments && message.attachments.length > 0
+      ? ` [attachments:${message.attachments.length}]`
+      : '';
+  const toolSuffix =
+    message.tools && message.tools.length > 0
+      ? ` [tools:${message.tools
+          .map((tool) => tool.name)
+          .filter(Boolean)
+          .join(', ')
+          .slice(0, 80)}]`
+      : '';
+  return `- ${label}${attachmentSuffix}${toolSuffix}: ${message.content
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 220)}`;
+}
+
+function extractSessionOpenLoops(messages: TopicMessage[]) {
+  const loopPattern = /(todo|待办|next step|follow up|继续|阻塞|blocked|需要|remember|记住|后续)/i;
+  return messages
+    .filter((message) => loopPattern.test(message.content))
+    .slice(-4)
+    .map((message) => `- ${message.content.replace(/\s+/g, ' ').trim().slice(0, 180)}`);
+}
+
+export function buildTopicSessionSummary(messages: TopicMessage[], historyWindow: number) {
+  const dialogueMessages = messages.filter(
+    (message) => message.role === 'user' || message.role === 'assistant',
+  );
+  const safeWindow = Math.max(0, historyWindow);
+  const olderMessages = safeWindow > 0 ? dialogueMessages.slice(0, -safeWindow) : dialogueMessages;
+
+  if (olderMessages.length <= 6) {
+    return null;
+  }
+
+  const userHighlights = olderMessages.filter((message) => message.role === 'user').slice(-4);
+  const assistantHighlights = olderMessages.filter((message) => message.role === 'assistant').slice(-4);
+  const openLoops = extractSessionOpenLoops(olderMessages);
+
+  const content = [
+    `Compressed summary from ${olderMessages.length} earlier turns. Keep this as background context and rely on the recent raw messages for exact wording.`,
+    userHighlights.length
+      ? `Earlier user requests:\n${userHighlights.map(formatSessionSummaryLine).join('\n')}`
+      : '',
+    assistantHighlights.length
+      ? `Earlier assistant outputs:\n${assistantHighlights.map(formatSessionSummaryLine).join('\n')}`
+      : '',
+    openLoops.length ? `Open loops:\n${openLoops.join('\n')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(0, 2200);
+
+  return {
+    content,
+    sourceMessageCount: dialogueMessages.length,
+  };
 }
 
 function upsertDailyMemoryLog(

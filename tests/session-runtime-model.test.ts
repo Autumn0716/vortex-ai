@@ -5,6 +5,7 @@ import localforage from 'localforage';
 
 import {
   addTopicMessages,
+  buildTopicSessionSummary,
   createBranchTopicFromTopic,
   createQuickTopic,
   createTopic,
@@ -32,6 +33,109 @@ localforage.removeItem = async (key: string) => {
 function createAgentId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
+
+test('buildTopicSessionSummary only compresses dialogue outside the live history window', () => {
+  const messages = [
+    {
+      id: 'm1',
+      topicId: 'topic_summary',
+      agentId: 'agent_summary',
+      role: 'user' as const,
+      authorName: 'You',
+      content: '先梳理长期记忆方案。',
+      createdAt: '2026-04-14T09:00:00.000Z',
+    },
+    {
+      id: 'm2',
+      topicId: 'topic_summary',
+      agentId: 'agent_summary',
+      role: 'assistant' as const,
+      authorName: 'FlowAgent',
+      content: '我先给出 memory/agents 目录结构。',
+      createdAt: '2026-04-14T09:01:00.000Z',
+    },
+    {
+      id: 'm3',
+      topicId: 'topic_summary',
+      agentId: 'agent_summary',
+      role: 'user' as const,
+      authorName: 'You',
+      content: '记住：daily 需要更细粒度的 source log。',
+      createdAt: '2026-04-14T09:02:00.000Z',
+    },
+    {
+      id: 'm4',
+      topicId: 'topic_summary',
+      agentId: 'agent_summary',
+      role: 'assistant' as const,
+      authorName: 'FlowAgent',
+      content: '我会保留附件、工具结果和任务状态。',
+      createdAt: '2026-04-14T09:03:00.000Z',
+    },
+    {
+      id: 'm5',
+      topicId: 'topic_summary',
+      agentId: 'agent_summary',
+      role: 'user' as const,
+      authorName: 'You',
+      content: '下一步先做 session summary。',
+      createdAt: '2026-04-14T09:04:00.000Z',
+    },
+    {
+      id: 'm6',
+      topicId: 'topic_summary',
+      agentId: 'agent_summary',
+      role: 'assistant' as const,
+      authorName: 'FlowAgent',
+      content: '好的，我先实现确定性摘要。',
+      createdAt: '2026-04-14T09:05:00.000Z',
+    },
+    {
+      id: 'm7',
+      topicId: 'topic_summary',
+      agentId: 'agent_summary',
+      role: 'user' as const,
+      authorName: 'You',
+      content: '最近窗口里的新消息不应该再被压到摘要里。',
+      createdAt: '2026-04-14T09:06:00.000Z',
+    },
+    {
+      id: 'm8',
+      topicId: 'topic_summary',
+      agentId: 'agent_summary',
+      role: 'assistant' as const,
+      authorName: 'FlowAgent',
+      content: '收到，最近消息继续保留原文。',
+      createdAt: '2026-04-14T09:07:00.000Z',
+    },
+    {
+      id: 'm9',
+      topicId: 'topic_summary',
+      agentId: 'agent_summary',
+      role: 'user' as const,
+      authorName: 'You',
+      content: '后续还要补上删除和 handoff 后的摘要刷新。',
+      createdAt: '2026-04-14T09:08:00.000Z',
+    },
+    {
+      id: 'm10',
+      topicId: 'topic_summary',
+      agentId: 'agent_summary',
+      role: 'assistant' as const,
+      authorName: 'FlowAgent',
+      content: '收到，最近消息继续保留原文。',
+      createdAt: '2026-04-14T09:09:00.000Z',
+    },
+  ];
+
+  const summary = buildTopicSessionSummary(messages, 2);
+
+  assert.ok(summary);
+  assert.equal(summary?.sourceMessageCount, 10);
+  assert.match(summary?.content ?? '', /Compressed summary from 8 earlier turns/);
+  assert.match(summary?.content ?? '', /记住：daily 需要更细粒度的 source log/);
+  assert.doesNotMatch(summary?.content ?? '', /后续还要补上删除和 handoff 后的摘要刷新/);
+});
 
 test('quick topics resolve to session-scoped runtime overrides with agent features disabled by default', async () => {
   localforageState.clear();

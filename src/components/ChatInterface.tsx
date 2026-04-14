@@ -29,6 +29,7 @@ import {
 } from '../lib/db';
 import {
   addTopicMessages,
+  buildTopicSessionSummary,
   compileTaskGraphFromTopic,
   createBranchTopicFromTopic,
   createQuickTopic,
@@ -44,6 +45,7 @@ import {
   listAgents,
   listTopics,
   maybeAutoTitleTopic,
+  refreshTopicSessionSummary,
   handoffBranchTopicToParent,
   saveAgent,
   saveAgentMemoryDocument,
@@ -1165,6 +1167,16 @@ export const ChatInterface: React.FC<{
         branchTopicId: workspace.topic.id,
         note: branchHandoffDraft?.note?.trim(),
       });
+      await Promise.all([
+        refreshTopicSessionSummary(workspace.topic.id, config.memory.historyWindow).catch((error) => {
+          console.warn('Failed to refresh branch session summary after handoff:', error);
+          return null;
+        }),
+        refreshTopicSessionSummary(result.parentTopic.id, config.memory.historyWindow).catch((error) => {
+          console.warn('Failed to refresh parent session summary after handoff:', error);
+          return null;
+        }),
+      ]);
       setShowBranchHandoffDialog(false);
       setBranchHandoffDraft(null);
       await activateTopic(result.parentTopic.id);
@@ -1517,6 +1529,13 @@ export const ChatInterface: React.FC<{
     }));
     await addTopicMessages([userMessage]);
     await maybeAutoTitleTopic(workspaceSnapshot.topic.id, userContent);
+    const sessionSummary =
+      await refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow).catch(
+        (error) => {
+          console.warn('Failed to refresh topic session summary before send:', error);
+          return null;
+        },
+      );
     await executeAssistantTurn({
       workspaceSnapshot,
       configSnapshot,
@@ -1525,6 +1544,7 @@ export const ChatInterface: React.FC<{
         [...workspaceSnapshot.messages, optimisticUserMessage],
         configSnapshot.memory.historyWindow,
       ),
+      sessionSummary: sessionSummary?.content,
       attachments: attachmentsSnapshot,
       webSearchEnabled: webSearchEnabledSnapshot,
       searchProviderId: searchProviderIdSnapshot,
@@ -1536,6 +1556,7 @@ export const ChatInterface: React.FC<{
     configSnapshot,
     userContent,
     messageHistory,
+    sessionSummary,
     attachments,
     webSearchEnabled,
     searchProviderId,
@@ -1544,6 +1565,7 @@ export const ChatInterface: React.FC<{
     configSnapshot: AgentConfig;
     userContent: string;
     messageHistory: TopicMessage[];
+    sessionSummary?: string;
     attachments: TopicMessageAttachment[];
     webSearchEnabled: boolean;
     searchProviderId?: string;
@@ -1658,6 +1680,7 @@ export const ChatInterface: React.FC<{
         systemPrompt: [
           configSnapshot.systemPrompt,
           memoryContext ? `Agent memory:\n${memoryContext}` : '',
+          sessionSummary ? `Session summary:\n${sessionSummary}` : '',
           skillContext ? skillContext : '',
           effectiveStructuredOutput.mode === 'json_object'
             ? 'Please output valid JSON only.'
@@ -1795,6 +1818,11 @@ export const ChatInterface: React.FC<{
 
       setWorkspace((previous) => upsertWorkspaceMessage(previous, toTopicMessage(assistantMessage)));
       await addTopicMessages([assistantMessage]);
+      void refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow).catch(
+        (error) => {
+          console.warn('Failed to refresh topic session summary after assistant reply:', error);
+        },
+      );
       const completedAt = new Date().toISOString();
       const estimatedInputTokens = estimateTokenCount(aggregatedInputText);
       const estimatedOutputTokens = estimateTokenCount(finalAssistantContent || streamedAssistantContent);
@@ -1840,6 +1868,11 @@ export const ChatInterface: React.FC<{
           };
           setWorkspace((previous) => upsertWorkspaceMessage(previous, toTopicMessage(partialMessage)));
           await addTopicMessages([partialMessage]);
+          void refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow).catch(
+            (error) => {
+              console.warn('Failed to refresh topic session summary after partial reply:', error);
+            },
+          );
           const completedAt = new Date().toISOString();
           const estimatedInputTokens = estimateTokenCount(aggregatedInputText);
           const estimatedOutputTokens = estimateTokenCount(partialContent);
@@ -1882,6 +1915,11 @@ export const ChatInterface: React.FC<{
       };
       setWorkspace((previous) => mergeWorkspaceMessages(previous, [toTopicMessage(fallbackMessage)]));
       await addTopicMessages([fallbackMessage]);
+      void refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow).catch(
+        (error) => {
+          console.warn('Failed to refresh topic session summary after fallback reply:', error);
+        },
+      );
       finalizeTopicRunState(workspaceSnapshot.topic.id, {
         composerNotice: 'Generation failed. Check model credentials or session settings.',
       });
@@ -1934,6 +1972,10 @@ export const ChatInterface: React.FC<{
         workspaceSnapshot.messages.slice(0, anchorUserIndex + 1),
         configSnapshot.memory.historyWindow,
       ),
+      sessionSummary: buildTopicSessionSummary(
+        workspaceSnapshot.messages.slice(0, anchorUserIndex + 1),
+        configSnapshot.memory.historyWindow,
+      )?.content,
       attachments: anchorUserMessage.attachments ?? [],
       webSearchEnabled: composerWebSearchEnabled,
       searchProviderId: composerSearchProvider?.id,
@@ -2010,6 +2052,10 @@ export const ChatInterface: React.FC<{
 
     try {
       await deleteTopicMessage(message.id);
+      await refreshTopicSessionSummary(workspace.topic.id, config.memory.historyWindow).catch((error) => {
+        console.warn('Failed to refresh topic session summary after delete:', error);
+        return null;
+      });
       await hydrateTopic(workspace.topic.id);
       setShellNotice('Assistant message deleted.');
     } catch (error) {
