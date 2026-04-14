@@ -257,4 +257,5 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已新增 `desktop:dev` 与 `desktop:preview` 脚本；`desktop:preview` 会用 Electron build mode 构建相对资源路径，并在预览时自动拉起本地 `api-server`
 - ✅ 已补上 Electron preload 状态桥：renderer 现在可以通过安全 preload 读取桌面平台、Electron/Chrome/Node 版本和 host bridge 状态，后续 UI gating 不需要开启 Node integration
 - ✅ 已补上 Electron 数据路径解析：开发态继续使用仓库根目录，打包态可默认切到 macOS Application Support 下的 `FlowAgent/workspace`，后续正式 `.app` 不再强依赖源码目录
-5. ⬜ 仍待继续：正式 `.app` 打包、桌面 capability gating、UI 图标瘦身与输入性能第二轮优化
+- ✅ 已完成输入性能第二轮优化：聊天输入框已拆成独立 `ChatComposer`，输入文字使用本地状态，发送时再把文本、附件、联网搜索开关和 provider 快照传回父级，避免长对话每次按键触发整个 `ChatInterface` 与消息列表重渲染
+5. ⬜ 仍待继续：正式 `.app` 打包、桌面 capability gating、UI 图标瘦身与更完整的运行态性能观测

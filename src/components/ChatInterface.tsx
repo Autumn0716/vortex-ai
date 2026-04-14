@@ -7,15 +7,12 @@ import {
   Cloud,
   Globe,
   GitBranch,
-  ImagePlus,
   MessageSquare,
-  Paperclip,
   PanelLeft,
   PanelLeftClose,
   PencilLine,
   Plus,
   Search,
-  Send,
   Settings,
   Sparkles,
   Sun,
@@ -23,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { AgentLaneColumn } from './chat/AgentLaneColumn';
+import { ChatComposer, type ComposerAppendRequest } from './chat/ChatComposer';
 import {
   addDocument,
   listPromptSnippets,
@@ -434,7 +432,6 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [modelPickerTarget, setModelPickerTarget] = useState<ModelPickerTarget>('global');
   const [settingsInitialCategory, setSettingsInitialCategory] =
     useState<SettingsCategory>('models');
-  const [input, setInput] = useState('');
   const [workspace, setWorkspace] = useState<TopicWorkspace | null>(null);
   const [topics, setTopics] = useState<TopicSummary[]>([]);
   const [agents, setAgents] = useState<AgentProfile[]>([]);
@@ -459,10 +456,10 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const [topicRunStates, setTopicRunStates] = useState<Record<string, TopicRunState>>({});
   const [messageMetricsById, setMessageMetricsById] = useState<Record<string, MessageRunMetrics>>({});
   const [messageReasoningById, setMessageReasoningById] = useState<Record<string, string>>({});
-  const [showWebSearchMenu, setShowWebSearchMenu] = useState(false);
   const [composerWebSearchEnabled, setComposerWebSearchEnabled] = useState(false);
   const [composerSearchProviderId, setComposerSearchProviderId] = useState('');
   const [composerImageAttachments, setComposerImageAttachments] = useState<TopicMessageAttachment[]>([]);
+  const [composerAppendRequest, setComposerAppendRequest] = useState<ComposerAppendRequest | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const projectKnowledgeVersionRef = useRef('');
@@ -1383,7 +1380,10 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   };
 
   const handleUseSnippet = (content: string) => {
-    setInput((previous) => `${previous.trim() ? `${previous.trim()}\n\n` : ''}${content}`);
+    setComposerAppendRequest({
+      id: Date.now(),
+      content,
+    });
     setActiveTab('chat');
   };
 
@@ -1449,12 +1449,17 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     setShellNotice(`Renamed topic to "${nextTitle.trim() || workspace.topic.title}".`);
   };
 
-  const handleSend = async () => {
-    if (!workspace || isGenerating || (!input.trim() && composerImageAttachments.length === 0)) {
+  const handleSend = async (content: string) => {
+    const messageText = content.trim();
+    const attachmentsSnapshot = composerImageAttachments;
+    const webSearchEnabledSnapshot = composerWebSearchEnabled;
+    const searchProviderIdSnapshot = composerSearchProvider?.id;
+
+    if (!workspace || isGenerating || (!messageText && attachmentsSnapshot.length === 0)) {
       return;
     }
 
-    const userContent = buildUserMessagePrompt(input, composerImageAttachments);
+    const userContent = buildUserMessagePrompt(content, attachmentsSnapshot);
     const workspaceSnapshot = workspace;
     const configSnapshot = config;
     const timestamp = new Date().toISOString();
@@ -1466,12 +1471,11 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       authorName: 'You',
       content: userContent,
       createdAt: timestamp,
-      attachments: composerImageAttachments,
+      attachments: attachmentsSnapshot,
     };
 
     const optimisticUserMessage = toTopicMessage(userMessage);
     setWorkspace((previous) => mergeWorkspaceMessages(previous, [optimisticUserMessage]));
-    setInput('');
     setComposerImageAttachments([]);
     setTopicRunState(workspaceSnapshot.topic.id, () => ({
       isGenerating: true,
@@ -1492,6 +1496,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         [...workspaceSnapshot.messages, optimisticUserMessage],
         configSnapshot.memory.historyWindow,
       ),
+      attachments: attachmentsSnapshot,
+      webSearchEnabled: webSearchEnabledSnapshot,
+      searchProviderId: searchProviderIdSnapshot,
     });
   };
 
@@ -1500,11 +1507,17 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     configSnapshot,
     userContent,
     messageHistory,
+    attachments,
+    webSearchEnabled,
+    searchProviderId,
   }: {
     workspaceSnapshot: TopicWorkspace;
     configSnapshot: AgentConfig;
     userContent: string;
     messageHistory: TopicMessage[];
+    attachments: TopicMessageAttachment[];
+    webSearchEnabled: boolean;
+    searchProviderId?: string;
   }) => {
     const abortController = new AbortController();
     topicAbortControllersRef.current[workspaceSnapshot.topic.id] = abortController;
@@ -1591,8 +1604,8 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         providerId: workspaceSnapshot.runtime.providerId,
         model: workspaceSnapshot.runtime.model,
         enableTools: workspaceSnapshot.runtime.enableTools,
-        enableWebSearch: composerWebSearchEnabled,
-        searchProviderId: composerSearchProvider?.id,
+        enableWebSearch: webSearchEnabled,
+        searchProviderId,
         enableThinking: effectiveThinking,
         responsesTools: {
           webSearch: modelFeatures.responsesTools.webSearch,
@@ -1630,7 +1643,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       const toolContextEstimate = buildToolContextEstimate({
         requestMode: runtimeRequestMode,
         enableTools: workspaceSnapshot.runtime.enableTools,
-        webSearchEnabled: composerWebSearchEnabled,
+        webSearchEnabled,
         responsesTools: modelFeatures.responsesTools,
         enableCustomFunctionCalling: modelFeatures.enableCustomFunctionCalling,
       });
@@ -1642,7 +1655,7 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         toolContextEstimate,
         ...messageHistory.map((message) => stringifyMessageForEstimate(message)),
         userContent,
-        ...composerImageAttachments.map(
+        ...attachments.map(
           (attachment) =>
             `[current-image:${attachment.name || attachment.mimeType || 'attachment'} ~${Math.max(
               256,
@@ -1892,6 +1905,9 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
         workspaceSnapshot.messages.slice(0, anchorUserIndex + 1),
         configSnapshot.memory.historyWindow,
       ),
+      attachments: anchorUserMessage.attachments ?? [],
+      webSearchEnabled: composerWebSearchEnabled,
+      searchProviderId: composerSearchProvider?.id,
     });
   };
 
@@ -2566,255 +2582,50 @@ export const ChatInterface: React.FC<{ onBack: () => void }> = ({ onBack }) => {
               )}
             </div>
 
-            <div className="bg-gradient-to-t from-[#05050A] via-[#05050A] to-transparent p-4">
-              <div className="mx-auto w-full max-w-[1120px]">
-                <div className="rounded-[26px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-2.5 shadow-[0_18px_50px_rgba(0,0,0,0.32)] transition-all focus-within:border-white/20 focus-within:bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))]">
-                  <div className="mb-2 flex flex-wrap items-center gap-2 px-2 pb-2">
-                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/65">
-                      {activeDisplayName}
-                    </span>
-                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/50">
-                      {activeModel}
-                    </span>
-                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/50">
-                      {activeMemoryEnabled ? '记忆注入已开启' : '记忆注入已暂停'}
-                    </span>
-                    {activeRunState?.isGenerating ? (
-                      <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] text-emerald-200/85">
-                        正在生成
-                      </span>
-                    ) : null}
-                    {!activeRunState?.isGenerating && backgroundGeneratingCount > 0 ? (
-                      <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/55">
-                        后台运行中 {backgroundGeneratingCount}
-                      </span>
-                    ) : null}
-                  </div>
-                  {composerImageAttachments.length ? (
-                    <div className="mb-2 flex flex-wrap gap-2 border-b border-white/10 px-2 pb-3">
-                      {composerImageAttachments.map((attachment) => (
-                        <div
-                          key={attachment.id}
-                          className="group relative overflow-hidden rounded-2xl border border-white/10 bg-black/20"
-                        >
-                          <img
-                            src={attachment.dataUrl}
-                            alt={attachment.name}
-                            className="h-20 w-24 object-cover"
-                          />
-                          <button
-                            onClick={() =>
-                              setComposerImageAttachments((previous) =>
-                                previous.filter((entry) => entry.id !== attachment.id),
-                              )
-                            }
-                            className="absolute right-1 top-1 rounded-full border border-white/10 bg-black/55 p-1 text-white/65 transition-all hover:border-red-400/25 hover:bg-red-500/20 hover:text-red-100"
-                            title="移除图片"
-                          >
-                            <X size={12} />
-                          </button>
-                          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-2 py-1 text-[10px] text-white/80">
-                            <div className="truncate">{attachment.name}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                  <textarea
-                    value={input}
-                    onChange={(event) => setInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !event.shiftKey) {
-                        event.preventDefault();
-                        handleSend().catch(console.error);
-                      }
-                    }}
-                    placeholder={
-                      workspace ? `Message ${activeDisplayName}...` : 'Message FlowAgent...'
-                    }
-                    className="min-h-[56px] max-h-[220px] w-full resize-none bg-transparent px-3 py-2 text-sm leading-7 text-white outline-none placeholder:text-white/40 custom-scrollbar"
-                    rows={1}
-                  />
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-2 pt-2.5">
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <select
-                        value={activeAgentId ?? ''}
-                        onChange={(event) => activateAgent(event.target.value).catch(console.error)}
-                        className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white outline-none"
-                      >
-                        {agents.map((agent) => (
-                          <option key={agent.id} value={agent.id} className="bg-[#111111]">
-                            {agent.name}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="rounded-xl border border-transparent p-2 text-white/40 transition-colors hover:border-white/10 hover:bg-white/10 hover:text-white"
-                        title="Import files into shared knowledge base"
-                      >
-                        <Paperclip size={18} />
-                      </button>
-                      <button
-                        onClick={() => imageInputRef.current?.click()}
-                        className="rounded-xl border border-transparent p-2 text-white/40 transition-colors hover:border-white/10 hover:bg-white/10 hover:text-white"
-                        title="Attach images"
-                      >
-                        <ImagePlus size={18} />
-                      </button>
-                      <button
-                        onClick={() => openSettings('search')}
-                        className="rounded-xl border border-transparent p-2 text-white/40 transition-colors hover:border-white/10 hover:bg-white/10 hover:text-white"
-                        title="Search settings"
-                      >
-                        <Globe size={18} />
-                      </button>
-                      <div className="relative">
-                        {showWebSearchMenu ? (
-                          <div className="absolute bottom-[calc(100%+10px)] left-0 z-30 w-[320px] rounded-2xl border border-white/10 bg-[#0F1118]/95 p-3 shadow-[0_20px_45px_rgba(0,0,0,0.4)] backdrop-blur-xl">
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <div className="text-xs font-semibold text-white">基础联网搜索</div>
-                                <div className="mt-1 text-[11px] leading-5 text-white/45">
-                                  这里只控制外部搜索 provider。模型专属能力请到右上角“模型功能”里设置。
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => setComposerWebSearchEnabled((previous) => !previous)}
-                                className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
-                                  composerWebSearchEnabled
-                                    ? 'border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
-                                    : 'border-white/10 bg-white/5 text-white/55 hover:bg-white/10 hover:text-white'
-                                }`}
-                              >
-                                {composerWebSearchEnabled ? '搜索已启用' : '搜索已关闭'}
-                              </button>
-                            </div>
-                            <div className="mt-3 grid gap-2">
-                              {enabledSearchProviders.length > 0 ? (
-                                enabledSearchProviders.map((provider) => {
-                                  const isSelected = composerSearchProvider?.id === provider.id;
-                                  const isReady =
-                                    provider.category === 'local' || provider.apiKey.trim().length > 0;
-                                  return (
-                                    <button
-                                      key={provider.id}
-                                      onClick={() => {
-                                        setComposerSearchProviderId(provider.id);
-                                        if (!composerWebSearchEnabled) {
-                                          setComposerWebSearchEnabled(true);
-                                        }
-                                      }}
-                                      className={`rounded-2xl border px-3 py-3 text-left transition-all ${
-                                        isSelected
-                                          ? 'border-sky-400/25 bg-sky-400/12 text-white shadow-[0_14px_28px_rgba(0,0,0,0.2)]'
-                                          : 'border-white/10 bg-white/[0.03] text-white/72 hover:bg-white/8 hover:text-white'
-                                      }`}
-                                    >
-                                      <div className="flex items-center justify-between gap-3">
-                                        <div className="min-w-0">
-                                          <div className="flex items-center gap-2">
-                                            <span className="truncate text-sm font-medium">{provider.name}</span>
-                                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[10px] text-white/45">
-                                              {provider.type}
-                                            </span>
-                                          </div>
-                                          <div className="mt-1 line-clamp-2 text-[11px] leading-5 text-white/45">
-                                            {provider.description}
-                                          </div>
-                                        </div>
-                                        <span
-                                          className={`rounded-full px-2 py-0.5 text-[10px] ${
-                                            isReady
-                                              ? 'border border-emerald-400/25 bg-emerald-400/12 text-emerald-100'
-                                              : 'border border-amber-400/25 bg-amber-400/12 text-amber-100'
-                                          }`}
-                                        >
-                                          {isReady ? 'Ready' : '未配置'}
-                                        </span>
-                                      </div>
-                                    </button>
-                                  );
-                                })
-                              ) : (
-                                <div className="rounded-2xl border border-dashed border-white/10 px-3 py-4 text-xs leading-6 text-white/45">
-                                  当前没有已启用的搜索 provider。先去 Settings - Search 打开一个 provider。
-                                </div>
-                              )}
-                            </div>
-                            <div className="mt-3 text-[11px] leading-5 text-white/38">
-                              {composerSearchProvider
-                                ? composerWebSearchReady
-                                  ? `当前将使用 ${composerSearchProvider.name} 作为实时搜索工具。`
-                                  : `${composerSearchProvider.name} 尚未配置 API Key，启用后会在调用时直接报出缺失原因。`
-                                : '未选择搜索 provider。'}
-                            </div>
-                          </div>
-                        ) : null}
-                        <button
-                          onClick={() => setShowWebSearchMenu((previous) => !previous)}
-                          className={`rounded-xl border p-2 transition-all ${
-                            composerWebSearchEnabled
-                              ? 'border-sky-400/25 bg-sky-400/12 text-sky-100 shadow-[0_12px_28px_rgba(14,165,233,0.16)]'
-                              : 'border-transparent text-white/40 hover:border-white/10 hover:bg-white/10 hover:text-white'
-                          }`}
-                          title="联网搜索"
-                        >
-                          <Search size={18} />
-                        </button>
-                      </div>
-                      <button
-                        onClick={() => setActiveTab('prompts')}
-                        className="rounded-xl border border-transparent p-2 text-white/40 transition-colors hover:border-white/10 hover:bg-white/10 hover:text-white"
-                        title="Manage agents"
-                      >
-                        <Plus size={18} />
-                      </button>
-                    </div>
-                    {isGenerating ? (
-                      <button
-                        onClick={() => {
-                          if (workspace) {
-                            stopTopicGeneration(workspace.topic.id);
-                          }
-                        }}
-                        disabled={!workspace}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-red-400/25 bg-red-400/12 px-4 py-2 text-sm font-medium text-red-100 transition-colors hover:bg-red-400/18 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <X size={18} className="ml-0.5" />
-                        停止
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleSend().catch(console.error)}
-                        disabled={!input.trim() || !workspace}
-                        className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2 text-sm font-medium text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Send size={18} className="ml-0.5" />
-                        发送
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 px-1 text-[11px] text-white/35">
-                  <span>{selectedAgent?.name ?? 'Agent'} · Shared knowledge base</span>
-                  <div className="flex min-w-0 items-center gap-3">
-                    {currentContextTokens != null ? (
-                      <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/58">
-                        当前会话上下文 {currentContextTokens.toLocaleString()} tokens
-                        {currentContextWindow ? ` / ${currentContextWindow.toLocaleString()}` : ''}
-                        {currentContextUsagePercentage != null
-                          ? ` · ${currentContextUsagePercentage.toFixed(currentContextUsagePercentage >= 10 ? 0 : 1)}%`
-                          : ''}
-                      </span>
-                    ) : null}
-                    {composerNotice ? (
-                      <span className="max-w-[60ch] truncate">{composerNotice}</span>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            </div>
+            <ChatComposer
+              agents={agents}
+              activeAgentId={activeAgentId}
+              activeDisplayName={activeDisplayName}
+              activeModel={activeModel}
+              activeMemoryEnabled={activeMemoryEnabled}
+              isGenerating={isGenerating}
+              backgroundGeneratingCount={backgroundGeneratingCount}
+              workspaceAvailable={Boolean(workspace)}
+              composerNotice={composerNotice}
+              selectedAgentName={selectedAgent?.name ?? 'Agent'}
+              currentContextTokens={currentContextTokens}
+              currentContextWindow={currentContextWindow}
+              currentContextUsagePercentage={currentContextUsagePercentage}
+              imageAttachments={composerImageAttachments}
+              appendRequest={composerAppendRequest}
+              webSearchEnabled={composerWebSearchEnabled}
+              searchProvider={composerSearchProvider}
+              webSearchReady={composerWebSearchReady}
+              enabledSearchProviders={enabledSearchProviders}
+              onActivateAgent={(agentId) => activateAgent(agentId).catch(console.error)}
+              onImportFiles={() => fileInputRef.current?.click()}
+              onAttachImages={() => imageInputRef.current?.click()}
+              onOpenSearchSettings={() => openSettings('search')}
+              onToggleWebSearch={() => setComposerWebSearchEnabled((previous) => !previous)}
+              onSelectSearchProvider={(providerId) => {
+                setComposerSearchProviderId(providerId);
+                setComposerWebSearchEnabled(true);
+              }}
+              onOpenPrompts={() => setActiveTab('prompts')}
+              onRemoveImageAttachment={(attachmentId) =>
+                setComposerImageAttachments((previous) =>
+                  previous.filter((entry) => entry.id !== attachmentId),
+                )
+              }
+              onStop={() => {
+                if (workspace) {
+                  stopTopicGeneration(workspace.topic.id);
+                }
+              }}
+              onSend={(content) => {
+                handleSend(content).catch(console.error);
+              }}
+            />
           </>
         ) : activeTab === 'prompts' ? (
           <Suspense
