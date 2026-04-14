@@ -262,3 +262,8 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已完成第一版 unsigned macOS `.app` 打包：新增 `desktop:build`，本地生成 `release/mac-arm64/FlowAgent.app`；packaged app 已实测可自动启动内置 host bridge，并把数据根目录切到 `~/Library/Application Support/FlowAgent/workspace`
 - ✅ 已完成第一版 host bridge 预编译：新增 `build:host`，把 `server/api-server.ts` 打成 `dist-host/api-server.mjs`；Electron 会优先启动该 bundle，packaged app 不再需要携带 `src/` / `server/` TS 源码或依赖 `tsx` 运行 host
 5. ⬜ 仍待继续：UI 图标瘦身、更完整的运行态性能观测、asar/asarUnpack 优化、签名与公证
+
+进度汇报（2026-04-14，Electron 第一阶段第二次更新）:
+- ✅ 已完成聊天壳层第一轮瘦身：左侧窄轨、topic 侧栏、聊天头部和模型选择区已统一收紧 padding / badge / icon / 字号占位，主对话画布的横向空间占比更高
+- ✅ 已把运行中视觉噪音进一步压低：`Running / Streaming` 等状态标签收口为更短的 `Live`，保留状态信息但减少头部与列表拥挤感
+- ✅ 已通过前端校验：当前 UI 收口改动已重新通过 `npm run lint` 与 `npm run build`

@@ -2091,52 +2091,52 @@ export const ChatInterface: React.FC<{
         onChange={handleImageAttachmentImport}
       />
 
-      <div className="z-30 flex w-16 flex-shrink-0 flex-col items-center gap-4 border-r border-white/5 bg-[#0A0A0F] py-4">
+      <div className="z-30 flex w-14 flex-shrink-0 flex-col items-center gap-3 border-r border-white/5 bg-[#0A0A0F] py-3">
         <button
           onClick={onBack}
-          className="group flex h-10 w-10 items-center justify-center rounded-full bg-gradient-brand text-white shadow-lg transition-transform hover:scale-[1.03]"
+          className="group flex h-9 w-9 items-center justify-center rounded-full bg-gradient-brand text-white shadow-lg transition-transform hover:scale-[1.03]"
           title="返回主页"
         >
-          <House size={17} className="transition-transform group-hover:-translate-y-[1px]" />
+          <House size={15} className="transition-transform group-hover:-translate-y-[1px]" />
         </button>
 
         <button
           onClick={() => setActiveTab('chat')}
-          className={`rounded-xl p-2.5 transition-all ${
+          className={`rounded-xl p-2 transition-all ${
             activeTab === 'chat'
               ? 'bg-white/10 text-white shadow-sm'
               : 'text-white/40 hover:bg-white/5 hover:text-white/80'
           }`}
           title="Chat"
         >
-          <MessageSquare size={20} />
+          <MessageSquare size={18} />
         </button>
         <button
           onClick={() => setActiveTab('prompts')}
-          className={`rounded-xl p-2.5 transition-all ${
+          className={`rounded-xl p-2 transition-all ${
             activeTab === 'prompts'
               ? 'bg-white/10 text-white shadow-sm'
               : 'text-white/40 hover:bg-white/5 hover:text-white/80'
           }`}
           title="Agents & Prompts"
         >
-          <Sparkles size={20} />
+          <Sparkles size={18} />
         </button>
         <button
           onClick={() => setActiveTab('knowledge')}
-          className={`rounded-xl p-2.5 transition-all ${
+          className={`rounded-xl p-2 transition-all ${
             activeTab === 'knowledge'
               ? 'bg-white/10 text-white shadow-sm'
               : 'text-white/40 hover:bg-white/5 hover:text-white/80'
           }`}
           title="Knowledge Base"
         >
-          <Globe size={20} />
+          <Globe size={18} />
         </button>
         <button
           onClick={() => setActiveTab('sandbox')}
           disabled={!runtimeCapabilities.sandbox.webContainer}
-          className={`rounded-xl p-2.5 transition-all ${
+          className={`rounded-xl p-2 transition-all ${
             activeTab === 'sandbox'
               ? 'bg-white/10 text-white shadow-sm'
               : runtimeCapabilities.sandbox.webContainer
@@ -2149,45 +2149,45 @@ export const ChatInterface: React.FC<{
               : 'Sandbox is unavailable in this runtime'
           }
         >
-          <Terminal size={20} />
+          <Terminal size={18} />
         </button>
 
         <div className="flex-1" />
 
         <button
-          className="rounded-xl p-2.5 text-white/40 transition-all hover:bg-white/5 hover:text-white/80"
+          className="rounded-xl p-2 text-white/40 transition-all hover:bg-white/5 hover:text-white/80"
           title="Theme"
         >
-          <Sun size={20} />
+          <Sun size={18} />
         </button>
         <button
           onClick={() => openSettings('models')}
-          className={`rounded-xl p-2.5 transition-all ${
+          className={`rounded-xl p-2 transition-all ${
             showSettings
               ? 'bg-white/10 text-white shadow-sm'
               : 'text-white/40 hover:bg-white/5 hover:text-white/80'
           }`}
           title="Settings"
         >
-          <Settings size={20} />
+          <Settings size={18} />
         </button>
       </div>
 
       {activeTab === 'chat' && sidebarOpen ? (
         <motion.div
           initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 272, opacity: 1 }}
+          animate={{ width: 248, opacity: 1 }}
           className="flex flex-shrink-0 flex-col border-r border-white/10 bg-[#0A0A0F]"
         >
-          <div className="space-y-3 p-4">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-              <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-white/40">
+          <div className="space-y-2.5 p-3">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-2.5">
+              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/35">
                 Active Agent
               </div>
               <select
                 value={activeAgentId ?? ''}
                 onChange={(event) => activateAgent(event.target.value).catch(console.error)}
-                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none"
+                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[13px] text-white outline-none"
               >
                 {agents.map((agent) => (
                   <option key={agent.id} value={agent.id} className="bg-[#111111]">
@@ -2200,22 +2200,22 @@ export const ChatInterface: React.FC<{
             <div className="grid gap-2">
               <button
                 onClick={handleCreateTopic}
-                className="group flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 transition-colors hover:bg-white/10"
+                className="group flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 transition-colors hover:bg-white/10"
               >
-                <span className="text-sm font-medium text-white/90">New Agent Topic</span>
+                <span className="text-[13px] font-medium text-white/90">New Agent Topic</span>
                 <Plus size={16} className="text-white/50 transition-colors group-hover:text-white" />
               </button>
               <button
                 onClick={handleOpenQuickTopicDialog}
-                className="group flex w-full items-center justify-between rounded-xl border border-white/10 bg-black/20 px-4 py-3 transition-colors hover:bg-white/10"
+                className="group flex w-full items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 transition-colors hover:bg-white/10"
               >
-                <span className="text-sm font-medium text-white/80">Quick Topic</span>
+                <span className="text-[13px] font-medium text-white/80">Quick Topic</span>
                 <Sparkles size={16} className="text-white/45 transition-colors group-hover:text-white" />
               </button>
             </div>
 
             {!searchQuery.trim() ? (
-              <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-black/20 p-1">
+              <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-white/10 bg-black/20 p-1">
                 {[
                   { key: 'all', label: 'All', count: topicCounts.all },
                   { key: 'agent', label: 'Agent', count: topicCounts.agent },
@@ -2224,26 +2224,26 @@ export const ChatInterface: React.FC<{
                   <button
                     key={entry.key}
                     onClick={() => setTopicModeFilter(entry.key as TopicModeFilter)}
-                    className={`rounded-[14px] px-3 py-2 text-left transition-all ${
+                    className={`rounded-[13px] px-2.5 py-1.5 text-left transition-all ${
                       topicModeFilter === entry.key
                         ? 'bg-white/10 text-white shadow-[0_10px_24px_rgba(0,0,0,0.18)]'
                         : 'text-white/45 hover:bg-white/5 hover:text-white/85'
                     }`}
                   >
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em]">{entry.label}</div>
-                    <div className="mt-1 text-xs text-white/45">{entry.count}</div>
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em]">{entry.label}</div>
+                    <div className="mt-0.5 text-[11px] text-white/45">{entry.count}</div>
                   </button>
                 ))}
               </div>
             ) : null}
 
-            <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
-              <Search size={15} className="text-white/35" />
+            <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-2.5 py-2">
+              <Search size={14} className="text-white/35" />
               <input
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder="Search topic titles and message content"
-                className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/35"
+                className="w-full bg-transparent text-[13px] text-white outline-none placeholder:text-white/35"
               />
             </label>
 
@@ -2253,7 +2253,7 @@ export const ChatInterface: React.FC<{
             </div>
           </div>
 
-          <div className="flex-1 space-y-1 overflow-y-auto px-3 py-2 custom-scrollbar">
+          <div className="flex-1 space-y-1 overflow-y-auto px-2.5 py-2 custom-scrollbar">
             {searchQuery.trim() ? (
               searchResults.length > 0 ? (
                 searchResults.map((result) => (
@@ -2263,7 +2263,7 @@ export const ChatInterface: React.FC<{
                       setSearchQuery('');
                       activateTopic(result.topicId).catch(console.error);
                     }}
-                    className="w-full rounded-xl border border-transparent px-3 py-3 text-left text-white/70 transition-colors hover:border-white/10 hover:bg-white/5 hover:text-white"
+                    className="w-full rounded-xl border border-transparent px-2.5 py-2.5 text-left text-white/70 transition-colors hover:border-white/10 hover:bg-white/5 hover:text-white"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <span className="truncate text-sm font-medium">{result.topicTitle}</span>
@@ -2272,7 +2272,7 @@ export const ChatInterface: React.FC<{
                       </span>
                     </div>
                     <p className="mt-1 truncate text-[11px] text-white/40">{result.agentName}</p>
-                    <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-white/45">
+                    <p className="mt-1.5 line-clamp-2 text-[11px] leading-5 text-white/45">
                       {result.preview}
                     </p>
                   </button>
@@ -2287,7 +2287,7 @@ export const ChatInterface: React.FC<{
                 <button
                   key={topic.id}
                   onClick={() => activateTopic(topic.id).catch(console.error)}
-                  className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${
+                  className={`w-full rounded-xl border px-2.5 py-2.5 text-left transition-colors ${
                     activeTopicId === topic.id
                       ? 'border-white/10 bg-white/10 text-white'
                       : 'border-transparent bg-transparent text-white/60 hover:bg-white/5 hover:text-white/90'
@@ -2295,20 +2295,20 @@ export const ChatInterface: React.FC<{
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate text-sm font-medium">{topic.title}</span>
+                      <span className="truncate text-[13px] font-medium">{topic.title}</span>
                       {topic.sessionMode === 'quick' ? (
-                        <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] text-amber-200/80">
+                        <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[9px] text-amber-200/80">
                           Quick
                         </span>
                       ) : null}
                       {topic.parentTopicId ? (
-                        <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-2 py-0.5 text-[10px] text-sky-200/80">
+                        <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-1.5 py-0.5 text-[9px] text-sky-200/80">
                           Branch
                         </span>
                       ) : null}
                       {topicRunStates[topic.id]?.isGenerating ? (
-                        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-200/80">
-                          Running
+                        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-1.5 py-0.5 text-[9px] text-emerald-200/80">
+                          Live
                         </span>
                       ) : null}
                     </div>
@@ -2317,11 +2317,11 @@ export const ChatInterface: React.FC<{
                     </span>
                   </div>
                   {topic.parentTopicId ? (
-                    <p className="mt-1 truncate text-[11px] text-sky-200/45">
+                    <p className="mt-1 truncate text-[10px] text-sky-200/45">
                       From {topics.find((entry) => entry.id === topic.parentTopicId)?.title ?? 'parent topic'}
                     </p>
                   ) : null}
-                  <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-white/40">
+                  <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-white/40">
                     {topic.preview}
                   </p>
                 </button>
@@ -2340,7 +2340,7 @@ export const ChatInterface: React.FC<{
       <div className="flex min-w-0 flex-1 flex-col bg-[#05050A]">
         {activeTab === 'chat' ? (
           <>
-            <header className="flex h-14 flex-shrink-0 items-center justify-between border-b border-white/10 px-4">
+            <header className="flex h-13 flex-shrink-0 items-center justify-between border-b border-white/10 px-3.5">
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setSidebarOpen((previous) => !previous)}
@@ -2350,23 +2350,23 @@ export const ChatInterface: React.FC<{
                 </button>
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="min-w-0">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <div className="truncate text-sm font-semibold text-white">
                         {workspace?.topic.title ?? 'Loading topic...'}
                       </div>
                       {workspace?.topic.sessionMode === 'quick' ? (
-                        <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] text-amber-200/80">
+                        <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[9px] text-amber-200/80">
                           Quick
                         </span>
                       ) : null}
                       {workspace?.topic.parentTopicId ? (
-                        <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-2 py-0.5 text-[10px] text-sky-200/80">
+                        <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-1.5 py-0.5 text-[9px] text-sky-200/80">
                           Branch
                         </span>
                       ) : null}
                       {activeRunState?.isGenerating ? (
-                        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-200/80">
-                          Streaming
+                        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-1.5 py-0.5 text-[9px] text-emerald-200/80">
+                          Live
                         </span>
                       ) : null}
                       {workspace ? (
@@ -2381,7 +2381,7 @@ export const ChatInterface: React.FC<{
                       {workspace ? (
                         <button
                           onClick={handleOpenBranchTopicDialog}
-                          className="rounded-md px-2 py-1 text-[11px] text-sky-200/55 transition-colors hover:bg-sky-400/10 hover:text-sky-100"
+                          className="rounded-md px-1.5 py-1 text-[10px] text-sky-200/55 transition-colors hover:bg-sky-400/10 hover:text-sky-100"
                           title="Branch task"
                         >
                           Branch
@@ -2390,7 +2390,7 @@ export const ChatInterface: React.FC<{
                       {workspace?.topic.parentTopicId ? (
                         <button
                           onClick={handleOpenBranchHandoffDialog}
-                          className="rounded-md px-2 py-1 text-[11px] text-emerald-200/55 transition-colors hover:bg-emerald-400/10 hover:text-emerald-100"
+                          className="rounded-md px-1.5 py-1 text-[10px] text-emerald-200/55 transition-colors hover:bg-emerald-400/10 hover:text-emerald-100"
                           title="Send branch findings to parent"
                         >
                           Send Up
@@ -2399,27 +2399,27 @@ export const ChatInterface: React.FC<{
                       {workspace ? (
                         <button
                           onClick={handleOpenSessionSettings}
-                          className="rounded-md px-2 py-1 text-[11px] text-white/45 transition-colors hover:bg-white/10 hover:text-white/85"
+                          className="rounded-md px-1.5 py-1 text-[10px] text-white/45 transition-colors hover:bg-white/10 hover:text-white/85"
                           title="Session settings"
                         >
                           Session
                         </button>
                       ) : null}
                     </div>
-                    <div className="text-[11px] text-white/40">
+                    <div className="text-[10px] text-white/40">
                       {workspace?.runtime.displayName ?? workspace?.agent.name ?? selectedAgent?.name ?? 'Loading agent...'} ·{' '}
                       {workspace?.agent.workspaceRelpath ?? selectedAgent?.workspaceRelpath ?? 'agents/...'}
                     </div>
                     {activeParentTopic ? (
-                      <div className="text-[11px] text-sky-200/45">Branched from {activeParentTopic.title}</div>
+                      <div className="text-[10px] text-sky-200/45">Branched from {activeParentTopic.title}</div>
                     ) : null}
                   </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <span
-                  className={`hidden rounded-full border px-2.5 py-1 text-[11px] md:inline-flex ${
+                  className={`hidden rounded-full border px-2 py-1 text-[10px] lg:inline-flex ${
                     runtimeCapabilities.hostBridge.available
                       ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100/75'
                       : runtimeCapabilities.mode === 'electron'
@@ -2438,14 +2438,14 @@ export const ChatInterface: React.FC<{
                     }
                     openGlobalModelPicker();
                   }}
-                  className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                  className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[13px] text-white/80 transition-colors hover:bg-white/10 hover:text-white"
                 >
-                  <span className="max-w-[260px] truncate">
+                  <span className="max-w-[220px] truncate">
                     {activeProviderName}
                     {' · '}
                     {activeModel}
                   </span>
-                  <span className="rounded-full border border-white/10 bg-black/20 px-1.5 py-0.5 text-[10px] text-white/55">
+                  <span className="rounded-full border border-white/10 bg-black/20 px-1.5 py-0.5 text-[9px] text-white/55">
                     {activeProviderProtocolLabel}
                   </span>
                   <ChevronDown size={14} className="text-white/45" />
@@ -2453,7 +2453,7 @@ export const ChatInterface: React.FC<{
                 <button
                   onClick={handleOpenModelFeaturesDialog}
                   disabled={!workspace}
-                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] text-white/75 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <span className="flex items-center gap-2">
                     模型功能
