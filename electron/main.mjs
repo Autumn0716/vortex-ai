@@ -1,11 +1,16 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import { copyFile, mkdir, stat } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { resolveElectronProjectRoot, resolveElectronRendererEntry } from './app-paths.mjs';
+import {
+  resolveElectronConfigImportSource,
+  resolveElectronProjectRoot,
+  resolveElectronRendererEntry,
+} from './app-paths.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sourceRoot = path.resolve(__dirname, '..');
@@ -91,10 +96,32 @@ async function probeHostHealth() {
   }
 }
 
+async function maybeBootstrapProjectConfig(projectRoot) {
+  const targetConfigPath = path.join(projectRoot, 'config.json');
+  try {
+    await stat(targetConfigPath);
+    return;
+  } catch {
+    // Only import when the target config does not exist yet.
+  }
+
+  const sourceConfigPath = resolveElectronConfigImportSource(app, sourceRoot);
+  if (!sourceConfigPath || path.resolve(sourceConfigPath) === path.resolve(targetConfigPath)) {
+    return;
+  }
+
+  await mkdir(projectRoot, { recursive: true });
+  await copyFile(sourceConfigPath, targetConfigPath);
+  updateHostState({
+    message: `Imported config.json from ${sourceConfigPath}.`,
+  });
+}
+
 async function ensureHostBridge() {
   const projectRoot = resolveElectronProjectRoot(app, sourceRoot);
   fs.mkdirSync(projectRoot, { recursive: true });
   updateHostState({ rootDir: projectRoot });
+  await maybeBootstrapProjectConfig(projectRoot);
 
   if (!shouldManageHost) {
     updateHostState({

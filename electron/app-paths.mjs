@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs';
 
 export function resolveElectronProjectRoot(app, sourceRoot) {
   const override = process.env.FLOWAGENT_DESKTOP_DATA_ROOT?.trim();
@@ -11,6 +12,29 @@ export function resolveElectronProjectRoot(app, sourceRoot) {
   }
 
   return path.join(app.getPath('userData'), 'workspace');
+}
+
+export function resolveElectronConfigImportSource(app, sourceRoot, options = {}) {
+  if (!app.isPackaged) {
+    return null;
+  }
+
+  const cwd = options.cwd ?? process.cwd();
+  const env = options.env ?? process.env;
+  const explicit = env.FLOWAGENT_DESKTOP_IMPORT_CONFIG?.trim();
+  const candidates = [
+    explicit ? path.resolve(explicit) : null,
+    path.join(cwd, 'config.json'),
+    path.join(sourceRoot, 'config.json'),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 export function resolveElectronRendererEntry(app, sourceRoot) {
