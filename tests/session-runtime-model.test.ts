@@ -557,3 +557,77 @@ test('workflow branch handoff marks the matching worker node completed', async (
   assert.equal(handoffResult.completedTaskNodes[0]?.branchTopicId, branchTopic.id);
   assert.equal(handoffResult.completedTaskNodes[0]?.status, 'completed');
 });
+
+test('workflow writes a review-ready rollup after all worker branches hand off', async () => {
+  localforageState.clear();
+  const agentId = createAgentId('agent_workflow_rollup');
+  await saveAgent({
+    id: agentId,
+    name: 'Workflow Rollup Agent',
+    description: 'Agent used to verify workflow rollups',
+    systemPrompt: 'Template prompt.',
+    accentColor: 'from-lime-500/20 to-emerald-500/20',
+    workspaceRelpath: `agents/${agentId}`,
+  });
+
+  const parentTopic = await createTopic({ agentId, title: 'Workflow Rollup Parent' });
+  const graphResult = await compileTaskGraphFromTopic({
+    sourceTopicId: parentTopic.id,
+    title: 'Workflow Rollup Test',
+    goal: '实现 dispatcher 状态推进；补充 reviewer 汇总提示',
+  });
+  assert.equal(graphResult.branchTopics.length, 2);
+
+  await addTopicMessages([
+    {
+      topicId: graphResult.branchTopics[0]!.id,
+      agentId,
+      role: 'assistant',
+      authorName: 'Workflow Rollup Agent',
+      content: 'Dispatcher status branch is complete.',
+    },
+    {
+      topicId: graphResult.branchTopics[1]!.id,
+      agentId,
+      role: 'assistant',
+      authorName: 'Workflow Rollup Agent',
+      content: 'Reviewer summary branch is complete.',
+    },
+  ]);
+
+  const firstHandoff = await handoffBranchTopicToParent({
+    branchTopicId: graphResult.branchTopics[0]!.id,
+    note: 'First worker done.',
+    includeRecentMessages: 2,
+  });
+  assert.equal(firstHandoff.reviewReadyWorkflows.length, 0);
+
+  const secondHandoff = await handoffBranchTopicToParent({
+    branchTopicId: graphResult.branchTopics[1]!.id,
+    note: 'Second worker done.',
+    includeRecentMessages: 2,
+  });
+  assert.equal(secondHandoff.reviewReadyWorkflows.length, 1);
+  assert.equal(secondHandoff.reviewReadyWorkflows[0]?.title, 'Workflow Rollup Test');
+  assert.equal(secondHandoff.reviewReadyWorkflows[0]?.workerNodes.length, 2);
+
+  const repeatedHandoff = await handoffBranchTopicToParent({
+    branchTopicId: graphResult.branchTopics[1]!.id,
+    note: 'Repeated handoff should not create a second review-ready rollup.',
+    includeRecentMessages: 2,
+  });
+  assert.equal(repeatedHandoff.reviewReadyWorkflows.length, 0);
+
+  const parentWorkspace = await getTopicWorkspace(parentTopic.id);
+  assert.ok(parentWorkspace);
+  const rollupMessages =
+    parentWorkspace?.messages.filter(
+      (message) =>
+        message.role === 'system' &&
+        message.authorName === 'Workflow Reviewer' &&
+        /Workflow ready for review: Workflow Rollup Test/.test(message.content),
+    ) ?? [];
+  assert.equal(rollupMessages.length, 1);
+  assert.match(rollupMessages[0]?.content ?? '', /Completed worker branches/);
+  assert.match(rollupMessages[0]?.content ?? '', /Next: review the branch handoffs/);
+});

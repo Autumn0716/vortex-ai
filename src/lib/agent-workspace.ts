@@ -203,7 +203,7 @@ export interface TopicTaskGraph {
   compilerProviderId?: string;
   compilerModel?: string;
   compilerStrategy: TaskGraphCompilerStrategy;
-  status: 'draft' | 'ready' | 'failed';
+  status: 'draft' | 'ready' | 'review_ready' | 'failed';
   createdAt: string;
   updatedAt: string;
   nodes: TopicTaskGraphNode[];
@@ -2046,6 +2046,20 @@ export async function handoffBranchTopicToParent(options: {
     },
   ]);
   const completedTaskNodes = await markBranchTaskNodesCompleted(branchWorkspace.topic.id, timestamp);
+  const reviewReadyWorkflows = await markWorkflowGraphsReviewReady(completedTaskNodes, timestamp);
+
+  if (reviewReadyWorkflows.length > 0) {
+    await addTopicMessages(
+      reviewReadyWorkflows.map((workflow) => ({
+        topicId: workflow.topicId,
+        agentId: workflow.agentId,
+        role: 'system',
+        authorName: 'Workflow Reviewer',
+        content: workflow.content,
+        createdAt: timestamp,
+      })),
+    );
+  }
 
   const [updatedParent, updatedBranch] = await Promise.all([
     getTopicWorkspace(parentWorkspace.topic.id),
@@ -2060,6 +2074,7 @@ export async function handoffBranchTopicToParent(options: {
     parentTopic: updatedParent.topic,
     branchTopic: updatedBranch.topic,
     completedTaskNodes,
+    reviewReadyWorkflows,
   };
 }
 
@@ -2513,6 +2528,25 @@ function buildTaskGraphCompiledMessage(
   ].join('\n\n');
 }
 
+function buildWorkflowReviewReadyMessage(input: {
+  graphTitle: string;
+  graphGoal: string;
+  workerNodes: TopicTaskGraphNode[];
+}) {
+  const workerLines = input.workerNodes.map(
+    (node, index) => `${index + 1}. ${node.title}\n   Objective: ${node.objective}`,
+  );
+
+  return [
+    `Workflow ready for review: ${input.graphTitle}`,
+    `Goal: ${input.graphGoal}`,
+    workerLines.length ? `Completed worker branches:\n${workerLines.join('\n')}` : '',
+    'Next: review the branch handoffs in this parent topic and produce the merged answer.',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
 type TopicTaskGraphNodeRow = {
   id: string;
   graph_id: string;
@@ -2527,6 +2561,16 @@ type TopicTaskGraphNodeRow = {
   branch_topic_id: string | null;
   status: TopicTaskGraphNode['status'];
   created_at: string;
+  updated_at: string;
+};
+
+type TopicTaskGraphRow = {
+  id: string;
+  topic_id: string;
+  agent_id: string;
+  title: string;
+  goal: string;
+  status: TopicTaskGraph['status'];
   updated_at: string;
 };
 
@@ -2620,6 +2664,100 @@ async function markBranchTaskNodesCompleted(branchTopicId: string, completedAt: 
       updated_at: completedAt,
     }),
   );
+}
+
+async function markWorkflowGraphsReviewReady(completedNodes: TopicTaskGraphNode[], completedAt: string) {
+  const graphIds = [...new Set(completedNodes.map((node) => node.graphId))];
+  if (graphIds.length === 0) {
+    return [];
+  }
+
+  const database = await ensureAgentSchema();
+  const readyRollups: Array<{
+    graphId: string;
+    topicId: string;
+    agentId: string;
+    title: string;
+    content: string;
+    workerNodes: TopicTaskGraphNode[];
+  }> = [];
+
+  for (const graphId of graphIds) {
+    const graph = mapRows<TopicTaskGraphRow>(
+      database.exec(
+        `
+          SELECT id, topic_id, agent_id, title, goal, status, updated_at
+          FROM topic_task_graphs
+          WHERE id = ?
+          LIMIT 1
+        `,
+        [graphId],
+      ),
+    )[0];
+    if (!graph || graph.status !== 'ready') {
+      continue;
+    }
+
+    const workerRows = mapRows<TopicTaskGraphNodeRow>(
+      database.exec(
+        `
+          SELECT
+            id,
+            graph_id,
+            topic_id,
+            agent_id,
+            node_key,
+            node_type,
+            title,
+            objective,
+            acceptance_criteria,
+            depends_on_json,
+            branch_topic_id,
+            status,
+            created_at,
+            updated_at
+          FROM topic_task_nodes
+          WHERE graph_id = ? AND node_type = 'worker'
+          ORDER BY sort_order ASC
+        `,
+        [graphId],
+      ),
+    );
+    const workerNodes = workerRows.map(toTopicTaskGraphNode);
+    if (workerNodes.length === 0 || workerNodes.some((node) => node.status !== 'completed')) {
+      continue;
+    }
+
+    database.run(
+      `
+        UPDATE topic_task_graphs
+        SET
+          status = 'review_ready',
+          updated_at = ?
+        WHERE id = ? AND status = 'ready'
+      `,
+      [completedAt, graphId],
+    );
+
+    readyRollups.push({
+      graphId,
+      topicId: graph.topic_id,
+      agentId: graph.agent_id,
+      title: graph.title,
+      content: buildWorkflowReviewReadyMessage({
+        graphTitle: graph.title,
+        graphGoal: graph.goal,
+        workerNodes,
+      }),
+      workerNodes,
+    });
+  }
+
+  if (readyRollups.length > 0) {
+    await saveDB();
+  }
+
+  return readyRollups;
 }
 
 function formatSessionSummaryLine(message: TopicMessage) {

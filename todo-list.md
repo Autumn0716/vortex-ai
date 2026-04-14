@@ -248,7 +248,7 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 
 当前仍待继续：
 1. ⬜ 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开
-2. ⬜ 第一版“自然语言任务 -> 持久化 task graph / planner-dispatcher-worker-reviewer workflow”已落地，branch handoff 已能推进 worker 节点到 `completed`；仍缺自动 dispatcher / reviewer 执行、节点重试与完整自动汇总闭环
+2. ⬜ 第一版“自然语言任务 -> 持久化 task graph / planner-dispatcher-worker-reviewer workflow”已落地，branch handoff 已能推进 worker 节点到 `completed`，所有 worker 完成后会自动生成 `review_ready` 汇总；仍缺自动 reviewer 执行与节点重试
 3. ⬜ 第一版会话级 `session summary` 已落地，但目前仍是确定性摘要；后续还需补上更高质量的 LLM 摘要、摘要分段更新策略，以及与消息级 token 预算联动
 4. ✅ daily 日志条目已升级为更细粒度记录：保留 user / assistant / system / tool 回合类型、更长工具调用结果、附件摘要与显式任务状态变更，再由夜间 lifecycle 统一压缩到 `warm/cold` 替身
 
@@ -310,3 +310,8 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已补上 workflow branch handoff 的第一段状态推进：当 worker branch 把结果回传 parent topic 时，会自动把匹配的 `topic_task_nodes.branch_topic_id` 节点标记为 `completed`
 - ✅ `handoffBranchTopicToParent()` 现在会返回 `completedTaskNodes`，为后续 UI 展示、dispatcher 汇总和 reviewer 启动提供稳定数据入口
 - ✅ 已补上回归测试覆盖“编译 workflow -> 创建 worker branch -> handoff -> worker node completed”的闭环，并通过 `node --import tsx --test tests/session-runtime-model.test.ts`、`npm run lint`、`npm run build`
+
+进度汇报（2026-04-14，会话级 Agent 第九次更新）:
+- ✅ 已补上 workflow 的 deterministic review-ready rollup：当同一 task graph 下所有 worker branch 都完成 handoff 后，graph 状态会从 `ready` 推进到 `review_ready`
+- ✅ parent topic 会自动追加一条 `Workflow Reviewer` system message，列出已完成 worker branches 和下一步 review 指引；重复 handoff 不会重复生成 review-ready rollup
+- ✅ 已补上回归测试覆盖“首个 handoff 不生成 rollup、最后一个 handoff 生成一次 rollup、重复 handoff 不重复生成”的幂等路径，并通过 `node --import tsx --test tests/session-runtime-model.test.ts`、`npm run lint`、`npm run build`
