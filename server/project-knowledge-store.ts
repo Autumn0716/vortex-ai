@@ -9,6 +9,7 @@ import {
   normalizeProjectKnowledgePath,
   type ProjectKnowledgeRecord,
 } from '../src/lib/project-knowledge-model';
+import { walkDirectory } from './lib/fs-utils';
 
 export interface ProjectKnowledgeStatus {
   version: string;
@@ -25,22 +26,6 @@ export interface ProjectKnowledgeWatcher {
   getStatus: () => Promise<ProjectKnowledgeStatus>;
   subscribe: (listener: (status: ProjectKnowledgeStatus) => void) => () => void;
   stop: () => void;
-}
-
-async function walkDirectory(directoryPath: string): Promise<string[]> {
-  const entries = await fs.readdir(directoryPath, { withFileTypes: true });
-  const files: string[] = [];
-
-  for (const entry of entries) {
-    const nextPath = path.join(directoryPath, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await walkDirectory(nextPath)));
-      continue;
-    }
-    files.push(nextPath);
-  }
-
-  return files;
 }
 
 async function collectProjectKnowledgePaths(rootDir: string) {

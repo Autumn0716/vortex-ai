@@ -333,3 +333,137 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已抽出共享消息 token 估算 helper，前端发送路径与 workspace 摘要构建都会统一计算文本、图片附件和工具调用摘要，避免两条路径因为估算口径不同产生边界漂移
 - ✅ 当前上下文估算已纳入持久化 `Session summary` 与预算后的近窗消息；后续仍保留 LLM 摘要与摘要分段更新作为独立待办
 - ✅ 已补上回归测试覆盖预算 splitter、附件/工具估算、以及 `buildTopicSessionSummary()` 的 token-budget overflow 路径，并通过 `node --import tsx --test tests/session-context-budget.test.ts`、`node --import tsx --test tests/session-runtime-model.test.ts`、`npm run lint`、`npm run build`
+
+---
+
+## 架构优化 (2026-04-14)
+
+### P0 — 可维护性
+
+⬜ **4. 拆分 agent-workspace.ts (3929 行)**
+拆分为 5 个文件：
+- `workspace-schema.ts` — 表定义和初始化
+- `workspace-queries.ts` — CRUD 操作 (topics, messages, lanes, tasks)
+- `memory-sync.ts` — 文件 ↔ DB 同步
+- `topic-management.ts` — Topic 创建/分支/handoff
+- `task-graph.ts` — Task Graph 编译/状态推进
+
+⬜ **5. 拆分 db.ts (3330 行)**
+拆分为 4 个文件：
+- `db-schema.ts` — 建表 + 索引 + FTS5
+- `db-queries.ts` — 文档/对话 CRUD
+- `db-search.ts` — 混合检索 (BM25 + Vector + Graph)
+- `db-knowledge-graph.ts` — 图节点/边管理
+
+✅ **6. 提取 walkDirectory 公共工具函数**
+当前在 `api-server.ts`、`nightly-memory-archive.ts`、`project-knowledge-store.ts` 三处重复
+→ 已提取到 `server/lib/fs-utils.ts`
+
+⬜ **7. 修复 scripts/dev-all.mjs 循环引用**
+`dev-all.mjs` 内部调用 `npm run dev:all` 形成隐式循环
+→ 明确职责分离，只做进程编排
+
+### P1 — 质量与稳定性
+
+⬜ **8. 统一错误处理策略**
+- 引入 `Result<T, Error>` 类型
+- 数据库操作增加事务级错误边界
+- API 响应增加 `error_code` 字段
+
+⬜ **9. FTS5 Schema 逻辑集中化**
+提取 `src/lib/db-fts5-helpers.ts`，统一处理 FTS5 建表和索引
+
+⬜ **10. API 请求日志中间件**
+添加 Express morgan 或轻量自定义日志中间件
+
+⬜ **11. 补充核心集成测试**
+- 混合搜索管线端到端测试
+- LangGraph runtime 流式集成测试
+- Provider 兼容性 E2E
+- Electron IPC 桥测试
+- Query Router 完整路径测试
+
+### P2 — 产品功能增强
+
+⬜ **12. Memory Inspector 视图**
+用户可直观看到记忆状态 (hot/warm/cold/long-term)、手动干预评分、调整晋升策略
+- 新增 `MemoryView` 组件
+- 显示每条记忆的来源、分数、层级、晋升状态
+- 支持手动标记 "important / archive / delete"
+
+⬜ **13. 证据反馈面板**
+在回答底部显示引用的知识来源和支持度
+- 显示每条检索结果的 source_type / supportLabel / matchedTerms
+- 用户可标记 "有用 / 没用" 形成反馈闭环
+- 反馈数据用于优化 RAG 检索权重
+
+⬜ **14. RAG 权重可调体系**
+将硬编码权重纳入 `config.json -> search.weights`：
+- `lexicalWeight / vectorWeight / graphWeight`
+- 按 source_type 差异化权重 (skill_doc vs project_doc)
+
+⬜ **15. 记忆统一 RAG 索引**
+全局记忆/热层/温层各走一套检索路径，未并入统一 memory RAG
+→ 建立 `searchMemories(query, options)` 统一接口，复用文档搜索管线
+
+⬜ **16. Session Summary 升级为 LLM 摘要**
+当前为确定性摘要，质量有限
+→ 增加可选 LLM 摘要模式，复用夜间归档同一模型管道
+
+⬜ **17. Electron 能力扩展**
+- 原生文件对话框 (打开/保存项目)
+- 系统托盘 + 后台运行
+- 全局快捷键 (快速唤醒)
+- 原生通知 (记忆归档完成、夜间任务结果)
+- Host shell 执行 (Phase 2, 可选开启)
+
+⬜ **18. 可观测性增强**
+- 搜索延迟指标 (BM25 / vector / graph 各阶段耗时)
+- 记忆注入 token 统计
+- 模型调用成功率/延迟
+- 扩展现有 Runtime Diagnostics 面板
+
+进度汇报（2026-04-14，架构优化第一次更新）:
+- ✅ 已把三处重复的 `walkDirectory(directoryPath)` 收口到 `server/lib/fs-utils.ts`，保留原有递归遍历、返回文件路径、不内置排序/过滤、错误向上抛出的语义
+- ✅ `server/api-server.ts`、`server/nightly-memory-archive.ts`、`server/project-knowledge-store.ts` 已改为复用同一个 helper，调用方仍各自负责 `.md` 过滤、相对路径转换和排序
+- ✅ 已新增 `tests/fs-utils.test.ts` 覆盖嵌套目录递归与“只返回文件不返回目录”的基础行为，并通过相关 API / nightly / project knowledge 测试、`npm run lint` 与 `npm run build`
+
+### P3 — 深层产品功能 (brainstorm 补充)
+
+⬜ **19. Prompt Inspector 面板 (上下文窗口可视化)**
+发送前显示 system prompt 构成：base prompt + 记忆 + skills + 工具的 token 占比
+- 记忆注入清单：注入了哪些 long-term / hot / warm 条目，各占多少 token
+- 当前 context window 使用率（还剩多少空间）
+- 点击某条记忆可直接查看完整内容
+- **最低开发成本，最高用户感知价值，直接支撑"可解释"叙事**
+
+⬜ **20. Memory Timeline (记忆演变时间线)**
+- 按时间轴展示记忆的诞生（写入 daily）、成长（晋升 warm/cold）、蜕变（晋升 MEMORY.md）、死亡（冷层删除）
+- 配合过滤和搜索，用户可以手动撤销某次晋升或删除
+- 直接强化"会成长、会遗忘"的产品叙事
+
+⬜ **21. 代码库感知 RAG**
+- 自动扫描 `src/` 下的 `.ts / .py / .go` 文件
+- 提取函数签名、类定义、模块依赖关系，构建代码知识图谱
+- 结合 AST 做更精准的分块（按函数/类边界切，而非固定字符数）
+- 开发者场景刚需，但工程量较大
+
+⬜ **22. 用户纠正学习**
+- 识别纠正类意图（"不要这样做"/"下次用 X"）→ 生成结构化行为规则
+- 写入 `MEMORY.md` 的 "Behavioral Rules" 区块
+- 每次对话前作为 system prompt 硬性约束注入
+- 设置页可看到所有已学习规则，手动编辑/删除
+- **让记忆从"记录"进化到"行为控制"，是记忆价值的倍增器**
+
+⬜ **23. 定时触发器 / 自动化**
+- 每天早 8 点自动生成昨日会话摘要
+- 每周日自动执行记忆归档和晋升
+- 每次 git push 自动触发 code review agent
+- 自定义 cron 表达式 + 触发任意 agent 操作
+- 复用夜间归档的 scheduler 框架
+
+⬜ **24. Agent 配置导出 / 分享**
+- 一键打包 `config.json` + `memory/agents/<slug>/` + `skills/` 为 `.flowagent` 文件
+- 支持从 `.flowagent` 文件导入创建新 agent
+- 后续做社区 marketplace，分享高质量 agent 配置模板
+- 降低新用户上手门槛，形成生态网络效应

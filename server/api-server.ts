@@ -17,6 +17,7 @@ import {
   createProjectKnowledgeWatcher,
   readProjectKnowledgeSnapshot,
 } from './project-knowledge-store';
+import { walkDirectory } from './lib/fs-utils';
 
 export interface FlowAgentApiServerOptions {
   authToken?: string;
@@ -60,22 +61,6 @@ export function resolveAllowedPath(rootDir: string, input: string, options: { al
     relativePath,
     absolutePath,
   };
-}
-
-async function walkDirectory(directoryPath: string): Promise<string[]> {
-  const entries = await fs.readdir(directoryPath, { withFileTypes: true });
-  const files: string[] = [];
-
-  for (const entry of entries) {
-    const nextPath = path.join(directoryPath, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await walkDirectory(nextPath)));
-      continue;
-    }
-    files.push(nextPath);
-  }
-
-  return files;
 }
 
 function applyCors(app: Express) {

@@ -9,6 +9,7 @@ import {
 import type { AgentConfig } from '../src/lib/agent/config';
 import type { MemoryImportanceAssessment } from '../src/lib/agent-memory-lifecycle';
 import { readProjectConfig } from './config-store';
+import { walkDirectory } from './lib/fs-utils';
 import { scoreMemoryImportanceWithModel } from './memory-importance-scorer';
 import { syncPromotedMemoryFromSurrogates, type MemoryPromotionSyncResult } from './memory-promotion';
 
@@ -247,22 +248,6 @@ export async function writeNightlyArchiveState(rootDir: string, value: Partial<N
   await ensureFlowAgentDir(rootDir);
   await writeJsonFile(getStatePath(rootDir), next);
   return next;
-}
-
-async function walkDirectory(directoryPath: string): Promise<string[]> {
-  const entries = await fs.readdir(directoryPath, { withFileTypes: true });
-  const files: string[] = [];
-
-  for (const entry of entries) {
-    const nextPath = path.join(directoryPath, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await walkDirectory(nextPath)));
-      continue;
-    }
-    files.push(nextPath);
-  }
-
-  return files;
 }
 
 export async function listAgentSlugsFromMemoryRoot(rootDir: string) {
