@@ -195,6 +195,110 @@ test('responses runtime disables thinking when structured output is not plain te
   }
 });
 
+test('responses runtime continues with previous_response_id after local function execution', async () => {
+  const config = buildConfig({
+    id: 'aliyun_responses',
+    name: 'Aliyun Responses',
+    baseUrl: 'https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1',
+    models: ['qwen3.5-plus'],
+    protocol: 'openai_responses_compatible',
+  });
+
+  const originalFetch = globalThis.fetch;
+  const originalConsoleError = console.error;
+  const captured: Array<{ url: string; body: Record<string, any> }> = [];
+  globalThis.fetch = (async (input, init) => {
+    const request = {
+      url: String(input),
+      body: JSON.parse(String(init?.body ?? '{}')),
+    };
+    captured.push(request);
+
+    if (captured.length === 1) {
+      return createSseResponse([
+        {
+          type: 'response.output_item.done',
+          item: {
+            type: 'function_call',
+            id: 'fc_123',
+            call_id: 'call_123',
+            name: 'search_knowledge_base',
+            arguments: '{"query":"LangGraph runtime"}',
+          },
+        },
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp_789',
+            output_text: '',
+            usage: {
+              input_tokens: 15,
+              output_tokens: 4,
+              total_tokens: 19,
+            },
+          },
+        },
+      ]);
+    }
+
+    return createSseResponse([
+      { type: 'response.output_text.delta', delta: '工具结果已整合。' },
+      {
+        type: 'response.completed',
+        response: {
+          id: 'resp_790',
+          output_text: '工具结果已整合。',
+          usage: {
+            input_tokens: 9,
+            output_tokens: 6,
+            total_tokens: 15,
+          },
+        },
+      },
+    ]);
+  }) as typeof fetch;
+  console.error = () => {};
+
+  try {
+    const runtime = createAgentRuntime({
+      config,
+      providerId: 'aliyun_responses',
+      model: 'qwen3.5-plus',
+      enableTools: true,
+      responsesTools: {
+        customFunctionCalling: true,
+      },
+    });
+
+    const events = [];
+    for await (const event of runtime.stream({
+      messages: [createHumanMessage('查询一下 LangGraph runtime')],
+    })) {
+      events.push(event);
+    }
+
+    assert.equal(captured.length, 2);
+    assert.equal(
+      captured[0]?.url,
+      'https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses',
+    );
+    assert.equal(
+      captured[1]?.url,
+      'https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses',
+    );
+    assert.equal(captured[1]?.body.previous_response_id, 'resp_789');
+    assert.equal(captured[1]?.body.input?.[0]?.type, 'function_call_output');
+    assert.equal(captured[1]?.body.input?.[0]?.call_id, 'call_123');
+    assert.equal(typeof captured[1]?.body.input?.[0]?.output, 'string');
+    assert.equal(events.some((event) => event.type === 'tool_event' && event.tool.name === 'search_knowledge_base'), true);
+    assert.equal(events.at(-1)?.type, 'assistant_message');
+    assert.equal(events.at(-1)?.content, '工具结果已整合。');
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.error = originalConsoleError;
+  }
+});
+
 test('task graph compiler uses /responses payload for responses-compatible providers', async () => {
   const config = buildConfig({
     id: 'aliyun_responses',
