@@ -367,7 +367,7 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 
 ⬜ **8. 统一错误处理策略**
 - 引入 `Result<T, Error>` 类型
-- 数据库操作增加事务级错误边界
+- ✅ 已新增数据库事务 helper；数据库操作迁移仍需继续批量推进
 - ✅ API 响应增加 `error_code` 字段
 
 ✅ **9. FTS5 Schema 逻辑集中化**
@@ -447,7 +447,13 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已给 `api-server` 增加统一 `sendApiError()`，当前错误响应保持原有 `error` 文本，同时新增稳定 `error_code`
 - ✅ 已覆盖鉴权、参数校验、config、model metadata、nightly archive、project knowledge、memory file 等现有 API 错误路径
 - ✅ 已补测试覆盖 `AUTH_UNAUTHORIZED` 与 `MODEL_METADATA_INVALID_REQUEST`，并确认 query string 不进入请求日志；已通过 `node --import tsx --test tests/agent-memory-api.test.ts`、`npm run lint`、`npm run build`
-- ⬜ 第 8 项剩余：`Result<T, Error>` 类型与数据库事务级错误边界仍未落地
+- ⬜ 第 8 项剩余：`Result<T, Error>` 类型与数据库事务 helper 批量迁移仍未落地
+
+进度汇报（2026-04-14，架构优化第六次更新）:
+- ✅ 已新增 `src/lib/db-transaction.ts`，提供 `runDatabaseTransaction()`，统一 `BEGIN -> COMMIT` 与失败 `ROLLBACK -> rethrow` 语义
+- ✅ 已先把 `src/lib/db.ts` 的 `addConversationMessages()` 迁移到事务 helper，作为后续批量替换其他手写事务的模板
+- ✅ 已补 `tests/db-transaction.test.ts` 覆盖成功提交与失败回滚，并通过 `node --import tsx --test tests/local-rag-indexing.test.ts`、`npm run lint`、`npm run build`
+- ⬜ 第 8 项剩余：`Result<T, Error>` 类型仍未引入；其余手写 DB 事务还需要逐步迁移到 helper
 
 ### P3 — 深层产品功能 (brainstorm 补充)
 

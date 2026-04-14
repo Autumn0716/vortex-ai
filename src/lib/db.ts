@@ -30,6 +30,7 @@ import {
   type EmbeddingProviderConfig,
 } from './embedding-client';
 import { cosineSimilarity, hybridScoreDocuments, rerankHybridDocuments } from './vector-search-model';
+import { runDatabaseTransaction } from './db-transaction';
 
 export type SqlValue = SQLiteSqlValue;
 
@@ -1909,8 +1910,7 @@ export async function addConversationMessages(messages: ChatMessageInput[]) {
   }
 
   const database = await initDB();
-  database.run('BEGIN');
-  try {
+  await runDatabaseTransaction(database, () => {
     messages.forEach((message) => {
       const createdAt = message.createdAt ?? nowIso();
       database.run(
@@ -1943,11 +1943,7 @@ export async function addConversationMessages(messages: ChatMessageInput[]) {
         message.conversationId,
       ]);
     });
-    database.run('COMMIT');
-  } catch (error) {
-    database.run('ROLLBACK');
-    throw error;
-  }
+  });
 
   await saveDB();
 }
