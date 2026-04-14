@@ -9,6 +9,7 @@ export interface RuntimeCapabilityProfile {
     status: 'unavailable' | FlowAgentDesktopInfo['host']['status'];
     url?: string;
     rootDir?: string;
+    configPath?: string;
     message?: string;
   };
   filesystem: {
@@ -63,6 +64,7 @@ export function createRuntimeCapabilityProfile(
       status: desktopInfo.host.status,
       url: desktopInfo.host.url,
       rootDir: desktopInfo.host.rootDir,
+      configPath: desktopInfo.host.configPath,
       message: desktopInfo.host.message,
     },
     filesystem: {

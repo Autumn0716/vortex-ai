@@ -24,6 +24,8 @@ const hostState = {
   status: shouldManageHost ? 'starting' : 'external',
   url: hostUrl,
   rootDir: '',
+  configPath: '',
+  configImportedFrom: '',
   sourceRoot,
   message: '',
   startedAt: null,
@@ -98,6 +100,7 @@ async function probeHostHealth() {
 
 async function maybeBootstrapProjectConfig(projectRoot) {
   const targetConfigPath = path.join(projectRoot, 'config.json');
+  updateHostState({ configPath: targetConfigPath });
   try {
     await stat(targetConfigPath);
     return;
@@ -113,6 +116,7 @@ async function maybeBootstrapProjectConfig(projectRoot) {
   await mkdir(projectRoot, { recursive: true });
   await copyFile(sourceConfigPath, targetConfigPath);
   updateHostState({
+    configImportedFrom: sourceConfigPath,
     message: `Imported config.json from ${sourceConfigPath}.`,
   });
 }

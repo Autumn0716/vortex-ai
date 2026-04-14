@@ -3221,6 +3221,11 @@ export const SettingsView = ({
                       {runtimeCapabilities.hostBridge.rootDir}
                     </div>
                   ) : null}
+                  {runtimeCapabilities.hostBridge.configPath ? (
+                    <div className="mt-2 truncate rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/45">
+                      config: {runtimeCapabilities.hostBridge.configPath}
+                    </div>
+                  ) : null}
                   {runtimeCapabilities.mode === 'electron' ? (
                     <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
                       <div className="flex items-center justify-between gap-3">
@@ -3267,6 +3272,14 @@ export const SettingsView = ({
                             {
                               label: '最近启动',
                               value: formatTimestampShort(runtimeDiagnostics.host.startedAt ?? runtimeDiagnostics.host.readyAt),
+                            },
+                            {
+                              label: 'Config Path',
+                              value: runtimeDiagnostics.host.configPath || '未解析',
+                            },
+                            {
+                              label: 'Config Import',
+                              value: runtimeDiagnostics.host.configImportedFrom || '未导入',
                             },
                           ].map((entry) => (
                             <div
