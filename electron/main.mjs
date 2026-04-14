@@ -12,6 +12,7 @@ import {
   resolveElectronProjectRoot,
   resolveElectronRendererEntry,
 } from './app-paths.mjs';
+import { registerFlowAgentDesktopHandlers } from './ipc-handlers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sourceRoot = path.resolve(__dirname, '..');
@@ -274,58 +275,13 @@ function createMainWindow() {
 
 app.setName('FlowAgent');
 
-ipcMain.handle('flowagent:get-desktop-info', () => ({
-  mode: 'electron',
-  platform: process.platform,
-  versions: {
-    electron: process.versions.electron,
-    chrome: process.versions.chrome,
-    node: process.versions.node,
-  },
-  capabilities: {
-    hostBridge: true,
-    projectFiles: true,
-    configFiles: true,
-    memoryFiles: true,
-    webContainerSandbox: true,
-    hostShell: false,
-    unrestrictedFilesystem: false,
-  },
-  host: { ...hostState },
-}));
-
-ipcMain.handle('flowagent:get-runtime-diagnostics', async () => {
-  const hostProbe = await probeHostHealth();
-  const memoryUsage = process.memoryUsage();
-
-  return {
-    appVersion: app.getVersion(),
-    platform: process.platform,
-    versions: {
-      electron: process.versions.electron,
-      chrome: process.versions.chrome,
-      node: process.versions.node,
-    },
-    mainProcess: {
-      pid: process.pid,
-      uptimeSec: Math.round(process.uptime()),
-      rssBytes: memoryUsage.rss,
-      heapUsedBytes: memoryUsage.heapUsed,
-      heapTotalBytes: memoryUsage.heapTotal,
-    },
-    system: {
-      totalMemoryBytes: os.totalmem(),
-      freeMemoryBytes: os.freemem(),
-      loadAverage: os.loadavg(),
-    },
-    host: {
-      ...hostState,
-      reachable: hostProbe.reachable,
-      latencyMs: hostProbe.latencyMs,
-      statusCode: hostProbe.statusCode,
-      error: hostProbe.error ?? '',
-    },
-  };
+registerFlowAgentDesktopHandlers({
+  ipcMain,
+  app,
+  getHostState: () => hostState,
+  probeHostHealth,
+  processInfo: process,
+  osModule: os,
 });
 
 app.whenReady().then(async () => {
