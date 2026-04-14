@@ -320,6 +320,15 @@ export function buildConversationMemoryEntry(input: {
           : 'User';
   const content = normalizeMemoryText(input.content);
   const lines = [`- [${hh}:${mm}] ${input.topicTitle} · ${roleLabel}(${input.authorName}): ${content}`];
+  const turnType =
+    input.role === 'assistant'
+      ? 'assistant_response'
+      : input.role === 'system'
+        ? 'system_event'
+        : input.role === 'tool'
+          ? 'tool_event'
+          : 'user_request';
+  lines.push(`  - Turn: ${turnType}`);
 
   if (input.attachments?.length) {
     const attachmentSummary = input.attachments
@@ -340,7 +349,7 @@ export function buildConversationMemoryEntry(input: {
     const toolSummary = input.tools
       .slice(0, 3)
       .map((tool) => {
-        const resultPreview = normalizeMemoryText(tool.result ?? '').slice(0, 72);
+        const resultPreview = normalizeMemoryText(tool.result ?? '').slice(0, 160);
         return resultPreview ? `${tool.name}[${tool.status}]: ${resultPreview}` : `${tool.name}[${tool.status}]`;
       })
       .join('; ');
@@ -353,6 +362,22 @@ export function buildConversationMemoryEntry(input: {
   }
   if (/(decision|决策|共识|已确认|resolved|最终)/i.test(content)) {
     lines.push('  - Signals: decision');
+  }
+  const taskStates: string[] = [];
+  if (/(阻塞|卡住|失败|报错|无法|blocked|stuck|failed|error)/i.test(content)) {
+    taskStates.push('blocked');
+  }
+  if (/(完成|已完成|通过|修复|落地|提交|done|resolved|fixed|shipped|committed)/i.test(content)) {
+    taskStates.push('completed');
+  }
+  if (input.tools?.some((tool) => tool.status === 'failed')) {
+    taskStates.push('tool_failed');
+  }
+  if (input.tools?.some((tool) => tool.status === 'running')) {
+    taskStates.push('tool_running');
+  }
+  if (taskStates.length > 0) {
+    lines.push(`  - Task State: ${[...new Set(taskStates)].join(', ')}`);
   }
 
   return lines.join('\n');

@@ -84,10 +84,38 @@ test('buildConversationMemoryEntry keeps attachment tool and task signals in dai
   });
 
   assert.match(entry, /Assistant\(Quick Assistant\)/);
+  assert.match(entry, /Turn: assistant_response/);
   assert.match(entry, /Attachments: cute_babe\.jpg \(73KB\)/);
   assert.match(entry, /Tools: image_search\[completed\]: Found 4 similar images from provider\./);
   assert.match(entry, /Signals: open_loop/);
   assert.match(entry, /Signals: decision/);
+});
+
+test('buildConversationMemoryEntry records explicit task states and longer tool results', () => {
+  const entry = buildConversationMemoryEntry({
+    topicTitle: 'Runtime Debug',
+    authorName: 'FlowAgent',
+    role: 'assistant',
+    createdAt: '2026-04-01T08:32:00.000Z',
+    content: '报错已经修复并提交，之前的 blocked 状态解除。',
+    tools: [
+      {
+        name: 'npm_test',
+        status: 'failed',
+        result:
+          'The regression command failed because the mocked workspace did not include the new session_summary columns.',
+      },
+      {
+        name: 'build',
+        status: 'running',
+        result: 'vite build is still rendering chunks and computing gzip size.',
+      },
+    ],
+  });
+
+  assert.match(entry, /Turn: assistant_response/);
+  assert.match(entry, /Tools: npm_test\[failed\]: The regression command failed because the mocked workspace/);
+  assert.match(entry, /Task State: blocked, completed, tool_failed, tool_running/);
 });
 
 test('buildPromotionFingerprint is stable for semantically identical whitespace', () => {

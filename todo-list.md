@@ -250,7 +250,7 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 1. ⬜ 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开
 2. ⬜ 第一版“自然语言任务 -> 持久化 task graph / planner-dispatcher-worker-reviewer workflow”已落地，但仍缺自动 dispatcher / reviewer 执行、节点重试与状态推进，以及 branch 输出的自动汇总闭环
 3. ⬜ 第一版会话级 `session summary` 已落地，但目前仍是确定性摘要；后续还需补上更高质量的 LLM 摘要、摘要分段更新策略，以及与消息级 token 预算联动
-4. ⬜ daily 日志当前粒度仍偏“活动行/关键片段”，需升级为更细粒度记录：保留更完整的 user / assistant 关键回合、工具调用结果、附件与显式任务状态变更，再由夜间 lifecycle 统一压缩到 `warm/cold` 替身
+4. ✅ daily 日志条目已升级为更细粒度记录：保留 user / assistant / system / tool 回合类型、更长工具调用结果、附件摘要与显式任务状态变更，再由夜间 lifecycle 统一压缩到 `warm/cold` 替身
 
 进度汇报（2026-04-14，Electron 第一阶段启动）:
 - ✅ 已加入 Electron 第一版桌面壳：新增 `electron/main.mjs` 与 `electron/preload.mjs`，renderer 仍复用现有 React/Vite 应用，主进程负责窗口与 host bridge 生命周期
@@ -300,3 +300,8 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已补齐删除消息与 branch handoff 后的摘要刷新，避免 transcript 变更后 `topics.session_summary*` 长时间漂移
 - ✅ 已把摘要持久化从“整库 FTS rebuild”收口为“仅保存 DB”，降低长会话下的刷新成本；当前仍未做增量摘要和并发版本保护，保留为后续项
 - ✅ 已补上最小测试覆盖：新增 `session summary` 纯逻辑测试与 schema 列回归断言，并重新通过 `node --import tsx --test tests/agent-workspace-schema.test.ts`、`node --import tsx --test tests/session-runtime-model.test.ts`、`npm run lint`、`npm run build`
+
+进度汇报（2026-04-14，会话级 Agent 第七次更新）:
+- ✅ 已升级 `daily` source log 的单条记录结构：在保留原有首行格式的基础上，新增 `Turn: user_request / assistant_response / system_event / tool_event` 子行，便于后续 warm/cold 压缩识别回合类型
+- ✅ 工具调用摘要现在保留更长的结果预览，并新增 `Task State: blocked / completed / tool_failed / tool_running`，让显式任务状态变更能进入 Markdown 真源和派生 RAG 索引
+- ✅ 该改动只落在 `buildConversationMemoryEntry` 模型层，不改变 `upsertDailyMemoryLog` 持久化链路；已通过 `node --import tsx --test tests/knowledge-memory-model.test.ts`、`npm run lint`、`npm run build`
