@@ -29,6 +29,7 @@ import {
 } from '../lib/db';
 import {
   addTopicMessages,
+  compileTaskGraphFromTopic,
   createBranchTopicFromTopic,
   createQuickTopic,
   createTopic,
@@ -396,6 +397,7 @@ interface QuickTopicDraft {
 interface BranchTopicDraft {
   title: string;
   goal: string;
+  mode: BranchTopicMode;
 }
 
 interface BranchHandoffDraft {
@@ -404,6 +406,7 @@ interface BranchHandoffDraft {
 
 interface ModelFeaturesDraft extends TopicModelFeatures {}
 
+type BranchTopicMode = 'single' | 'workflow';
 type ModelPickerTarget = 'global' | 'topic' | 'quick';
 type TopicModeFilter = 'all' | 'agent' | 'quick';
 
@@ -587,6 +590,8 @@ export const ChatInterface: React.FC<{
     currentContextTokens && currentContextWindow
       ? Math.min(100, (currentContextTokens / currentContextWindow) * 100)
       : null;
+  const branchTopicMode = branchTopicDraft?.mode ?? 'single';
+  const branchTopicIsWorkflow = branchTopicMode === 'workflow';
   const officialModelResourceLinks = useMemo(
     () => getOfficialModelResourceLinks(activeProviderName, activeModel),
     [activeModel, activeProviderName],
@@ -1099,6 +1104,7 @@ export const ChatInterface: React.FC<{
     setBranchTopicDraft({
       title: `${workspace.topic.title} · Branch`,
       goal: '',
+      mode: 'single',
     });
     setShowBranchTopicDialog(true);
   };
@@ -1110,15 +1116,31 @@ export const ChatInterface: React.FC<{
 
     setBranchTopicSaving(true);
     try {
-      const branchTopic = await createBranchTopicFromTopic({
-        sourceTopicId: workspace.topic.id,
-        title: branchTopicDraft.title.trim() || `${workspace.topic.title} · Branch`,
-        branchGoal: branchTopicDraft.goal.trim(),
-      });
-      await activateTopic(branchTopic.id);
+      const title = branchTopicDraft.title.trim() || `${workspace.topic.title} · Branch`;
+      const goal = branchTopicDraft.goal.trim();
+
+      if (branchTopicDraft.mode === 'workflow') {
+        const result = await compileTaskGraphFromTopic({
+          sourceTopicId: workspace.topic.id,
+          title,
+          goal,
+        });
+        await activateTopic(workspace.topic.id);
+        setShellNotice(
+          `Compiled task graph and created ${result.branchTopics?.length ?? 0} worker branches.`,
+        );
+      } else {
+        const branchTopic = await createBranchTopicFromTopic({
+          sourceTopicId: workspace.topic.id,
+          title,
+          branchGoal: goal,
+        });
+        await activateTopic(branchTopic.id);
+        setShellNotice(`Created branch topic "${branchTopic.title}".`);
+      }
+
       setShowBranchTopicDialog(false);
       setBranchTopicDraft(null);
-      setShellNotice(`Created branch topic "${branchTopic.title}".`);
     } finally {
       setBranchTopicSaving(false);
     }
@@ -2915,18 +2937,66 @@ export const ChatInterface: React.FC<{
               <div className="mt-5 rounded-[24px] border border-white/8 bg-black/20 p-4">
                 <div className="text-[11px] uppercase tracking-[0.18em] text-white/35">Branch Behavior</div>
                 <div className="mt-3 space-y-3 text-sm leading-6 text-white/70">
-                  <div>继承当前会话的模型、提示词和功能开关。</div>
-                  <div>带入一份精简上下文快照，而不是复制整段历史消息。</div>
-                  <div>创建后可与父会话并行运行，互不锁定。</div>
+                  <div>
+                    {branchTopicIsWorkflow
+                      ? '编译任务图，并生成多个 worker branch。'
+                      : '继承当前会话的模型、提示词和功能开关。'}
+                  </div>
+                  <div>
+                    {branchTopicIsWorkflow
+                      ? '每个 worker branch 只拿到自己那部分任务与精简上下文。'
+                      : '带入一份精简上下文快照，而不是复制整段历史消息。'}
+                  </div>
+                  <div>
+                    {branchTopicIsWorkflow
+                      ? '适合并行拆解任务、分工处理、最后汇总。'
+                      : '创建后可与父会话并行运行，互不锁定。'}
+                  </div>
                 </div>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() =>
+                    setBranchTopicDraft((current) =>
+                      current ? { ...current, mode: 'single' } : current,
+                    )
+                  }
+                  className={`rounded-xl border px-3 py-2 text-[11px] font-medium uppercase tracking-[0.16em] transition-colors ${
+                    branchTopicMode === 'single'
+                      ? 'border-sky-400/30 bg-sky-500/15 text-sky-100'
+                      : 'border-white/10 bg-black/15 text-white/55 hover:bg-white/5 hover:text-white/80'
+                  }`}
+                >
+                  单分支
+                </button>
+                <button
+                  onClick={() =>
+                    setBranchTopicDraft((current) =>
+                      current ? { ...current, mode: 'workflow' } : current,
+                    )
+                  }
+                  className={`rounded-xl border px-3 py-2 text-[11px] font-medium uppercase tracking-[0.16em] transition-colors ${
+                    branchTopicMode === 'workflow'
+                      ? 'border-sky-400/30 bg-sky-500/15 text-sky-100'
+                      : 'border-white/10 bg-black/15 text-white/55 hover:bg-white/5 hover:text-white/80'
+                  }`}
+                >
+                  工作流拆解
+                </button>
               </div>
             </div>
 
             <div className="flex min-w-0 flex-1 flex-col">
               <div className="flex items-start justify-between gap-4 border-b border-white/5 px-6 py-5">
                 <div>
-                  <div className="text-lg font-semibold text-white">创建子任务分支</div>
-                  <div className="mt-1 text-sm text-white/50">把当前会话派生为一个并行处理的 branch topic。</div>
+                  <div className="text-lg font-semibold text-white">
+                    {branchTopicIsWorkflow ? '编译任务图' : '创建子任务分支'}
+                  </div>
+                  <div className="mt-1 text-sm text-white/50">
+                    {branchTopicIsWorkflow
+                      ? '把当前会话编译成任务图，并生成多个 worker branch。'
+                      : '把当前会话派生为一个并行处理的 branch topic。'}
+                  </div>
                 </div>
                 <button
                   onClick={() => {
@@ -2942,7 +3012,9 @@ export const ChatInterface: React.FC<{
               <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 custom-scrollbar">
                 <div className="space-y-5">
                   <label className="block">
-                    <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">Branch Title</div>
+                    <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">
+                      {branchTopicIsWorkflow ? 'Workflow Title' : 'Branch Title'}
+                    </div>
                     <input
                       type="text"
                       value={branchTopicDraft.title}
@@ -2961,7 +3033,9 @@ export const ChatInterface: React.FC<{
                   </label>
 
                   <label className="block">
-                    <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">Branch Goal</div>
+                    <div className="mb-2 text-[11px] uppercase tracking-[0.16em] text-white/35">
+                      {branchTopicIsWorkflow ? 'Workflow Goal' : 'Branch Goal'}
+                    </div>
                     <textarea
                       value={branchTopicDraft.goal}
                       onChange={(event) =>
@@ -2972,10 +3046,14 @@ export const ChatInterface: React.FC<{
                                 goal: event.target.value,
                               }
                             : current,
-                        )
+                      )
                       }
                       rows={8}
-                      placeholder="例如：只整理报价策略；只拆任务清单；只产出一个技术方案草稿。"
+                      placeholder={
+                        branchTopicIsWorkflow
+                          ? '例如：拆成检索、归纳、对比三条 worker branch，最后汇总成一份方案。'
+                          : '例如：只整理报价策略；只拆任务清单；只产出一个技术方案草稿。'
+                      }
                       className="w-full rounded-[22px] border border-white/10 bg-black/20 px-4 py-3 text-sm leading-7 text-white outline-none transition-colors focus:border-sky-500/40 custom-scrollbar"
                     />
                   </label>
@@ -2983,7 +3061,11 @@ export const ChatInterface: React.FC<{
               </div>
 
               <div className="flex items-center justify-between gap-3 border-t border-white/5 px-6 py-4">
-                <div className="text-xs text-white/35">分支创建后会自动插入一条 system bootstrap，标明父会话来源与子任务目标。</div>
+                <div className="text-xs text-white/35">
+                  {branchTopicIsWorkflow
+                    ? '工作流模式会编译任务图，并生成多个 worker branch。'
+                    : '分支创建后会自动插入一条 system bootstrap，标明父会话来源与子任务目标。'}
+                </div>
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => {
@@ -2996,10 +3078,17 @@ export const ChatInterface: React.FC<{
                   </button>
                   <button
                     onClick={() => handleCreateBranchTopic().catch(console.error)}
-                    disabled={branchTopicSaving}
+                    disabled={
+                      branchTopicSaving ||
+                      (branchTopicIsWorkflow && !branchTopicDraft.goal.trim())
+                    }
                     className="rounded-xl border border-sky-500/20 bg-sky-500/15 px-4 py-2 text-sm font-medium text-sky-100 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {branchTopicSaving ? '创建中...' : '创建 Branch Topic'}
+                    {branchTopicSaving
+                      ? '创建中...'
+                      : branchTopicIsWorkflow
+                        ? '编译并生成 Worker Branches'
+                        : '创建 Branch Topic'}
                   </button>
                 </div>
               </div>

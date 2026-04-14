@@ -109,6 +109,49 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
       content_preview TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS topic_task_graphs (
+      id TEXT PRIMARY KEY,
+      topic_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      goal TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      compiler_provider_id TEXT,
+      compiler_model TEXT,
+      compiler_strategy TEXT NOT NULL DEFAULT 'fallback',
+      status TEXT NOT NULL DEFAULT 'draft',
+      graph_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS topic_task_nodes (
+      id TEXT PRIMARY KEY,
+      graph_id TEXT NOT NULL,
+      topic_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      node_key TEXT NOT NULL,
+      node_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      objective TEXT NOT NULL,
+      acceptance_criteria TEXT NOT NULL,
+      depends_on_json TEXT NOT NULL,
+      branch_topic_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS topic_task_edges (
+      id TEXT PRIMARY KEY,
+      graph_id TEXT NOT NULL,
+      from_node_key TEXT NOT NULL,
+      to_node_key TEXT NOT NULL,
+      edge_type TEXT NOT NULL DEFAULT 'depends_on',
+      created_at TEXT NOT NULL
+    );
   `);
 
   ensureColumn(database, 'agent_memory_documents', 'memory_scope', "memory_scope TEXT NOT NULL DEFAULT 'global'");
@@ -144,5 +187,9 @@ export function ensureAgentWorkspaceSchema(database: SchemaDatabase) {
     CREATE INDEX IF NOT EXISTS idx_agent_memory_scope_updated ON agent_memory_documents(agent_id, memory_scope, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_agent_memory_embeddings_agent_source ON agent_memory_embeddings(agent_id, source_type, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_agent_memory_embeddings_agent_event ON agent_memory_embeddings(agent_id, event_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_topic_task_graphs_topic_created ON topic_task_graphs(topic_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_topic_task_nodes_graph_order ON topic_task_nodes(graph_id, sort_order ASC);
+    CREATE INDEX IF NOT EXISTS idx_topic_task_nodes_branch ON topic_task_nodes(branch_topic_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_topic_task_edges_graph ON topic_task_edges(graph_id, created_at ASC);
   `);
 }

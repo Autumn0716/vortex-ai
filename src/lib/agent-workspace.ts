@@ -26,6 +26,12 @@ import {
 import { routeMemoryQuery, type MemoryRetrievalLayer } from './memory-lifecycle/query-router';
 import { getAgentMemoryFileStore, syncAgentMemoryFromStore } from './agent-memory-sync';
 import { createEmbeddings, type EmbeddingProviderConfig } from './embedding-client';
+import {
+  compileTaskGraphFromGoal,
+  type CompiledTaskGraph,
+  type CompiledTaskGraphNode,
+  type TaskGraphCompilerStrategy,
+} from './task-graph-compiler';
 import { cosineSimilarity } from './vector-search-model';
 
 const ACTIVE_AGENT_KEY = 'flowagent_active_agent_id_v2';
@@ -167,6 +173,34 @@ export interface TopicWorkspace {
   runtime: TopicRuntimeProfile;
   messages: TopicMessage[];
   memoryDocuments: AgentMemoryDocument[];
+}
+
+export interface TopicTaskGraphNode extends CompiledTaskGraphNode {
+  id: string;
+  graphId: string;
+  topicId: string;
+  agentId: string;
+  branchTopicId?: string;
+  status: 'pending' | 'ready' | 'failed';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TopicTaskGraph {
+  id: string;
+  topicId: string;
+  agentId: string;
+  title: string;
+  goal: string;
+  summary: string;
+  compilerProviderId?: string;
+  compilerModel?: string;
+  compilerStrategy: TaskGraphCompilerStrategy;
+  status: 'draft' | 'ready' | 'failed';
+  createdAt: string;
+  updatedAt: string;
+  nodes: TopicTaskGraphNode[];
+  edges: CompiledTaskGraph['edges'];
 }
 
 export interface WorkspaceSearchResult {
@@ -1706,6 +1740,247 @@ export async function createBranchTopicFromTopic(options: {
   return hydratedBranch?.topic ?? branchTopic;
 }
 
+export async function compileTaskGraphFromTopic(options: {
+  sourceTopicId: string;
+  title?: string;
+  goal: string;
+}) {
+  const sourceWorkspace = await getTopicWorkspace(options.sourceTopicId);
+  if (!sourceWorkspace) {
+    throw new Error('Source topic not found.');
+  }
+
+  const goal = options.goal.trim();
+  if (!goal) {
+    throw new Error('Workflow goal is required.');
+  }
+
+  const config = await getAgentConfig();
+  const compiledGraph = await compileTaskGraphFromGoal({
+    config,
+    providerId: sourceWorkspace.runtime.providerId,
+    model: sourceWorkspace.runtime.model,
+    goal,
+    title: options.title?.trim() || undefined,
+    topicTitle: sourceWorkspace.topic.title,
+  });
+
+  const graphId = createId('task_graph');
+  const timestamp = nowIso();
+  const database = await ensureAgentSchema();
+
+  database.run('BEGIN');
+  try {
+    database.run(
+      `
+        INSERT INTO topic_task_graphs (
+          id,
+          topic_id,
+          agent_id,
+          title,
+          goal,
+          summary,
+          compiler_provider_id,
+          compiler_model,
+          compiler_strategy,
+          status,
+          graph_json,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        graphId,
+        sourceWorkspace.topic.id,
+        sourceWorkspace.agent.id,
+        compiledGraph.title,
+        compiledGraph.goal,
+        compiledGraph.summary,
+        sourceWorkspace.runtime.providerId ?? null,
+        sourceWorkspace.runtime.model ?? null,
+        compiledGraph.compilerStrategy,
+        'draft',
+        JSON.stringify(compiledGraph),
+        timestamp,
+        timestamp,
+      ],
+    );
+
+    compiledGraph.nodes.forEach((node, index) => {
+      database.run(
+        `
+          INSERT INTO topic_task_nodes (
+            id,
+            graph_id,
+            topic_id,
+            agent_id,
+            node_key,
+            node_type,
+            title,
+            objective,
+            acceptance_criteria,
+            depends_on_json,
+            branch_topic_id,
+            status,
+            sort_order,
+            created_at,
+            updated_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          createId('task_node'),
+          graphId,
+          sourceWorkspace.topic.id,
+          sourceWorkspace.agent.id,
+          node.key,
+          node.type,
+          node.title,
+          node.objective,
+          node.acceptanceCriteria,
+          JSON.stringify(node.dependsOn),
+          null,
+          node.type === 'worker' ? 'pending' : 'ready',
+          index,
+          timestamp,
+          timestamp,
+        ],
+      );
+    });
+
+    compiledGraph.edges.forEach((edge) => {
+      database.run(
+        `
+          INSERT INTO topic_task_edges (
+            id,
+            graph_id,
+            from_node_key,
+            to_node_key,
+            edge_type,
+            created_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        [createId('task_edge'), graphId, edge.from, edge.to, edge.type, timestamp],
+      );
+    });
+
+    database.run('COMMIT');
+  } catch (error) {
+    database.run('ROLLBACK');
+    throw error;
+  }
+
+  await persistAndMaybeRebuildFts(database);
+
+  const workerNodes = compiledGraph.nodes.filter((node) => node.type === 'worker');
+  const branchTopics: Array<{ node: CompiledTaskGraphNode; topic: TopicSummary }> = [];
+
+  try {
+    for (const node of workerNodes) {
+      const branchTopic = await createBranchTopicFromTopic({
+        sourceTopicId: sourceWorkspace.topic.id,
+        title: `${compiledGraph.title} · ${node.title}`,
+        branchGoal: `${node.objective}\n\nAcceptance criteria: ${node.acceptanceCriteria}`,
+      });
+      branchTopics.push({ node, topic: branchTopic });
+    }
+
+    const updateDatabase = await ensureAgentSchema();
+    updateDatabase.run('BEGIN');
+    try {
+      branchTopics.forEach(({ node, topic }) => {
+        updateDatabase.run(
+          `
+            UPDATE topic_task_nodes
+            SET
+              branch_topic_id = ?,
+              status = 'ready',
+              updated_at = ?
+            WHERE graph_id = ? AND node_key = ?
+          `,
+          [topic.id, nowIso(), graphId, node.key],
+        );
+      });
+
+      updateDatabase.run(
+        `
+          UPDATE topic_task_graphs
+          SET
+            status = 'ready',
+            updated_at = ?
+          WHERE id = ?
+        `,
+        [nowIso(), graphId],
+      );
+      updateDatabase.run('COMMIT');
+    } catch (error) {
+      updateDatabase.run('ROLLBACK');
+      throw error;
+    }
+
+    await persistAndMaybeRebuildFts(updateDatabase);
+  } catch (error) {
+    const failedDatabase = await ensureAgentSchema();
+    failedDatabase.run(
+      `
+        UPDATE topic_task_graphs
+        SET
+          status = 'failed',
+          updated_at = ?
+        WHERE id = ?
+      `,
+      [nowIso(), graphId],
+    );
+    await persistAndMaybeRebuildFts(failedDatabase);
+    throw error;
+  }
+
+  await addTopicMessages([
+    {
+      topicId: sourceWorkspace.topic.id,
+      agentId: sourceWorkspace.agent.id,
+      role: 'system',
+      authorName: 'Workflow Compiler',
+      content: buildTaskGraphCompiledMessage(compiledGraph, branchTopics),
+    },
+  ]);
+
+  return {
+    graph: {
+      id: graphId,
+      topicId: sourceWorkspace.topic.id,
+      agentId: sourceWorkspace.agent.id,
+      title: compiledGraph.title,
+      goal: compiledGraph.goal,
+      summary: compiledGraph.summary,
+      compilerProviderId: sourceWorkspace.runtime.providerId,
+      compilerModel: sourceWorkspace.runtime.model,
+      compilerStrategy: compiledGraph.compilerStrategy,
+      status: 'ready' as const,
+      createdAt: timestamp,
+      updatedAt: nowIso(),
+      nodes: compiledGraph.nodes.map((node) => {
+        const branchTopic = branchTopics.find((entry) => entry.node.key === node.key)?.topic;
+        return {
+          id: `${graphId}_${node.key}`,
+          graphId,
+          topicId: sourceWorkspace.topic.id,
+          agentId: sourceWorkspace.agent.id,
+          ...node,
+          branchTopicId: branchTopic?.id,
+          status: node.type === 'worker' ? 'ready' : 'ready',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+      }),
+      edges: compiledGraph.edges,
+    },
+    branchTopics: branchTopics.map((entry) => entry.topic),
+  };
+}
+
 export async function handoffBranchTopicToParent(options: {
   branchTopicId: string;
   note?: string;
@@ -2086,6 +2361,25 @@ function buildBranchHandoffContent(
   ]
     .filter(Boolean)
     .join('\n\n');
+}
+
+function buildTaskGraphCompiledMessage(
+  graph: CompiledTaskGraph,
+  branchTopics: Array<{ node: CompiledTaskGraphNode; topic: TopicSummary }>,
+) {
+  const workerLines = branchTopics.map(
+    ({ node, topic }, index) =>
+      `${index + 1}. ${node.title} -> ${topic.title}\n   Goal: ${node.objective}\n   Acceptance: ${node.acceptanceCriteria}`,
+  );
+
+  return [
+    `Workflow compiled: ${graph.title}`,
+    `Goal: ${graph.goal}`,
+    `Summary: ${graph.summary}`,
+    `Compiler strategy: ${graph.compilerStrategy}`,
+    workerLines.length ? `Worker branches:\n${workerLines.join('\n')}` : 'Worker branches: none',
+    'Use the generated worker branches to run focused subtasks in parallel, then merge or hand off the results.',
+  ].join('\n\n');
 }
 
 function upsertDailyMemoryLog(

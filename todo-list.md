@@ -248,7 +248,7 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 
 当前仍待继续：
 1. ⬜ 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开
-2. ⬜ 仍缺“自然语言任务 -> LangGraph 工作流”的显式编译层：当前 agent 还不能把用户的一句任务自动落成持久化 task graph / planner-dispatcher-worker-reviewer workflow；后续需补上任务拆解、节点生成、边关系、状态持久化、重试/审阅策略，以及与 branch topic / subagent 的对齐
+2. ⬜ 第一版“自然语言任务 -> 持久化 task graph / planner-dispatcher-worker-reviewer workflow”已落地，但仍缺自动 dispatcher / reviewer 执行、节点重试与状态推进，以及 branch 输出的自动汇总闭环
 3. ⬜ 长对话的原始消息窗口目前仍以固定 `historyWindow` 截断为主，需补上会话级 `session summary` 压缩链路：当消息历史超过阈值时，自动把较早轮次总结为可回放摘要，再与近期原始消息拼接进入模型，而不是只丢弃旧消息
 4. ⬜ daily 日志当前粒度仍偏“活动行/关键片段”，需升级为更细粒度记录：保留更完整的 user / assistant 关键回合、工具调用结果、附件与显式任务状态变更，再由夜间 lifecycle 统一压缩到 `warm/cold` 替身
 
@@ -282,3 +282,9 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - ✅ 已生成并接入第一版 macOS 应用图标：新增 `electron/assets/icon-base.png`、`electron/assets/icon.icns`，风格对齐当前深色蓝紫品牌主题
 - ✅ `desktop:build` 已不再出现 `default Electron icon is used` 告警，说明打包产物已使用自定义 app icon
 - ✅ Electron 第一阶段目前仅剩发布链路相关收口：macOS 签名与公证
+
+进度汇报（2026-04-14，会话级 Agent 第四次更新）:
+- ✅ 已补上第一版自然语言任务编译层：当前会话可以把用户的任务目标编成持久化 `task graph`，固定落成 `planner -> dispatcher -> worker branches -> reviewer` 四段式骨架
+- ✅ 已新增 `topic_task_graphs / topic_task_nodes / topic_task_edges` 持久化，并把编译结果写回当前 topic；worker 节点会自动创建 branch topics，继续复用现有 branch bootstrap 与会话隔离
+- ✅ 聊天页 `Branch Task` 弹窗已升级为 `单分支 / 工作流拆解` 双模式；工作流模式创建成功后会刷新父 topic，并显示生成的 worker branch 数量
+- ✅ 已完成最小验证：`npm run lint`、`npm run build` 通过，并额外跑过一条本地 compiler smoke，确认 fallback 模式能稳定生成任务图
