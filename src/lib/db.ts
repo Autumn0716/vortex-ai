@@ -1778,8 +1778,7 @@ export async function createConversation(options?: {
       ? options.assistantIds
       : [getDefaultAssistant(database).id];
 
-  database.run('BEGIN');
-  try {
+  await runDatabaseTransaction(database, () => {
     database.run(
       `
         INSERT INTO conversations (id, title, created_at, updated_at)
@@ -1823,12 +1822,7 @@ export async function createConversation(options?: {
         );
       }
     });
-
-    database.run('COMMIT');
-  } catch (error) {
-    database.run('ROLLBACK');
-    throw error;
-  }
+  });
 
   await saveDB();
   await setActiveConversationId(conversationId);
@@ -1860,8 +1854,7 @@ export async function addLaneToConversation(
   );
 
   const timestamp = nowIso();
-  database.run('BEGIN');
-  try {
+  await runDatabaseTransaction(database, () => {
     const lane = createLaneFromAssistant(database, conversationId, assistant, position);
     const welcome = buildLaneWelcomeMessage(lane);
     database.run(
@@ -1890,11 +1883,7 @@ export async function addLaneToConversation(
       ],
     );
     database.run('UPDATE conversations SET updated_at = ? WHERE id = ?', [timestamp, conversationId]);
-    database.run('COMMIT');
-  } catch (error) {
-    database.run('ROLLBACK');
-    throw error;
-  }
+  });
 
   await saveDB();
   const workspace = await getConversationWorkspace(conversationId);
@@ -2017,8 +2006,7 @@ export async function saveAssistant(
   const id = draft.id || createId('assistant');
   const isDefault = draft.isDefault ? 1 : 0;
 
-  database.run('BEGIN');
-  try {
+  await runDatabaseTransaction(database, () => {
     if (isDefault) {
       database.run('UPDATE assistants SET is_default = 0');
     }
@@ -2081,11 +2069,7 @@ export async function saveAssistant(
         ],
       );
     }
-    database.run('COMMIT');
-  } catch (error) {
-    database.run('ROLLBACK');
-    throw error;
-  }
+  });
 
   await saveDB();
   const assistant = getAssistantRow(database, id);
