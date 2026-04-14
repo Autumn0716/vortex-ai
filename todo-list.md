@@ -1,5 +1,9 @@
 以下是所需要完成的一系列工作,你可以一步一步实现;但是务必保证功能实现完全;需要保存工作结果记录和完成度;
 todolist每项任务在完成之后要求在原文的下方进行汇报进度;
+状态约定:
+- `✅` 已完成 / 已落地
+- `⬜` 待做 / 未完成
+- 待办事项使用数字编号，方便区分不同事项；完成后保留编号并把状态改为 `✅`
 新增要求（2026-04-02）:
 应用配置不要再只保存在浏览器里，改为项目级 `config.json` 文件真源；前端与本地宿主统一通过同一套文件配置工作，并为后续 Electron 化保留兼容路径。
 
@@ -243,6 +247,12 @@ Session → Agent 映射：每个会话创建独立的 Agent 实例
 - 当前尚未开始长对话 `session summary`，也就是消息上下文仍以 `historyWindow` 截断为主；这部分已保留为后续待办
 
 当前仍待继续：
-- 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开
-- 长对话的原始消息窗口目前仍以固定 `historyWindow` 截断为主，需补上会话级 `session summary` 压缩链路：当消息历史超过阈值时，自动把较早轮次总结为可回放摘要，再与近期原始消息拼接进入模型，而不是只丢弃旧消息
-- daily 日志当前粒度仍偏“活动行/关键片段”，需升级为更细粒度记录：保留更完整的 user / assistant 关键回合、工具调用结果、附件与显式任务状态变更，再由夜间 lifecycle 统一压缩到 `warm/cold` 替身
+1. ⬜ 同 topic 下更复杂的多子代理编排与结果汇总机制仍未展开
+2. ⬜ 仍缺“自然语言任务 -> LangGraph 工作流”的显式编译层：当前 agent 还不能把用户的一句任务自动落成持久化 task graph / planner-dispatcher-worker-reviewer workflow；后续需补上任务拆解、节点生成、边关系、状态持久化、重试/审阅策略，以及与 branch topic / subagent 的对齐
+3. ⬜ 长对话的原始消息窗口目前仍以固定 `historyWindow` 截断为主，需补上会话级 `session summary` 压缩链路：当消息历史超过阈值时，自动把较早轮次总结为可回放摘要，再与近期原始消息拼接进入模型，而不是只丢弃旧消息
+4. ⬜ daily 日志当前粒度仍偏“活动行/关键片段”，需升级为更细粒度记录：保留更完整的 user / assistant 关键回合、工具调用结果、附件与显式任务状态变更，再由夜间 lifecycle 统一压缩到 `warm/cold` 替身
+
+进度汇报（2026-04-14，Electron 第一阶段启动）:
+- ✅ 已加入 Electron 第一版桌面壳：新增 `electron/main.mjs` 与 `electron/preload.mjs`，renderer 仍复用现有 React/Vite 应用，主进程负责窗口与 host bridge 生命周期
+- ✅ 已新增 `desktop:dev` 与 `desktop:preview` 脚本；`desktop:preview` 会用 Electron build mode 构建相对资源路径，并在预览时自动拉起本地 `api-server`
+5. ⬜ 仍待继续：正式 `.app` 打包、Application Support 数据路径、桌面 capability gating、UI 图标瘦身与输入性能第二轮优化
