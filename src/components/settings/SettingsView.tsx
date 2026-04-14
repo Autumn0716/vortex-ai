@@ -711,6 +711,10 @@ export const SettingsView = ({
     }
   }, [activeAgentId, activeMemoryAgentId, agents]);
 
+  const configWriteTarget =
+    runtimeCapabilities.hostBridge.configPath ||
+    (runtimeCapabilities.mode === 'electron' ? '当前桌面工作区 config.json' : '当前项目配置 config.json');
+
   const commit = async (nextConfig: AgentConfig) => {
     const normalized = normalizeAgentConfig(nextConfig);
     setDraft(normalized);
@@ -718,12 +722,12 @@ export const SettingsView = ({
     applyThemePreferences(normalized);
     try {
       await saveAgentConfig(normalized);
-      setConfigSaveStatus({ tone: 'success', message: '已写入项目根目录 config.json。' });
+      setConfigSaveStatus({ tone: 'success', message: `已写入 ${configWriteTarget}。` });
       onConfigSaved?.(normalized);
     } catch (error) {
       setConfigSaveStatus({
         tone: 'error',
-        message: error instanceof Error ? error.message : '写入 config.json 失败。',
+        message: error instanceof Error ? error.message : `写入 ${configWriteTarget} 失败。`,
       });
     }
   };
