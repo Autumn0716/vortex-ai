@@ -7,7 +7,11 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 
 import { createFlowAgentApiServer } from '../server/api-server';
-import { getProjectKnowledgeSnapshot, getProjectKnowledgeStatus } from '../src/lib/project-knowledge-api';
+import {
+  getProjectKnowledgeSnapshot,
+  getProjectKnowledgeStatus,
+  subscribeProjectKnowledgeEvents,
+} from '../src/lib/project-knowledge-api';
 
 const tempRoots: string[] = [];
 
@@ -105,4 +109,57 @@ test('project knowledge API reports the local API url when the server is unreach
       }),
     /Failed to reach local API server at http:\/\/127\.0\.0\.1:1\/api\/project-knowledge\/status/,
   );
+});
+
+test('project knowledge event subscription reports contextual parse failures for malformed SSE payloads', async () => {
+  const events = new Map<string, (event: { data?: string }) => void>();
+  const originalEventSource = globalThis.EventSource;
+
+  class MockEventSource {
+    url: string;
+
+    onerror: (() => void) | null = null;
+
+    constructor(url: string) {
+      this.url = url;
+    }
+
+    addEventListener(type: string, listener: (event: { data?: string }) => void) {
+      events.set(type, listener);
+    }
+
+    close() {}
+  }
+
+  globalThis.EventSource = MockEventSource as unknown as typeof EventSource;
+
+  try {
+    const receivedStatuses: unknown[] = [];
+    const receivedErrors: string[] = [];
+    const unsubscribe = subscribeProjectKnowledgeEvents(
+      {
+        enabled: true,
+        baseUrl: 'http://127.0.0.1:3850',
+        authToken: '',
+      },
+      {
+        onStatus(status) {
+          receivedStatuses.push(status);
+        },
+        onError(error) {
+          receivedErrors.push(error.message);
+        },
+      },
+    );
+
+    events.get('project-knowledge')?.({ data: '{"version":' });
+
+    assert.deepEqual(receivedStatuses, []);
+    assert.equal(receivedErrors.length, 1);
+    assert.match(receivedErrors[0] ?? '', /Failed to parse project knowledge event:/);
+    assert.match(receivedErrors[0] ?? '', /\{"version":/);
+    unsubscribe();
+  } finally {
+    globalThis.EventSource = originalEventSource;
+  }
 });

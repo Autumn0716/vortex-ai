@@ -78,6 +78,17 @@ export async function getProjectKnowledgeSnapshot(settings: ApiServerSettings) {
   return requestProjectKnowledgeApi<ProjectKnowledgeSnapshot>(settings, '/api/project-knowledge/documents');
 }
 
+function parseProjectKnowledgeEventPayload(raw: string) {
+  try {
+    return JSON.parse(raw) as ProjectKnowledgeStatus;
+  } catch (error) {
+    const preview = raw.trim().slice(0, 200) || '(empty event payload)';
+    throw new Error(`Failed to parse project knowledge event: ${preview}`, {
+      cause: error instanceof Error ? error : undefined,
+    });
+  }
+}
+
 export function subscribeProjectKnowledgeEvents(
   settings: ApiServerSettings,
   handlers: {
@@ -98,7 +109,7 @@ export function subscribeProjectKnowledgeEvents(
   const source = new EventSource(url.toString());
   source.addEventListener('project-knowledge', (event) => {
     try {
-      handlers.onStatus(JSON.parse((event as MessageEvent).data) as ProjectKnowledgeStatus);
+      handlers.onStatus(parseProjectKnowledgeEventPayload(String((event as MessageEvent).data ?? '')));
     } catch (error) {
       handlers.onError?.(error instanceof Error ? error : new Error('Failed to parse project knowledge event.'));
     }
