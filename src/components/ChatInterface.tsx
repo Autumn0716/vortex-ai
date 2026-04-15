@@ -24,6 +24,7 @@ import { ChatComposer, type ComposerAppendRequest } from './chat/ChatComposer';
 import {
   addDocument,
   listPromptSnippets,
+  recordKnowledgeEvidenceFeedback,
   savePromptSnippet,
   type PromptSnippet,
 } from '../lib/db';
@@ -96,6 +97,7 @@ import {
   type RuntimeCapabilityProfile,
 } from '../lib/runtime-capabilities';
 import { buildAgentMemoryContextRequest } from '../lib/chat-runtime-memory';
+import type { KnowledgeEvidenceFeedbackValue, KnowledgeEvidenceResult } from '../lib/knowledge-evidence-feedback';
 
 const TerminalPanel = lazy(() =>
   import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
@@ -471,6 +473,9 @@ export const ChatInterface: React.FC<{
   const [topicRunStates, setTopicRunStates] = useState<Record<string, TopicRunState>>({});
   const [messageMetricsById, setMessageMetricsById] = useState<Record<string, MessageRunMetrics>>({});
   const [messageReasoningById, setMessageReasoningById] = useState<Record<string, string>>({});
+  const [knowledgeEvidenceFeedbackByKey, setKnowledgeEvidenceFeedbackByKey] = useState<
+    Record<string, KnowledgeEvidenceFeedbackValue>
+  >({});
   const [composerWebSearchEnabled, setComposerWebSearchEnabled] = useState(false);
   const [composerSearchProviderId, setComposerSearchProviderId] = useState('');
   const [composerImageAttachments, setComposerImageAttachments] = useState<TopicMessageAttachment[]>([]);
@@ -2039,6 +2044,42 @@ export const ChatInterface: React.FC<{
     }
   };
 
+  const handleKnowledgeEvidenceFeedback = async ({
+    messageId,
+    result,
+    value,
+  }: {
+    messageId: string;
+    result: KnowledgeEvidenceResult;
+    value: KnowledgeEvidenceFeedbackValue;
+  }) => {
+    const feedbackKey = `${messageId}:${result.id}`;
+    setKnowledgeEvidenceFeedbackByKey((previous) => ({
+      ...previous,
+      [feedbackKey]: value,
+    }));
+
+    try {
+      await recordKnowledgeEvidenceFeedback({
+        messageId,
+        documentId: result.id,
+        value,
+        sourceType: result.sourceType,
+        supportLabel: result.supportLabel,
+        matchedTerms: result.matchedTerms,
+      });
+    } catch (error) {
+      console.error('Failed to save knowledge evidence feedback:', error);
+      if (activeTopicId) {
+        finalizeTopicRunState(activeTopicId, {
+          isGenerating: topicRunStates[activeTopicId]?.isGenerating ?? false,
+          draftAssistantMessage: topicRunStates[activeTopicId]?.draftAssistantMessage,
+          composerNotice: 'Evidence feedback was not saved.',
+        });
+      }
+    }
+  };
+
   const handleDeleteAssistantMessage = async (message: TopicMessage) => {
     if (!workspace || message.role !== 'assistant') {
       return;
@@ -2693,7 +2734,9 @@ export const ChatInterface: React.FC<{
                       messageReasoningById={messageReasoningById}
                       scrollKey={workspace.topic.id}
                       latestAssistantMessageId={latestAssistantMessageId}
+                      evidenceFeedbackByKey={knowledgeEvidenceFeedbackByKey}
                       onCopyMessage={handleCopyMessage}
+                      onEvidenceFeedback={handleKnowledgeEvidenceFeedback}
                       onDeleteAssistantMessage={(messageId) => {
                         const targetMessage = workspace.messages.find((entry) => entry.id === messageId);
                         if (!targetMessage) {

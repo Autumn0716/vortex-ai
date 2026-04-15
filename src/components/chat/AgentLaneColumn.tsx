@@ -1,10 +1,28 @@
 import React, { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, ChevronDown, ChevronLeft, ChevronRight, Copy, RefreshCcw, Trash2, User, Zap } from 'lucide-react';
+import {
+  Bot,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  RefreshCcw,
+  ThumbsDown,
+  ThumbsUp,
+  Trash2,
+  User,
+  Zap,
+} from 'lucide-react';
 import type { StoredToolRun } from '../../lib/db';
 import type { TopicMessageAttachment } from '../../lib/agent-workspace';
 import { estimateMessageCardHeight } from '../../lib/pretext';
+import {
+  parseKnowledgeEvidencePanels,
+  type KnowledgeEvidenceFeedbackValue,
+  type KnowledgeEvidenceResult,
+  type KnowledgeEvidenceSupportLabel,
+} from '../../lib/knowledge-evidence-feedback';
 
 interface LaneLike {
   id: string;
@@ -49,6 +67,19 @@ function resolveAccentColor(input?: string) {
   return '#60a5fa';
 }
 
+function supportTone(label: KnowledgeEvidenceSupportLabel) {
+  if (label === 'high') {
+    return 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100';
+  }
+  if (label === 'medium') {
+    return 'border-amber-400/25 bg-amber-400/10 text-amber-100';
+  }
+  if (label === 'low') {
+    return 'border-red-400/25 bg-red-400/10 text-red-100';
+  }
+  return 'border-white/10 bg-white/5 text-white/55';
+}
+
 export interface AgentLaneColumnProps {
   lane: LaneLike;
   messages: MessageLike[];
@@ -74,9 +105,15 @@ export interface AgentLaneColumnProps {
   messageReasoningById?: Record<string, string>;
   scrollKey?: string;
   latestAssistantMessageId?: string;
+  evidenceFeedbackByKey?: Record<string, KnowledgeEvidenceFeedbackValue>;
   onCopyMessage?: (message: MessageLike) => void;
   onDeleteAssistantMessage?: (messageId: string) => void;
   onRegenerateAssistantMessage?: (messageId: string) => void;
+  onEvidenceFeedback?: (input: {
+    messageId: string;
+    result: KnowledgeEvidenceResult;
+    value: KnowledgeEvidenceFeedbackValue;
+  }) => void;
 }
 
 interface AssistantMessageGroup {
@@ -152,9 +189,11 @@ function AgentLaneColumnComponent({
   messageReasoningById = {},
   scrollKey,
   latestAssistantMessageId,
+  evidenceFeedbackByKey = {},
   onCopyMessage,
   onDeleteAssistantMessage,
   onRegenerateAssistantMessage,
+  onEvidenceFeedback,
 }: AgentLaneColumnProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const widthRef = useRef<HTMLDivElement>(null);
@@ -384,6 +423,7 @@ function AgentLaneColumnComponent({
               const reasoningText = !isUser ? messageReasoningById[message.id] ?? '' : '';
               const metrics = !isUser ? messageMetricsById[message.id] : undefined;
               const reasoningCollapsed = collapsedReasoningById[message.id] ?? false;
+              const knowledgeEvidencePanels = !isUser ? parseKnowledgeEvidencePanels(message.tools) : [];
 
               return (
                 <div
@@ -548,6 +588,100 @@ function AgentLaneColumnComponent({
                           </ReactMarkdown>
                         </div>
                       </div>
+                      {knowledgeEvidencePanels.length ? (
+                        <div className="w-full rounded-2xl border border-emerald-400/14 bg-emerald-400/[0.055] px-3.5 py-3 text-xs text-emerald-50/86">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium text-emerald-100">
+                                Evidence
+                              </span>
+                              <span className="text-[11px] text-emerald-50/58">
+                                {knowledgeEvidencePanels.reduce((count, panel) => count + panel.results.length, 0)} sources
+                              </span>
+                            </div>
+                            <span className={`rounded-full border px-2 py-0.5 text-[10px] ${supportTone(knowledgeEvidencePanels[0]?.strongestSupport ?? 'unknown')}`}>
+                              support {knowledgeEvidencePanels[0]?.strongestSupport ?? 'unknown'}
+                            </span>
+                          </div>
+                          <div className="mt-2 grid gap-2">
+                            {knowledgeEvidencePanels.flatMap((panel) => panel.results).slice(0, 5).map((result) => {
+                              const feedbackKey = `${message.id}:${result.id}`;
+                              const feedbackValue = evidenceFeedbackByKey[feedbackKey];
+
+                              return (
+                                <div
+                                  key={feedbackKey}
+                                  className="rounded-xl border border-white/8 bg-black/18 px-3 py-2"
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <div className="truncate text-[12px] font-medium text-white/86">
+                                        {result.title}
+                                      </div>
+                                      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-white/42">
+                                        {result.sourceType ? <span>{result.sourceType}</span> : null}
+                                        {result.retrievalStage ? <span>{result.retrievalStage}</span> : null}
+                                        {result.sourceUri ? <span className="max-w-[220px] truncate">{result.sourceUri}</span> : null}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className={`rounded-full border px-2 py-0.5 text-[10px] ${supportTone(result.supportLabel)}`}>
+                                        {result.supportLabel}
+                                      </span>
+                                      <button
+                                        onClick={() =>
+                                          onEvidenceFeedback?.({
+                                            messageId: message.id,
+                                            result,
+                                            value: 'helpful',
+                                          })
+                                        }
+                                        className={`rounded-full border p-1.5 transition-colors ${
+                                          feedbackValue === 'helpful'
+                                            ? 'border-emerald-300/40 bg-emerald-300/18 text-emerald-50'
+                                            : 'border-white/10 bg-white/5 text-white/45 hover:bg-white/10 hover:text-white'
+                                        }`}
+                                        title="标记有用"
+                                      >
+                                        <ThumbsUp size={12} />
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          onEvidenceFeedback?.({
+                                            messageId: message.id,
+                                            result,
+                                            value: 'not_helpful',
+                                          })
+                                        }
+                                        className={`rounded-full border p-1.5 transition-colors ${
+                                          feedbackValue === 'not_helpful'
+                                            ? 'border-red-300/40 bg-red-300/14 text-red-50'
+                                            : 'border-white/10 bg-white/5 text-white/45 hover:bg-white/10 hover:text-white'
+                                        }`}
+                                        title="标记没用"
+                                      >
+                                        <ThumbsDown size={12} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  {result.matchedTerms.length ? (
+                                    <div className="mt-2 flex flex-wrap gap-1">
+                                      {result.matchedTerms.slice(0, 8).map((term) => (
+                                        <span
+                                          key={`${feedbackKey}:${term}`}
+                                          className="rounded-full border border-white/8 bg-white/[0.045] px-2 py-0.5 text-[10px] text-white/48"
+                                        >
+                                          {term}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
                       {!isUser ? (
                         <div className="flex w-full items-center justify-between gap-3 px-1 pt-1">
                           <div className="flex flex-wrap items-center gap-1.5">
@@ -682,6 +816,7 @@ function areLanePropsEqual(previous: AgentLaneColumnProps, next: AgentLaneColumn
     previous.messageReasoningById === next.messageReasoningById &&
     previous.scrollKey === next.scrollKey &&
     previous.latestAssistantMessageId === next.latestAssistantMessageId &&
+    previous.evidenceFeedbackByKey === next.evidenceFeedbackByKey &&
     previous.onDeleteAssistantMessage === next.onDeleteAssistantMessage &&
     previous.lane.id === next.lane.id &&
     previous.lane.name === next.lane.name &&

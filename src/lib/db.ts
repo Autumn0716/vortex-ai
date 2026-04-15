@@ -262,6 +262,17 @@ export interface KnowledgeDocumentSearchMetrics {
   totalDurationMs: number;
 }
 
+export type KnowledgeEvidenceFeedbackValue = 'helpful' | 'not_helpful';
+
+export interface KnowledgeEvidenceFeedbackInput {
+  messageId: string;
+  documentId: string;
+  value: KnowledgeEvidenceFeedbackValue;
+  sourceType?: string;
+  supportLabel?: string;
+  matchedTerms?: string[];
+}
+
 export interface KnowledgeDocumentSearchResponse {
   results: KnowledgeDocumentSearchResult[];
   metrics: KnowledgeDocumentSearchMetrics;
@@ -971,6 +982,19 @@ async function ensureSchema(database: Database) {
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS knowledge_evidence_feedback (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      document_id TEXT NOT NULL,
+      value TEXT NOT NULL,
+      source_type TEXT,
+      support_label TEXT,
+      matched_terms_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(message_id, document_id)
+    );
+
     CREATE TABLE IF NOT EXISTS document_metadata (
       document_id TEXT PRIMARY KEY,
       source_type TEXT NOT NULL,
@@ -1078,6 +1102,7 @@ async function ensureSchema(database: Database) {
     CREATE INDEX IF NOT EXISTS idx_memory_docs_updated ON global_memory_documents(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_document_chunks_document ON document_chunks(document_id, chunk_index ASC);
     CREATE INDEX IF NOT EXISTS idx_document_metadata_source ON document_metadata(source_type, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_feedback_doc ON knowledge_evidence_feedback(document_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_document_graph_nodes_entity ON document_graph_nodes(normalized_entity, weight DESC);
     CREATE INDEX IF NOT EXISTS idx_document_graph_nodes_doc ON document_graph_nodes(document_id, weight DESC);
     CREATE INDEX IF NOT EXISTS idx_document_graph_edges_doc ON document_graph_edges(document_id, weight DESC);
@@ -1276,6 +1301,52 @@ function parseKnowledgeTags(raw: unknown, context: string) {
     console.warn(`Failed to parse knowledge document tags for ${context}; falling back to empty tags:`, error);
     return [];
   }
+}
+
+export function upsertKnowledgeEvidenceFeedbackInDatabase(
+  database: Database,
+  input: KnowledgeEvidenceFeedbackInput,
+) {
+  const timestamp = nowIso();
+  database.run(
+    `
+      INSERT INTO knowledge_evidence_feedback (
+        id,
+        message_id,
+        document_id,
+        value,
+        source_type,
+        support_label,
+        matched_terms_json,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(message_id, document_id) DO UPDATE SET
+        value = excluded.value,
+        source_type = excluded.source_type,
+        support_label = excluded.support_label,
+        matched_terms_json = excluded.matched_terms_json,
+        updated_at = excluded.updated_at
+    `,
+    [
+      createId('evidence_feedback'),
+      input.messageId,
+      input.documentId,
+      input.value,
+      input.sourceType ?? null,
+      input.supportLabel ?? null,
+      JSON.stringify(input.matchedTerms ?? []),
+      timestamp,
+      timestamp,
+    ],
+  );
+}
+
+export async function recordKnowledgeEvidenceFeedback(input: KnowledgeEvidenceFeedbackInput) {
+  const database = await initDB();
+  upsertKnowledgeEvidenceFeedbackInDatabase(database, input);
+  await saveDB();
 }
 
 function getDocumentMetadataRecord(database: Database, documentId: string): KnowledgeDocumentRecord | null {
