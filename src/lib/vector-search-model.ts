@@ -1,4 +1,5 @@
 import { buildSemanticCacheKey } from './local-rag-helpers';
+import type { KnowledgeDocumentSourceType } from './knowledge-document-model';
 
 export interface HybridDocumentCandidate {
   id: string;
@@ -7,6 +8,7 @@ export interface HybridDocumentCandidate {
   lexicalScore?: number;
   vectorScore?: number;
   graphScore?: number;
+  sourceType?: KnowledgeDocumentSourceType;
   graphHints?: string[];
   graphExpansionHints?: string[];
   graphPaths?: string[];

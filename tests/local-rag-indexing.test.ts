@@ -528,6 +528,69 @@ test('searchDocumentsInDatabase uses graph overlap as an additional ranking sign
   }
 });
 
+test('searchDocumentsInDatabase applies source-type weights and isolates their cache keys', async () => {
+  const database = await createSearchDatabase();
+
+  try {
+    database.run(`
+      CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        document_id UNINDEXED,
+        title,
+        content
+      );
+    `);
+
+    const content = 'rag ranking source type priority exact match';
+    database.run('INSERT INTO documents (id, title, content) VALUES (?, ?, ?)', [
+      'doc_skill_weight',
+      'Skill Weight',
+      content,
+    ]);
+    database.run('INSERT INTO documents (id, title, content) VALUES (?, ?, ?)', [
+      'doc_workspace_weight',
+      'Workspace Weight',
+      content,
+    ]);
+    database.run(
+      'INSERT INTO document_metadata (document_id, source_type, source_uri, tags_json, synced_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      ['doc_skill_weight', 'skill_doc', 'skills/rag/SKILL.md', '[]', null, '2026-04-15T00:00:00.000Z'],
+    );
+    database.run(
+      'INSERT INTO document_metadata (document_id, source_type, source_uri, tags_json, synced_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      ['doc_workspace_weight', 'workspace_doc', 'docs/rag.md', '[]', null, '2026-04-15T00:00:00.000Z'],
+    );
+
+    indexDocumentChunks(database, {
+      id: 'doc_skill_weight',
+      title: 'Skill Weight',
+      content,
+    });
+    indexDocumentChunks(database, {
+      id: 'doc_workspace_weight',
+      title: 'Workspace Weight',
+      content,
+    });
+
+    const results = await searchDocumentsInDatabase(database, 'rag ranking source type priority', {
+      searchWeights: {
+        sourceTypeWeights: {
+          skill_doc: 0.1,
+          workspace_doc: 3,
+        },
+      },
+    });
+
+    assert.equal(results[0]?.id, 'doc_workspace_weight');
+    const cacheKeys = database
+      .exec('SELECT cache_key FROM document_search_cache ORDER BY cache_key ASC')[0]
+      ?.values.map((row) => String(row[0])) ?? [];
+    assert.ok(cacheKeys.some((key) => key.includes('skill_doc:0.1') && key.includes('workspace_doc:3')));
+  } finally {
+    database.close();
+  }
+});
+
 test('searchDocumentsInDatabase keeps lexical and hybrid cache entries isolated', async () => {
   const restoreFetch = installEmbeddingFetchMock([
     { match: 'branch handoff summary with audit notes and parent topic checklist', embedding: [0.6, 0.4, 0] },

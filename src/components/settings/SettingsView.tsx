@@ -3637,6 +3637,39 @@ export const SettingsView = ({
                   />
                 ))}
               </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-4">
+                {[
+                  ['skill_doc', 'Skill', '技能文档'] as const,
+                  ['workspace_doc', 'Workspace', '项目文档'] as const,
+                  ['user_upload', 'Upload', '用户导入'] as const,
+                  ['system_note', 'System', '系统记录'] as const,
+                ].map(([sourceType, label, description]) => (
+                  <WeightInputCard
+                    key={sourceType}
+                    label={label}
+                    description={description}
+                    value={draft.search.weights.sourceTypeWeights[sourceType] ?? 1}
+                    min={0}
+                    max={3}
+                    step={0.05}
+                    onChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        search: {
+                          ...current.search,
+                          weights: {
+                            ...current.search.weights,
+                            sourceTypeWeights: {
+                              ...current.search.weights.sourceTypeWeights,
+                              [sourceType]: value,
+                            },
+                          },
+                        },
+                      }))
+                    }
+                  />
+                ))}
+              </div>
             </SectionCard>
             <SectionCard title="文档预览长度" description="控制搜索结果卡片的摘要长度。">
               <input

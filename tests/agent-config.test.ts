@@ -72,6 +72,10 @@ test('normalizeAgentConfig preserves configurable RAG search weights', () => {
         lexicalWeight: 0.7,
         vectorWeight: 0.2,
         graphWeight: 0.5,
+        sourceTypeWeights: {
+          skill_doc: 1.4,
+          workspace_doc: 1.1,
+        },
       },
     },
   } as Partial<AgentConfig>);
@@ -80,6 +84,12 @@ test('normalizeAgentConfig preserves configurable RAG search weights', () => {
     lexicalWeight: 0.7,
     vectorWeight: 0.2,
     graphWeight: 0.5,
+    sourceTypeWeights: {
+      skill_doc: 1.4,
+      workspace_doc: 1.1,
+      user_upload: 1,
+      system_note: 1,
+    },
   });
 });
 

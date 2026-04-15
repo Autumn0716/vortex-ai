@@ -283,6 +283,7 @@ interface DocumentSearchCandidate {
   lexicalScore?: number;
   vectorScore?: number;
   graphScore?: number;
+  sourceType?: KnowledgeDocumentSourceType;
   graphHints?: string[];
   graphExpansionHints?: string[];
   graphPaths?: string[];
@@ -320,6 +321,7 @@ export interface KnowledgeDocumentSearchOptions {
     lexicalWeight?: number;
     vectorWeight?: number;
     graphWeight?: number;
+    sourceTypeWeights?: Partial<Record<KnowledgeDocumentSourceType, number>>;
   };
 }
 
@@ -1366,6 +1368,14 @@ function matchesKnowledgeDocumentFilters(
   return true;
 }
 
+function readDocumentSourceTypeMap(database: Database) {
+  return new Map(
+    mapRows<{ document_id: string; source_type: KnowledgeDocumentSourceType | null }>(
+      database.exec('SELECT document_id, source_type FROM document_metadata'),
+    ).map((row) => [row.document_id, row.source_type ?? 'user_upload']),
+  );
+}
+
 function buildKnowledgeDocumentFilterSql(
   options?: Pick<KnowledgeDocumentSearchOptions, 'sourceTypes' | 'sourceUriPrefixes'>,
 ) {
@@ -1390,6 +1400,15 @@ function buildKnowledgeDocumentFilterSql(
     whereSql: clauses.length > 0 ? ` AND ${clauses.join(' AND ')}` : '',
     params,
   };
+}
+
+function getSourceTypeWeight(sourceType: KnowledgeDocumentSourceType | undefined, options?: KnowledgeDocumentSearchOptions) {
+  if (!sourceType) {
+    return 1;
+  }
+
+  const weight = options?.searchWeights?.sourceTypeWeights?.[sourceType];
+  return typeof weight === 'number' && Number.isFinite(weight) && weight >= 0 ? weight : 1;
 }
 
 function upsertDocumentMetadata(
@@ -3087,6 +3106,7 @@ function mergeDocumentSearchCandidate(
 
   existing.vectorScore = Math.max(existing.vectorScore ?? 0, candidate.vectorScore ?? 0) || undefined;
   existing.graphScore = Math.max(existing.graphScore ?? 0, candidate.graphScore ?? 0) || undefined;
+  existing.sourceType = existing.sourceType ?? candidate.sourceType;
 
   if (!existing.content.trim() && candidate.content.trim()) {
     existing.content = candidate.content;
@@ -3112,6 +3132,7 @@ async function collectDocumentCandidates(
   const seen = new Map<string, DocumentSearchCandidate>();
   const ftsEnabled = getDocumentFtsEnabled(database);
   const filter = buildKnowledgeDocumentFilterSql(options);
+  const sourceTypeByDocumentId = readDocumentSourceTypeMap(database);
   let lexicalDurationMs = 0;
   let vectorDurationMs = 0;
   let graphDurationMs = 0;
@@ -3147,6 +3168,7 @@ async function collectDocumentCandidates(
           title: row.title,
           content: row.content,
           lexicalScore: row.score,
+          sourceType: sourceTypeByDocumentId.get(row.id),
         });
       });
       lexicalDurationMs += Date.now() - lexicalStartedAt;
@@ -3183,6 +3205,7 @@ async function collectDocumentCandidates(
         title: row.title,
         content: row.content,
         lexicalScore: index + 1,
+        sourceType: sourceTypeByDocumentId.get(row.id),
       });
     });
     lexicalDurationMs += Date.now() - lexicalStartedAt;
@@ -3196,7 +3219,12 @@ async function collectDocumentCandidates(
       const queryEmbedding = embeddingResponse.data[0]?.embedding;
       if (Array.isArray(queryEmbedding) && queryEmbedding.length > 0) {
         const vectorCandidates = await readVectorCandidates(database, queryEmbedding, options);
-        vectorCandidates.forEach((candidate) => mergeDocumentSearchCandidate(seen, candidate));
+        vectorCandidates.forEach((candidate) =>
+          mergeDocumentSearchCandidate(seen, {
+            ...candidate,
+            sourceType: sourceTypeByDocumentId.get(candidate.id),
+          }),
+        );
       }
     } catch (error) {
       console.warn('Vector search failed, falling back to lexical results:', error);
@@ -3207,7 +3235,12 @@ async function collectDocumentCandidates(
 
   const graphStartedAt = Date.now();
   const graphCandidates = readGraphCandidates(database, retrievalQuery, options);
-  graphCandidates.forEach((candidate) => mergeDocumentSearchCandidate(seen, candidate));
+  graphCandidates.forEach((candidate) =>
+    mergeDocumentSearchCandidate(seen, {
+      ...candidate,
+      sourceType: sourceTypeByDocumentId.get(candidate.id),
+    }),
+  );
   graphDurationMs += Date.now() - graphStartedAt;
 
   return {
@@ -3231,7 +3264,7 @@ function shapeRetrievedDocumentResults(
   return rerankHybridDocuments(hybridScoreDocuments(candidates, options?.searchWeights), query)
     .map((row) => ({
       ...row,
-      hybridScore: row.hybridScore + (row.graphScore ?? 0) * graphWeight,
+      hybridScore: (row.hybridScore + (row.graphScore ?? 0) * graphWeight) * getSourceTypeWeight(row.sourceType, options),
     }))
     .sort((left, right) => right.hybridScore - left.hybridScore)
     .slice(0, options?.maxResults ?? 5)
@@ -3290,7 +3323,10 @@ async function searchDocumentsInDatabaseWithMetrics(
       options?.sourceTypes?.length ? `types=${options.sourceTypes.join(',')}` : '',
       options?.sourceUriPrefixes?.length ? `uris=${options.sourceUriPrefixes.join(',')}` : '',
       options?.searchWeights
-        ? `weights=${options.searchWeights.lexicalWeight ?? ''},${options.searchWeights.vectorWeight ?? ''},${options.searchWeights.graphWeight ?? ''}`
+        ? `weights=${options.searchWeights.lexicalWeight ?? ''},${options.searchWeights.vectorWeight ?? ''},${options.searchWeights.graphWeight ?? ''},sources=${Object.entries(options.searchWeights.sourceTypeWeights ?? {})
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([sourceType, weight]) => `${sourceType}:${weight}`)
+            .join('|')}`
         : '',
     ]
       .filter(Boolean)

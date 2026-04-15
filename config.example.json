@@ -22,7 +22,13 @@
     "weights": {
       "lexicalWeight": 0.45,
       "vectorWeight": 0.55,
-      "graphWeight": 0.12
+      "graphWeight": 0.12,
+      "sourceTypeWeights": {
+        "skill_doc": 1,
+        "workspace_doc": 1,
+        "user_upload": 1,
+        "system_note": 1
+      }
     }
   },
   "memory": {

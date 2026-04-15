@@ -4,6 +4,7 @@ import {
   type ProviderProtocol,
   getDefaultProviderProtocol,
 } from '../provider-compatibility';
+import type { KnowledgeDocumentSourceType } from '../knowledge-document-model';
 
 export type ProviderType = 'openai' | 'anthropic' | 'custom_openai';
 export type ProxyMode = 'direct' | 'system' | 'custom';
@@ -69,6 +70,7 @@ export interface SearchWeights {
   lexicalWeight: number;
   vectorWeight: number;
   graphWeight: number;
+  sourceTypeWeights: Partial<Record<KnowledgeDocumentSourceType, number>>;
 }
 
 export interface SearchSettings {
@@ -364,6 +366,12 @@ export const DEFAULT_CONFIG: AgentConfig = {
       lexicalWeight: 0.45,
       vectorWeight: 0.55,
       graphWeight: 0.12,
+      sourceTypeWeights: {
+        skill_doc: 1,
+        workspace_doc: 1,
+        user_upload: 1,
+        system_note: 1,
+      },
     },
     providers: DEFAULT_SEARCH_PROVIDERS,
   },
@@ -669,6 +677,24 @@ function normalizeSearchWeights(value?: Partial<SearchWeights> | null): SearchWe
     lexicalWeight: normalizePositiveWeight(value?.lexicalWeight, DEFAULT_CONFIG.search.weights.lexicalWeight),
     vectorWeight: normalizePositiveWeight(value?.vectorWeight, DEFAULT_CONFIG.search.weights.vectorWeight),
     graphWeight: normalizePositiveWeight(value?.graphWeight, DEFAULT_CONFIG.search.weights.graphWeight),
+    sourceTypeWeights: {
+      skill_doc: normalizePositiveWeight(
+        value?.sourceTypeWeights?.skill_doc,
+        DEFAULT_CONFIG.search.weights.sourceTypeWeights.skill_doc,
+      ),
+      workspace_doc: normalizePositiveWeight(
+        value?.sourceTypeWeights?.workspace_doc,
+        DEFAULT_CONFIG.search.weights.sourceTypeWeights.workspace_doc,
+      ),
+      user_upload: normalizePositiveWeight(
+        value?.sourceTypeWeights?.user_upload,
+        DEFAULT_CONFIG.search.weights.sourceTypeWeights.user_upload,
+      ),
+      system_note: normalizePositiveWeight(
+        value?.sourceTypeWeights?.system_note,
+        DEFAULT_CONFIG.search.weights.sourceTypeWeights.system_note,
+      ),
+    },
   };
 }
 
