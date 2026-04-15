@@ -145,6 +145,39 @@ test('extractModelInspectorResult extracts qwen tts row-specific fields without 
   assert.equal(result.pricingNote, '单价 0.8 元/万字符；最大输入字符数 600');
 });
 
+test('extractModelInspectorResult warns and falls back to raw HTML when Aliyun embedded payload is malformed', () => {
+  const originalWarn = console.warn;
+  const warnings: string[] = [];
+  console.warn = (message?: unknown) => {
+    warnings.push(String(message ?? ''));
+  };
+
+  try {
+    const result = extractModelInspectorResult('Aliyun', 'qwen-vl-plus', [
+      {
+        url: 'https://help.aliyun.com/zh/model-studio/models',
+        html: `
+          <html><body>
+            <script>window.__ICE_PAGE_PROPS__={"broken":};</script>
+            qwen-vl-plus 稳定版 上下文长度 131,072 最大输入 129,024 最大输出 8,192 输入成本 0.0008元 输出成本 0.002元
+          </body></html>
+        `,
+      },
+    ]);
+
+    assert.equal(result.contextWindow, 131072);
+    assert.equal(result.maxInputTokens, 129024);
+    assert.equal(result.maxOutputTokens, 8192);
+    assert.equal(result.inputCostPerMillion, 0.0008);
+    assert.equal(result.outputCostPerMillion, 0.002);
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? '', /Failed to parse Aliyun embedded model metadata payload/);
+});
+
 test('getOfficialModelInspectorSources returns provider-specific sources', () => {
   assert.equal(getOfficialModelInspectorSources('OpenAI', 'gpt-4o').length > 0, true);
   assert.equal(getOfficialModelInspectorSources('Anthropic', 'claude-3-7-sonnet').length > 0, true);

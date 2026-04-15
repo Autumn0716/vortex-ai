@@ -111,6 +111,7 @@ function extractAliyunEmbeddedContent(html: string) {
       payload?.docDetailData?.storeData?.data?.content;
     return typeof content === 'string' ? content : null;
   } catch {
+    console.warn('Failed to parse Aliyun embedded model metadata payload; falling back to raw HTML.');
     return null;
   }
 }
