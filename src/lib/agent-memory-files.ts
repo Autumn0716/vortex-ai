@@ -74,7 +74,8 @@ function parseFrontmatterValue(value: string): MemoryFrontmatterValue {
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
     try {
       return JSON.parse(trimmed) as string;
-    } catch {
+    } catch (error) {
+      console.warn(`Failed to parse memory frontmatter string; using unescaped fallback: ${trimmed}`, error);
       return trimmed.slice(1, -1);
     }
   }

@@ -72,3 +72,23 @@ test('parseMemoryMarkdown tolerates CRLF frontmatter fences', () => {
   assert.equal(parsed.frontmatter.updatedAt, '2026-04-01T12:00:00.000Z');
   assert.equal(parsed.body, 'body');
 });
+
+test('parseMemoryMarkdown warns and keeps fallback text for malformed quoted frontmatter strings', () => {
+  const originalWarn = console.warn;
+  const warnings: string[] = [];
+  console.warn = (message?: unknown) => {
+    warnings.push(String(message ?? ''));
+  };
+
+  try {
+    const parsed = parseMemoryMarkdown('---\ntitle: "Broken \\x string"\n---\n\nbody');
+
+    assert.equal(parsed.frontmatter.title, 'Broken \\x string');
+    assert.equal(parsed.body, 'body');
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? '', /Failed to parse memory frontmatter string/);
+});
