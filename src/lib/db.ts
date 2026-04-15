@@ -27,6 +27,11 @@ import {
   parseKnowledgeTags,
 } from './db-knowledge-documents';
 import {
+  deleteGlobalMemoryDocumentInDatabase,
+  listGlobalMemoryDocumentsInDatabase,
+  saveGlobalMemoryDocumentInDatabase,
+} from './db-global-memory';
+import {
   searchDocumentsInDatabase,
   searchDocumentsInDatabaseWithMetrics,
 } from './db-search-orchestrator';
@@ -41,7 +46,6 @@ import {
   toAgentLane,
   toChatMessage,
   toConversationSummary,
-  toGlobalMemoryDocument,
 } from './db-row-mappers';
 import { createBaseSchema } from './db-schema';
 import {
@@ -712,21 +716,7 @@ export async function getDataStats(): Promise<DataStats> {
 
 export async function listGlobalMemoryDocuments(): Promise<GlobalMemoryDocument[]> {
   const database = await initDB();
-  const rows = mapRows<{
-    id: string;
-    title: string;
-    content: string;
-    created_at: string;
-    updated_at: string;
-  }>(
-    database.exec(`
-      SELECT id, title, content, created_at, updated_at
-      FROM global_memory_documents
-      ORDER BY updated_at DESC, created_at DESC
-    `),
-  );
-
-  return rows.map(toGlobalMemoryDocument);
+  return listGlobalMemoryDocumentsInDatabase(database);
 }
 
 export async function saveGlobalMemoryDocument(draft: {
@@ -735,67 +725,14 @@ export async function saveGlobalMemoryDocument(draft: {
   content: string;
 }) {
   const database = await initDB();
-  const timestamp = nowIso();
-  const id = draft.id || createId('memory');
-  const exists = Number(
-    getScalar(database, 'SELECT COUNT(*) FROM global_memory_documents WHERE id = ?', [id]) ?? 0,
-  );
-
-  if (exists > 0) {
-    database.run(
-      `
-        UPDATE global_memory_documents
-        SET title = ?, content = ?, updated_at = ?
-        WHERE id = ?
-      `,
-      [draft.title.trim() || 'Untitled Memory', draft.content, timestamp, id],
-    );
-  } else {
-    database.run(
-      `
-        INSERT INTO global_memory_documents (
-          id,
-          title,
-          content,
-          created_at,
-          updated_at
-        )
-        VALUES (?, ?, ?, ?, ?)
-      `,
-      [id, draft.title.trim() || 'Untitled Memory', draft.content, timestamp, timestamp],
-    );
-  }
-
+  const document = saveGlobalMemoryDocumentInDatabase(database, draft);
   await saveDB();
-
-  const row = mapRows<{
-    id: string;
-    title: string;
-    content: string;
-    created_at: string;
-    updated_at: string;
-  }>(
-    database.exec(
-      `
-        SELECT id, title, content, created_at, updated_at
-        FROM global_memory_documents
-        WHERE id = ?
-        LIMIT 1
-      `,
-      [id],
-    ),
-  )[0];
-
-  if (!row) {
-    throw new Error('Failed to save global memory document.');
-  }
-
-  return toGlobalMemoryDocument(row);
+  return document;
 }
 
 export async function deleteGlobalMemoryDocument(id: string) {
   const database = await initDB();
-  database.run('DELETE FROM global_memory_documents WHERE id = ?', [id]);
+  deleteGlobalMemoryDocumentInDatabase(database, id);
   await saveDB();
 }
 
