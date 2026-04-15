@@ -28,6 +28,7 @@ import {
 import { cosineSimilarity, hybridScoreDocuments, rerankHybridDocuments } from './vector-search-model';
 import { runDatabaseTransaction } from './db-transaction';
 import { Database, initializeSqliteModule, type SQLiteModule, type SqlValue, type QueryExecResult } from './db-core';
+import { getScalar, mapRows, toBoolean } from './db-row-helpers';
 
 export { Database };
 export type { QueryExecResult, SqlValue };
@@ -357,8 +358,6 @@ const DEFAULT_SNIPPETS: PromptSeed[] = [
   },
 ];
 
-type SqlRow = Record<string, unknown>;
-
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -366,25 +365,6 @@ function nowIso(): string {
 function createId(prefix: string): string {
   const uuid = globalThis.crypto?.randomUUID?.();
   return `${prefix}_${uuid ?? `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
-}
-
-function mapRows<T = SqlRow>(result: QueryExecResult[]): T[] {
-  if (result.length === 0) {
-    return [];
-  }
-
-  const entry = result[0]!;
-  return entry.values.map((row) => {
-    const obj: SqlRow = {};
-    entry.columns.forEach((column, index) => {
-      obj[column] = row[index];
-    });
-    return obj as T;
-  });
-}
-
-function toBoolean(value: unknown): boolean {
-  return value === 1 || value === '1' || value === true;
 }
 
 function parseTools(raw: unknown): StoredToolRun[] | undefined {
@@ -531,15 +511,6 @@ function toChatMessage(row: {
     createdAt: row.created_at,
     tools: parseTools(row.tools_json),
   };
-}
-
-function getScalar(database: Database, query: string, params: SqlValue[] = []): unknown {
-  const result = database.exec(query, params);
-  if (result.length === 0 || result[0]!.values.length === 0) {
-    return null;
-  }
-
-  return result[0]!.values[0]![0];
 }
 
 function getAssistantRow(database: Database, assistantId: string) {
