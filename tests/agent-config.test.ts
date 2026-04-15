@@ -65,6 +65,24 @@ test('normalizeAgentConfig preserves the recent memory snapshot toggle', () => {
   assert.equal(config.memory.scoringWeights.goldenLabel, 1.2);
 });
 
+test('normalizeAgentConfig preserves configurable RAG search weights', () => {
+  const config = normalizeAgentConfig({
+    search: {
+      weights: {
+        lexicalWeight: 0.7,
+        vectorWeight: 0.2,
+        graphWeight: 0.5,
+      },
+    },
+  } as Partial<AgentConfig>);
+
+  assert.deepEqual(config.search.weights, {
+    lexicalWeight: 0.7,
+    vectorWeight: 0.2,
+    graphWeight: 0.5,
+  });
+});
+
 test('normalizeAgentConfig keeps the local api server defaults for file-backed memory', () => {
   const config = normalizeAgentConfig({
     apiServer: {

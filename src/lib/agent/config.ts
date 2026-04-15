@@ -65,12 +65,19 @@ export interface SearchProviderConfig {
   homepage?: string;
 }
 
+export interface SearchWeights {
+  lexicalWeight: number;
+  vectorWeight: number;
+  graphWeight: number;
+}
+
 export interface SearchSettings {
   enableKnowledgeBase: boolean;
   enableWebSearch: boolean;
   maxKnowledgeResults: number;
   defaultProviderId: string;
   fallbackToKnowledgeBase: boolean;
+  weights: SearchWeights;
   providers: SearchProviderConfig[];
 }
 
@@ -353,6 +360,11 @@ export const DEFAULT_CONFIG: AgentConfig = {
     maxKnowledgeResults: 5,
     defaultProviderId: 'search_tavily',
     fallbackToKnowledgeBase: true,
+    weights: {
+      lexicalWeight: 0.45,
+      vectorWeight: 0.55,
+      graphWeight: 0.12,
+    },
     providers: DEFAULT_SEARCH_PROVIDERS,
   },
   memory: {
@@ -647,6 +659,19 @@ function normalizeSearchProviders(rawProviders?: Partial<SearchProviderConfig>[]
   return [...providerMap.values(), ...customProviders];
 }
 
+function normalizePositiveWeight(value: unknown, fallback: number) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : fallback;
+}
+
+function normalizeSearchWeights(value?: Partial<SearchWeights> | null): SearchWeights {
+  return {
+    lexicalWeight: normalizePositiveWeight(value?.lexicalWeight, DEFAULT_CONFIG.search.weights.lexicalWeight),
+    vectorWeight: normalizePositiveWeight(value?.vectorWeight, DEFAULT_CONFIG.search.weights.vectorWeight),
+    graphWeight: normalizePositiveWeight(value?.graphWeight, DEFAULT_CONFIG.search.weights.graphWeight),
+  };
+}
+
 function normalizeMcpServers(rawServers?: Partial<McpServerConfig>[]): McpServerConfig[] {
   if (!rawServers?.length) {
     return DEFAULT_MCP_SERVERS;
@@ -721,6 +746,7 @@ export function normalizeAgentConfig(value?: Partial<AgentConfig> | null): Agent
     search: {
       ...DEFAULT_CONFIG.search,
       ...(value?.search ?? {}),
+      weights: normalizeSearchWeights(value?.search?.weights),
       providers: normalizeSearchProviders(value?.search?.providers),
     },
     memory: {

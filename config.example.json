@@ -18,6 +18,13 @@
     "baseUrl": "http://127.0.0.1:3850",
     "authToken": ""
   },
+  "search": {
+    "weights": {
+      "lexicalWeight": 0.45,
+      "vectorWeight": 0.55,
+      "graphWeight": 0.12
+    }
+  },
   "memory": {
     "promotionScoreThreshold": 4,
     "scoringWeights": {

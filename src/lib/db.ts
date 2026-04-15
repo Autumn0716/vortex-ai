@@ -3384,6 +3384,7 @@ export async function searchDocuments(query: string) {
   const results = await searchDocumentsInDatabase(database, query, {
     embeddingConfig: buildEmbeddingConfigFromDocuments(config.documents),
     maxResults: config.documents.maxSearchResults,
+    searchWeights: config.search.weights,
   });
   await saveDB();
   return results;
@@ -3405,6 +3406,7 @@ export async function searchKnowledgeDocumentsWithMetrics(
   const response = await searchDocumentsInDatabaseWithMetrics(database, query, {
     ...options,
     embeddingConfig: buildEmbeddingConfigFromDocuments(config.documents),
+    searchWeights: options.searchWeights ?? config.search.weights,
   });
 
   const results = response.results
