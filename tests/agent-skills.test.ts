@@ -3,7 +3,13 @@ import test from 'node:test';
 
 import localforage from 'localforage';
 
-import { searchKnowledgeDocuments, searchKnowledgeDocumentsWithMetrics, syncKnowledgeDocuments } from '../src/lib/db';
+import {
+  getDocuments,
+  initDB,
+  searchKnowledgeDocuments,
+  searchKnowledgeDocumentsWithMetrics,
+  syncKnowledgeDocuments,
+} from '../src/lib/db';
 import { getRelevantSkillContext } from '../src/lib/agent-skills';
 import { createPathScopedKnowledgeRecord } from '../src/lib/project-knowledge-model';
 
@@ -103,4 +109,44 @@ test('searchKnowledgeDocumentsWithMetrics reports cache hits on repeated agent s
     second.results.map((record) => record.sourceUri),
     first.results.map((record) => record.sourceUri),
   );
+});
+
+test('getDocuments warns and falls back when persisted knowledge tags are malformed', async () => {
+  localforageState.clear();
+  const documentId = `doc_bad_tags_${Date.now()}`;
+  await syncKnowledgeDocuments(
+    [
+      {
+        id: documentId,
+        title: 'Bad Tags',
+        content: 'metadata tags should fall back when the persisted JSON is malformed',
+        sourceType: 'workspace_doc',
+        sourceUri: 'docs/bad-tags.md',
+        tags: ['metadata'],
+      },
+    ],
+    { skipEmbeddings: true },
+  );
+
+  const database = await initDB();
+  database.run('UPDATE document_metadata SET tags_json = ? WHERE document_id = ?', ['{"tag": ', documentId]);
+
+  const originalWarn = console.warn;
+  const warnings: string[] = [];
+  console.warn = (message?: unknown) => {
+    warnings.push(String(message ?? ''));
+  };
+
+  try {
+    const documents = await getDocuments();
+    const document = documents.find((candidate) => candidate.id === documentId);
+
+    assert.ok(document);
+    assert.deepEqual(document?.tags, []);
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? '', /Failed to parse knowledge document tags/);
 });

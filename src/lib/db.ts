@@ -1257,6 +1257,20 @@ function readDocumentSearchCache(database: Database, cacheKey: string): Retrieve
   }
 }
 
+function parseKnowledgeTags(raw: unknown, context: string) {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? normalizeKnowledgeTags(parsed) : [];
+  } catch (error) {
+    console.warn(`Failed to parse knowledge document tags for ${context}; falling back to empty tags:`, error);
+    return [];
+  }
+}
+
 function getDocumentMetadataRecord(database: Database, documentId: string): KnowledgeDocumentRecord | null {
   const row = mapRows<{
     id: string;
@@ -1292,20 +1306,13 @@ function getDocumentMetadataRecord(database: Database, documentId: string): Know
     return null;
   }
 
-  let tags: string[] = [];
-  try {
-    tags = Array.isArray(JSON.parse(row.tags_json)) ? JSON.parse(row.tags_json) : [];
-  } catch {
-    tags = [];
-  }
-
   return {
     id: row.id,
     title: row.title,
     content: row.content,
     sourceType: row.source_type ?? 'user_upload',
     sourceUri: row.source_uri ?? undefined,
-    tags,
+    tags: parseKnowledgeTags(row.tags_json, `"${documentId}"`),
     syncedAt: row.synced_at ?? undefined,
     updatedAt: row.updated_at,
   };
@@ -2739,20 +2746,13 @@ export async function getDocuments() {
     );
 
     return rows.map((row) => {
-      let tags: string[] = [];
-      try {
-        tags = row.tags_json ? (JSON.parse(row.tags_json) as string[]) : [];
-      } catch {
-        tags = [];
-      }
-
       return {
         id: row.id,
         title: row.title,
         content: row.content,
         sourceType: row.source_type ?? 'user_upload',
         sourceUri: row.source_uri ?? undefined,
-        tags,
+        tags: parseKnowledgeTags(row.tags_json, `"${row.id}"`),
         syncedAt: row.synced_at ?? undefined,
         updatedAt: row.updated_at ?? undefined,
       };
