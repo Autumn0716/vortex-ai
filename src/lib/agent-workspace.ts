@@ -1777,8 +1777,7 @@ export async function compileTaskGraphFromTopic(options: {
   const timestamp = nowIso();
   const database = await ensureAgentSchema();
 
-  database.run('BEGIN');
-  try {
+  await runDatabaseTransaction(database, () => {
     database.run(
       `
         INSERT INTO topic_task_graphs (
@@ -1873,12 +1872,7 @@ export async function compileTaskGraphFromTopic(options: {
         [createId('task_edge'), graphId, edge.from, edge.to, edge.type, timestamp],
       );
     });
-
-    database.run('COMMIT');
-  } catch (error) {
-    database.run('ROLLBACK');
-    throw error;
-  }
+  });
 
   await persistAndMaybeRebuildFts(database);
 
