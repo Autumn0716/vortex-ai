@@ -1,6 +1,6 @@
 import localforage from 'localforage';
 import { getAgentConfig } from './agent/config';
-import type { Database, QueryExecResult, SqlValue, StoredToolRun } from './db';
+import type { Database, StoredToolRun } from './db';
 import { buildEmbeddingConfigFromDocuments, initDB, parseEmbeddingJson, saveDB } from './db';
 import {
   buildAgentWorkspacePath,
@@ -30,12 +30,49 @@ import {
   compileTaskGraphFromGoal,
   type CompiledTaskGraph,
   type CompiledTaskGraphNode,
-  type TaskGraphCompilerStrategy,
 } from './task-graph-compiler';
 import { cosineSimilarity } from './vector-search-model';
 import { estimateMessageTokens, splitBudgetedRecentItems } from './session-context-budget';
 import { createFts5Tables } from './db-fts5-helpers';
 import { runDatabaseTransaction } from './db-transaction';
+import { buildLikePatterns, buildMatchQuery, getScalar, mapRows } from './agent-workspace-queries';
+import type {
+  AgentMemoryDocument,
+  AgentMemorySearchResult,
+  AgentProfile,
+  TopicMessage,
+  TopicMessageAttachment,
+  TopicMessageInput,
+  TopicModelFeatures,
+  TopicRuntimeProfile,
+  TopicSessionMode,
+  TopicSessionSummary,
+  TopicSessionSummaryBuilderInput,
+  TopicSummary,
+  TopicTaskGraph,
+  TopicTaskGraphNode,
+  TopicWorkspace,
+  WorkspaceSearchResult,
+} from './agent-workspace-types';
+
+export type {
+  AgentMemoryDocument,
+  AgentMemorySearchResult,
+  AgentProfile,
+  TopicMessage,
+  TopicMessageAttachment,
+  TopicMessageInput,
+  TopicModelFeatures,
+  TopicRuntimeProfile,
+  TopicSessionMode,
+  TopicSessionSummary,
+  TopicSessionSummaryBuilderInput,
+  TopicSummary,
+  TopicTaskGraph,
+  TopicTaskGraphNode,
+  TopicWorkspace,
+  WorkspaceSearchResult,
+} from './agent-workspace-types';
 
 const ACTIVE_AGENT_KEY = 'flowagent_active_agent_id_v2';
 const ACTIVE_TOPIC_KEY = 'flowagent_active_topic_id_v2';
@@ -52,192 +89,6 @@ const FALLBACK_AGENT_SEED = {
     'You are FlowAgent Core. Be pragmatic, structured, and concise. Use tools when they materially improve the answer.',
   accentColor: 'from-blue-500/20 to-violet-500/20',
 };
-
-export interface AgentProfile {
-  id: string;
-  slug: string;
-  name: string;
-  description: string;
-  systemPrompt: string;
-  providerId?: string;
-  model?: string;
-  accentColor: string;
-  workspaceRelpath: string;
-  isDefault: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TopicSummary {
-  id: string;
-  agentId: string;
-  parentTopicId?: string;
-  sessionMode: TopicSessionMode;
-  displayName?: string;
-  systemPromptOverride?: string;
-  providerIdOverride?: string;
-  modelOverride?: string;
-  modelFeatures: TopicModelFeatures;
-  enableMemory: boolean;
-  enableSkills: boolean;
-  enableTools: boolean;
-  enableAgentSharedShortTerm: boolean;
-  title: string;
-  titleSource: 'auto' | 'manual';
-  preview: string;
-  createdAt: string;
-  updatedAt: string;
-  lastMessageAt: string;
-  messageCount: number;
-}
-
-export interface TopicMessage {
-  id: string;
-  topicId: string;
-  agentId: string;
-  role: 'user' | 'assistant' | 'system' | 'tool';
-  authorName: string;
-  content: string;
-  createdAt: string;
-  attachments?: TopicMessageAttachment[];
-  tools?: StoredToolRun[];
-}
-
-export interface TopicMessageAttachment {
-  id: string;
-  kind: 'image';
-  name: string;
-  mimeType: string;
-  dataUrl: string;
-  sizeBytes: number;
-}
-
-export interface TopicMessageInput {
-  id?: string;
-  topicId: string;
-  agentId: string;
-  role: TopicMessage['role'];
-  authorName: string;
-  content: string;
-  createdAt?: string;
-  attachments?: TopicMessageAttachment[];
-  tools?: StoredToolRun[];
-}
-
-export interface AgentMemoryDocument {
-  id: string;
-  agentId: string;
-  title: string;
-  content: string;
-  memoryScope: MemoryScope;
-  sourceType: MemorySourceType;
-  importanceScore: number;
-  topicId?: string;
-  eventDate?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface AgentMemorySearchResult extends AgentMemoryDocument {
-  layer: MemoryRetrievalLayer;
-  retrievalStage: 'preferred' | 'fallback' | 'semantic_cold';
-  score: number;
-}
-
-export type TopicSessionMode = 'agent' | 'quick';
-
-export interface TopicModelFeatures {
-  enableThinking: boolean;
-  enableCustomFunctionCalling: boolean;
-  responsesTools: {
-    webSearch: boolean;
-    webSearchImage: boolean;
-    webExtractor: boolean;
-    codeInterpreter: boolean;
-    imageSearch: boolean;
-    mcp: boolean;
-  };
-  structuredOutput: {
-    mode: 'text' | 'json_object' | 'json_schema';
-    schema: string;
-  };
-}
-
-export interface TopicRuntimeProfile {
-  sessionMode: TopicSessionMode;
-  displayName: string;
-  systemPrompt: string;
-  providerId?: string;
-  model?: string;
-  modelFeatures: TopicModelFeatures;
-  enableMemory: boolean;
-  enableSkills: boolean;
-  enableTools: boolean;
-  enableAgentSharedShortTerm: boolean;
-}
-
-export interface TopicWorkspace {
-  agent: AgentProfile;
-  topic: TopicSummary;
-  runtime: TopicRuntimeProfile;
-  messages: TopicMessage[];
-  memoryDocuments: AgentMemoryDocument[];
-  sessionSummary?: TopicSessionSummary;
-}
-
-export interface TopicSessionSummary {
-  content: string;
-  updatedAt: string;
-  sourceMessageCount: number;
-}
-
-export interface TopicSessionSummaryBuilderInput {
-  messages: TopicMessage[];
-  historyWindow: number;
-  tokenBudget?: number;
-  deterministicSummary: { content: string; sourceMessageCount: number } | null;
-}
-
-export interface TopicTaskGraphNode extends CompiledTaskGraphNode {
-  id: string;
-  graphId: string;
-  topicId: string;
-  agentId: string;
-  branchTopicId?: string;
-  status: 'pending' | 'ready' | 'completed' | 'failed';
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TopicTaskGraph {
-  id: string;
-  topicId: string;
-  agentId: string;
-  title: string;
-  goal: string;
-  summary: string;
-  compilerProviderId?: string;
-  compilerModel?: string;
-  compilerStrategy: TaskGraphCompilerStrategy;
-  status: 'draft' | 'ready' | 'review_ready' | 'failed';
-  reviewerBranchTopicId?: string;
-  createdAt: string;
-  updatedAt: string;
-  nodes: TopicTaskGraphNode[];
-  edges: CompiledTaskGraph['edges'];
-}
-
-export interface WorkspaceSearchResult {
-  type: 'topic' | 'message';
-  topicId: string;
-  agentId: string;
-  agentName: string;
-  topicTitle: string;
-  preview: string;
-  createdAt?: string;
-}
-
-type SqlRow = Record<string, unknown>;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -315,30 +166,6 @@ function parseTopicModelFeatures(raw: unknown): TopicModelFeatures {
     warnJsonFallback('topic model features', raw, error);
     return getDefaultTopicModelFeatures();
   }
-}
-
-function mapRows<T = SqlRow>(result: QueryExecResult[]): T[] {
-  if (result.length === 0) {
-    return [];
-  }
-
-  const entry = result[0]!;
-  return entry.values.map((row) => {
-    const mapped: SqlRow = {};
-    entry.columns.forEach((column, index) => {
-      mapped[column] = row[index];
-    });
-    return mapped as T;
-  });
-}
-
-function getScalar(database: Database, query: string, params: SqlValue[] = []): unknown {
-  const result = database.exec(query, params);
-  if (result.length === 0 || result[0]!.values.length === 0) {
-    return null;
-  }
-
-  return result[0]!.values[0]![0];
 }
 
 function getMemoryDocumentLayer(document: Pick<AgentMemoryDocument, 'memoryScope' | 'updatedAt'>, now: string): MemoryRetrievalLayer {
@@ -825,25 +652,6 @@ function getDefaultAgent(database: Database): AgentProfile {
   }
 
   return toAgentProfile(row);
-}
-
-function buildLikePatterns(query: string): string[] {
-  return query
-    .trim()
-    .split(/\s+/)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0)
-    .map((part) => `%${part}%`);
-}
-
-function buildMatchQuery(query: string): string {
-  return query
-    .trim()
-    .split(/\s+/)
-    .map((part) => part.replace(/["']/g, '').trim())
-    .filter((part) => part.length > 0)
-    .map((part) => `"${part}"*`)
-    .join(' OR ');
 }
 
 async function resolveAgentIdForMemorySync(database: Database, preferredAgentId?: string | null): Promise<string | null> {
