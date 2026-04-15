@@ -992,8 +992,7 @@ async function migrateLegacyWorkspace(database: Database): Promise<boolean> {
     `),
   );
 
-  database.run('BEGIN');
-  try {
+  await runDatabaseTransaction(database, () => {
     assistants.forEach((assistant, index) => {
       const workspaceRelpath = buildAgentWorkspacePath(assistant.name);
       database.run(
@@ -1230,13 +1229,9 @@ async function migrateLegacyWorkspace(database: Database): Promise<boolean> {
     if (fts5Available) {
       rebuildFtsIndexes(database);
     }
+  });
 
-    database.run('COMMIT');
-    return true;
-  } catch (error) {
-    database.run('ROLLBACK');
-    throw error;
-  }
+  return true;
 }
 
 function rebuildFtsIndexes(database: Database) {
