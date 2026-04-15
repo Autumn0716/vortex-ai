@@ -47,6 +47,12 @@ import {
   toPromptSnippet,
 } from './db-row-mappers';
 import { createBaseSchema } from './db-schema';
+import {
+  clearDocumentSearchCache,
+  createEmptyKnowledgeSearchMetrics,
+  readDocumentSearchCache,
+  writeDocumentSearchCache,
+} from './db-search-cache';
 import type {
   AgentLane,
   AssistantProfile,
@@ -75,7 +81,7 @@ import type {
 } from './db-types';
 
 export { Database };
-export { buildEmbeddingConfigFromDocuments, parseEmbeddingJson };
+export { buildEmbeddingConfigFromDocuments, clearDocumentSearchCache, parseEmbeddingJson };
 export type { QueryExecResult, SqlValue };
 export type {
   AgentLane,
@@ -120,23 +126,6 @@ const ACTIVE_CONVERSATION_KEY = 'flowagent_active_conversation_id';
 const DEFAULT_CONVERSATION_TITLE = 'New Conversation';
 const LEGACY_WELCOME_MESSAGE =
   'Hello! I am your FlowAgent. SQLite is now connected for local storage and RAG. How can I assist you today?';
-
-function createEmptyKnowledgeSearchMetrics(): KnowledgeDocumentSearchMetrics {
-  return {
-    cacheHit: false,
-    expandedQueryCount: 0,
-    subqueryCount: 0,
-    primaryCandidateCount: 0,
-    correctiveQueryCount: 0,
-    correctiveCandidateCount: 0,
-    lexicalDurationMs: 0,
-    vectorDurationMs: 0,
-    graphDurationMs: 0,
-    rerankDurationMs: 0,
-    correctiveDurationMs: 0,
-    totalDurationMs: 0,
-  };
-}
 
 const DEFAULT_ASSISTANTS: AssistantSeed[] = [
   {
@@ -583,10 +572,6 @@ function clearDocumentGraph(database: Database, documentId: string) {
   database.run('DELETE FROM document_graph_edges WHERE document_id = ?', [documentId]);
 }
 
-export function clearDocumentSearchCache(database: Database) {
-  database.run('DELETE FROM document_search_cache');
-}
-
 export function indexDocumentChunks(
   database: Database,
   document: { id: string; title: string; content: string },
@@ -703,31 +688,6 @@ function buildFtsMatchQuery(query: string): string {
     .join(' OR ');
 }
 
-function readDocumentSearchCache(database: Database, cacheKey: string): RetrievedDocumentResult[] | null {
-  const row = mapRows<{ results_json: string }>(
-    database.exec(
-      `
-        SELECT results_json
-        FROM document_search_cache
-        WHERE cache_key = ?
-        LIMIT 1
-      `,
-      [cacheKey],
-    ),
-  )[0];
-
-  if (!row) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(row.results_json) as RetrievedDocumentResult[];
-  } catch (error) {
-    console.warn(`Failed to parse document search cache for "${cacheKey}"; recomputing results:`, error);
-    return null;
-  }
-}
-
 export function upsertKnowledgeEvidenceFeedbackInDatabase(
   database: Database,
   input: KnowledgeEvidenceFeedbackInput,
@@ -811,26 +771,6 @@ function upsertDocumentMetadata(
 async function getEmbeddingConfig() {
   const config = await getAgentConfig();
   return buildEmbeddingConfigFromDocuments(config.documents);
-}
-
-function writeDocumentSearchCache(
-  database: Database,
-  cacheKey: string,
-  query: string,
-  results: { id: string; title: string; content: string }[],
-) {
-  const timestamp = nowIso();
-  database.run(
-    `
-      INSERT INTO document_search_cache (cache_key, query, results_json, updated_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(cache_key) DO UPDATE SET
-        query = excluded.query,
-        results_json = excluded.results_json,
-        updated_at = excluded.updated_at
-    `,
-    [cacheKey, query, JSON.stringify(results), timestamp],
-  );
 }
 
 export async function initDB(): Promise<Database> {
