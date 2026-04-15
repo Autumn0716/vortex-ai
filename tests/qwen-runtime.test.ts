@@ -23,6 +23,17 @@ test('buildChatModelKwargs emits response_format for json_object and disables th
   assert.deepEqual(kwargs.response_format, { type: 'json_object' });
 });
 
+test('buildChatModelKwargs surfaces contextual errors for malformed json_schema payloads', () => {
+  assert.throws(
+    () =>
+      buildChatModelKwargs({
+        enableThinking: false,
+        structuredOutput: { mode: 'json_schema', schema: '{"type":"object"' },
+      }),
+    /Structured output schema is not valid JSON: \{"type":"object"/,
+  );
+});
+
 test('buildResponseTools includes official qwen responses tools and enabled SSE MCP servers only', () => {
   const config = normalizeAgentConfig({
     mcpServers: [

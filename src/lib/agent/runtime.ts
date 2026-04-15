@@ -97,6 +97,17 @@ function stringifyMessageContent(content: unknown) {
   return String(content ?? '');
 }
 
+function parseRuntimeJson<T>(raw: string, context: string): T {
+  try {
+    return JSON.parse(raw) as T;
+  } catch (error) {
+    const preview = raw.trim().slice(0, 200) || '(empty JSON payload)';
+    throw new Error(`${context}: ${preview}`, {
+      cause: error instanceof Error ? error : undefined,
+    });
+  }
+}
+
 function extractUsageMetadata(payload: any): AgentRuntimeUsage | undefined {
   const usage = payload?.usage_metadata ?? payload?.usage ?? payload?.response_metadata?.tokenUsage ?? payload?.response_metadata?.usage;
   if (!usage || typeof usage !== 'object') {
@@ -310,9 +321,11 @@ async function executeResponseFunctionCall(
 
   let parsedArgs: unknown = {};
   try {
-    parsedArgs = call.argumentsText.trim() ? JSON.parse(call.argumentsText) : {};
+    parsedArgs = call.argumentsText.trim()
+      ? parseRuntimeJson(call.argumentsText, `Failed to parse function call arguments for "${call.name}"`)
+      : {};
   } catch (error) {
-    const errorPayload = `Invalid JSON arguments for "${call.name}": ${error instanceof Error ? error.message : String(error)}`;
+    const errorPayload = error instanceof Error ? error.message : String(error);
     return {
       toolEvent: {
         name: call.name,
@@ -379,13 +392,16 @@ export function buildChatModelKwargs(options: {
 
   if (structuredOutput.mode === 'json_schema' && structuredOutput.schema?.trim()) {
     try {
-      const parsedSchema = JSON.parse(structuredOutput.schema);
+      const parsedSchema = parseRuntimeJson(
+        structuredOutput.schema,
+        'Structured output schema is not valid JSON',
+      );
       modelKwargs.response_format = {
         type: 'json_schema',
         json_schema: parsedSchema,
       };
-    } catch {
-      throw new Error('Structured output schema is not valid JSON.');
+    } catch (error) {
+      throw error instanceof Error ? error : new Error('Structured output schema is not valid JSON.');
     }
   }
 

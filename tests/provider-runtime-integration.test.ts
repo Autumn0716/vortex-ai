@@ -361,6 +361,107 @@ test('responses runtime continues with previous_response_id after local function
   }
 });
 
+test('responses runtime returns contextual tool output when function call arguments are malformed JSON', async () => {
+  const config = buildConfig({
+    id: 'aliyun_responses',
+    name: 'Aliyun Responses',
+    baseUrl: 'https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1',
+    models: ['qwen3.5-plus'],
+    protocol: 'openai_responses_compatible',
+  });
+
+  const originalFetch = globalThis.fetch;
+  const originalConsoleError = console.error;
+  const captured: Array<{ url: string; body: Record<string, any> }> = [];
+  globalThis.fetch = (async (input, init) => {
+    const request = {
+      url: String(input),
+      body: JSON.parse(String(init?.body ?? '{}')),
+    };
+    captured.push(request);
+
+    if (captured.length === 1) {
+      return createSseResponse([
+        {
+          type: 'response.output_item.done',
+          item: {
+            type: 'function_call',
+            id: 'fc_bad_json',
+            call_id: 'call_bad_json',
+            name: 'search_knowledge_base',
+            arguments: '{"query":"LangGraph runtime"',
+          },
+        },
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp_bad_json',
+            output_text: '',
+            usage: {
+              input_tokens: 10,
+              output_tokens: 2,
+              total_tokens: 12,
+            },
+          },
+        },
+      ]);
+    }
+
+    return createSseResponse([
+      { type: 'response.output_text.delta', delta: '已处理坏参数。' },
+      {
+        type: 'response.completed',
+        response: {
+          id: 'resp_bad_json_2',
+          output_text: '已处理坏参数。',
+          usage: {
+            input_tokens: 6,
+            output_tokens: 4,
+            total_tokens: 10,
+          },
+        },
+      },
+    ]);
+  }) as typeof fetch;
+  console.error = () => {};
+
+  try {
+    const runtime = createAgentRuntime({
+      config,
+      providerId: 'aliyun_responses',
+      model: 'qwen3.5-plus',
+      enableTools: true,
+      responsesTools: {
+        customFunctionCalling: true,
+      },
+    });
+
+    const events = [];
+    for await (const event of runtime.stream({
+      messages: [createHumanMessage('查询一下 LangGraph runtime')],
+    })) {
+      events.push(event);
+    }
+
+    assert.equal(captured.length, 2);
+    assert.match(
+      String(captured[1]?.body.input?.[0]?.output ?? ''),
+      /Failed to parse function call arguments for "search_knowledge_base": \{"query":"LangGraph runtime"/,
+    );
+    const toolEvent = events.find((event) => event.type === 'tool_event');
+    assert.ok(toolEvent && toolEvent.type === 'tool_event');
+    assert.match(
+      toolEvent?.type === 'tool_event' ? toolEvent.tool.result : '',
+      /Failed to parse function call arguments for "search_knowledge_base"/,
+    );
+    assert.equal(events.at(-1)?.type, 'assistant_message');
+    assert.equal(events.at(-1)?.content, '已处理坏参数。');
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.error = originalConsoleError;
+  }
+});
+
 test('langgraph runtime streams reasoning, assistant deltas and final usage for chat-compatible providers', async () => {
   const config = buildConfig({
     id: 'openai_chat',
