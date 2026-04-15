@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, shell, Tray } from 'electron';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { copyFile, mkdir, stat } from 'node:fs/promises';
@@ -21,6 +21,8 @@ const shouldManageHost = process.env.FLOWAGENT_ELECTRON_MANAGE_HOST !== 'false';
 const hostPort = Number(process.env.FLOWAGENT_API_PORT ?? 3850);
 const hostUrl = `http://127.0.0.1:${hostPort}`;
 let hostProcess = null;
+let mainWindow = null;
+let tray = null;
 const hostState = {
   managed: shouldManageHost,
   status: shouldManageHost ? 'starting' : 'external',
@@ -270,7 +272,43 @@ function createMainWindow() {
     window.webContents.openDevTools({ mode: 'detach' });
   }
 
+  mainWindow = window;
+  window.on('closed', () => {
+    if (mainWindow === window) {
+      mainWindow = null;
+    }
+  });
+
   return window;
+}
+
+function showMainWindow() {
+  if (!mainWindow) {
+    mainWindow = createMainWindow();
+  }
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore();
+  }
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function createTray() {
+  if (tray) {
+    return;
+  }
+
+  const iconPath = path.join(__dirname, 'assets', process.platform === 'darwin' ? 'icon.icns' : 'icon-base.png');
+  tray = new Tray(iconPath);
+  tray.setToolTip('FlowAgent');
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'Show FlowAgent', click: showMainWindow },
+      { type: 'separator' },
+      { label: 'Quit', click: () => app.quit() },
+    ]),
+  );
+  tray.on('click', showMainWindow);
 }
 
 app.setName('FlowAgent');
@@ -280,6 +318,11 @@ registerFlowAgentDesktopHandlers({
   app,
   getHostState: () => hostState,
   probeHostHealth,
+  notificationApi: {
+    Notification,
+    isSupported: () => Notification.isSupported(),
+  },
+  dialogApi: dialog,
   processInfo: process,
   osModule: os,
 });
@@ -295,11 +338,13 @@ app.whenReady().then(async () => {
     });
   }
 
-  createMainWindow();
+  mainWindow = createMainWindow();
+  createTray();
+  globalShortcut.register('CommandOrControl+Shift+F', showMainWindow);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+      mainWindow = createMainWindow();
     }
   });
 });
@@ -311,6 +356,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  globalShortcut.unregisterAll();
   if (hostProcess && !hostProcess.killed) {
     hostProcess.kill('SIGTERM');
   }

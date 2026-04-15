@@ -1566,6 +1566,12 @@ export const SettingsView = ({
     await onMemoryFilesChanged?.(agentId);
   };
 
+  const showDesktopNotification = (title: string, body: string) => {
+    window.flowAgentDesktop?.showNotification({ title, body }).catch((error) => {
+      console.warn('Failed to show desktop notification:', error);
+    });
+  };
+
   const updateInspectorMemory = async (
     document: AgentMemoryDocument,
     mode: 'important' | 'archive' | 'delete',
@@ -1648,6 +1654,7 @@ export const SettingsView = ({
       await loadMemoryFiles({
         preferredPath: activeMemoryFilePath,
       });
+      showDesktopNotification('FlowAgent 记忆归档完成', formatLifecycleSyncStatus(lifecycleResult));
       if (lifecycleResult.failures.length > 0) {
         console.warn('Memory lifecycle sync failures:', lifecycleResult.failures);
       }
@@ -1757,6 +1764,10 @@ export const SettingsView = ({
         tone: 'success',
         message: '已保存夜间自动归档设置。',
       });
+      showDesktopNotification(
+        'FlowAgent 夜间归档已更新',
+        `${nextStatus?.settings.enabled ? '已启用' : '已关闭'} · ${nextStatus?.settings.time ?? nightlyArchiveTime}`,
+      );
       await loadNightlyArchive();
     } catch (error) {
       setNightlyArchiveMessage({

@@ -72,6 +72,8 @@ export function registerFlowAgentDesktopHandlers({
   app,
   getHostState,
   probeHostHealth,
+  notificationApi,
+  dialogApi,
   processInfo = process,
   osModule = os,
   capabilities = DESKTOP_RUNTIME_CAPABILITIES,
@@ -98,4 +100,41 @@ export function registerFlowAgentDesktopHandlers({
       osModule,
     }),
   );
+
+  ipcMain.handle('flowagent:show-notification', (_event, payload = {}) => {
+    if (!notificationApi?.isSupported?.()) {
+      return { shown: false, reason: 'unsupported' };
+    }
+
+    const title = typeof payload.title === 'string' && payload.title.trim() ? payload.title.trim() : 'FlowAgent';
+    const body = typeof payload.body === 'string' ? payload.body.trim().slice(0, 240) : '';
+    const notification = new notificationApi.Notification({
+      title,
+      body,
+    });
+    notification.show();
+    return { shown: true };
+  });
+
+  ipcMain.handle('flowagent:show-open-dialog', (_event, options = {}) => {
+    if (!dialogApi?.showOpenDialog) {
+      return { canceled: true, filePaths: [] };
+    }
+    return dialogApi.showOpenDialog({
+      title: typeof options.title === 'string' ? options.title : 'Open',
+      properties: Array.isArray(options.properties) ? options.properties : ['openFile'],
+      filters: Array.isArray(options.filters) ? options.filters : undefined,
+    });
+  });
+
+  ipcMain.handle('flowagent:show-save-dialog', (_event, options = {}) => {
+    if (!dialogApi?.showSaveDialog) {
+      return { canceled: true };
+    }
+    return dialogApi.showSaveDialog({
+      title: typeof options.title === 'string' ? options.title : 'Save',
+      defaultPath: typeof options.defaultPath === 'string' ? options.defaultPath : undefined,
+      filters: Array.isArray(options.filters) ? options.filters : undefined,
+    });
+  });
 }

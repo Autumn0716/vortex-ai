@@ -64,5 +64,16 @@ interface Window {
   flowAgentDesktop?: {
     getDesktopInfo: () => Promise<FlowAgentDesktopInfo>;
     getRuntimeDiagnostics: () => Promise<FlowAgentRuntimeDiagnostics>;
+    showNotification: (payload: { title?: string; body?: string }) => Promise<{ shown: boolean; reason?: string }>;
+    showOpenDialog: (options?: {
+      title?: string;
+      properties?: Array<'openFile' | 'openDirectory' | 'multiSelections' | 'createDirectory'>;
+      filters?: Array<{ name: string; extensions: string[] }>;
+    }) => Promise<{ canceled: boolean; filePaths: string[] }>;
+    showSaveDialog: (options?: {
+      title?: string;
+      defaultPath?: string;
+      filters?: Array<{ name: string; extensions: string[] }>;
+    }) => Promise<{ canceled: boolean; filePath?: string }>;
   };
 }

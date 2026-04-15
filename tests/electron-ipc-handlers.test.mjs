@@ -43,6 +43,8 @@ test('createDesktopInfoPayload snapshots host metadata for the desktop bridge', 
 
 test('registerFlowAgentDesktopHandlers wires desktop info and runtime diagnostics handlers', async () => {
   const handlers = new Map();
+  const shownNotifications = [];
+  const dialogCalls = [];
   const ipcMain = {
     handle(channel, handler) {
       handlers.set(channel, handler);
@@ -106,9 +108,39 @@ test('registerFlowAgentDesktopHandlers wires desktop info and runtime diagnostic
         return [0.1, 0.2, 0.3];
       },
     },
+    notificationApi: {
+      isSupported() {
+        return true;
+      },
+      Notification: class {
+        constructor(payload) {
+          this.payload = payload;
+        }
+
+        show() {
+          shownNotifications.push(this.payload);
+        }
+      },
+    },
+    dialogApi: {
+      async showOpenDialog(options) {
+        dialogCalls.push(['open', options]);
+        return { canceled: false, filePaths: ['/tmp/project'] };
+      },
+      async showSaveDialog(options) {
+        dialogCalls.push(['save', options]);
+        return { canceled: false, filePath: '/tmp/project/config.json' };
+      },
+    },
   });
 
-  assert.deepEqual([...handlers.keys()].sort(), ['flowagent:get-desktop-info', 'flowagent:get-runtime-diagnostics']);
+  assert.deepEqual([...handlers.keys()].sort(), [
+    'flowagent:get-desktop-info',
+    'flowagent:get-runtime-diagnostics',
+    'flowagent:show-notification',
+    'flowagent:show-open-dialog',
+    'flowagent:show-save-dialog',
+  ]);
 
   const desktopInfo = await handlers.get('flowagent:get-desktop-info')();
   assert.equal(desktopInfo.host.pid, 9876);
@@ -122,4 +154,23 @@ test('registerFlowAgentDesktopHandlers wires desktop info and runtime diagnostic
   assert.equal(diagnostics.host.latencyMs, 18);
   assert.equal(diagnostics.host.statusCode, 200);
   assert.equal(diagnostics.host.configPath, '/tmp/flowagent-workspace/config.json');
+
+  const notification = await handlers.get('flowagent:show-notification')(null, {
+    title: 'Archive done',
+    body: 'Updated warm and cold memory.',
+  });
+  assert.deepEqual(notification, { shown: true });
+  assert.deepEqual(shownNotifications, [{ title: 'Archive done', body: 'Updated warm and cold memory.' }]);
+
+  const openDialog = await handlers.get('flowagent:show-open-dialog')(null, {
+    title: 'Open workspace',
+    properties: ['openDirectory'],
+  });
+  const saveDialog = await handlers.get('flowagent:show-save-dialog')(null, {
+    defaultPath: '/tmp/project/config.json',
+  });
+  assert.deepEqual(openDialog.filePaths, ['/tmp/project']);
+  assert.equal(saveDialog.filePath, '/tmp/project/config.json');
+  assert.equal(dialogCalls[0]?.[1]?.title, 'Open workspace');
+  assert.equal(dialogCalls[1]?.[1]?.defaultPath, '/tmp/project/config.json');
 });
