@@ -247,6 +247,26 @@ export interface KnowledgeDocumentSearchResult
   extends KnowledgeDocumentRecord,
     KnowledgeDocumentSupportMetadata {}
 
+export interface KnowledgeDocumentSearchMetrics {
+  cacheHit: boolean;
+  expandedQueryCount: number;
+  subqueryCount: number;
+  primaryCandidateCount: number;
+  correctiveQueryCount: number;
+  correctiveCandidateCount: number;
+  lexicalDurationMs: number;
+  vectorDurationMs: number;
+  graphDurationMs: number;
+  rerankDurationMs: number;
+  correctiveDurationMs: number;
+  totalDurationMs: number;
+}
+
+export interface KnowledgeDocumentSearchResponse {
+  results: KnowledgeDocumentSearchResult[];
+  metrics: KnowledgeDocumentSearchMetrics;
+}
+
 interface RetrievedDocumentResult extends KnowledgeDocumentSupportMetadata {
   id: string;
   title: string;
@@ -266,6 +286,29 @@ interface DocumentSearchCandidate {
   graphHints?: string[];
   graphExpansionHints?: string[];
   graphPaths?: string[];
+}
+
+interface CandidateCollectionMetrics {
+  lexicalDurationMs: number;
+  vectorDurationMs: number;
+  graphDurationMs: number;
+}
+
+function createEmptyKnowledgeSearchMetrics(): KnowledgeDocumentSearchMetrics {
+  return {
+    cacheHit: false,
+    expandedQueryCount: 0,
+    subqueryCount: 0,
+    primaryCandidateCount: 0,
+    correctiveQueryCount: 0,
+    correctiveCandidateCount: 0,
+    lexicalDurationMs: 0,
+    vectorDurationMs: 0,
+    graphDurationMs: 0,
+    rerankDurationMs: 0,
+    correctiveDurationMs: 0,
+    totalDurationMs: 0,
+  };
 }
 
 export interface KnowledgeDocumentSearchOptions {
@@ -3054,12 +3097,16 @@ async function collectDocumentCandidates(
   retrievalQuery: string,
   subqueries: string[],
   options?: KnowledgeDocumentSearchOptions,
-): Promise<DocumentSearchCandidate[]> {
+): Promise<{ candidates: DocumentSearchCandidate[]; metrics: CandidateCollectionMetrics }> {
   const seen = new Map<string, DocumentSearchCandidate>();
   const ftsEnabled = getDocumentFtsEnabled(database);
   const filter = buildKnowledgeDocumentFilterSql(options);
+  let lexicalDurationMs = 0;
+  let vectorDurationMs = 0;
+  let graphDurationMs = 0;
 
   for (const subquery of subqueries) {
+    const lexicalStartedAt = Date.now();
     const matchQuery = buildFtsMatchQuery(subquery);
     if (ftsEnabled && matchQuery) {
       const rows = mapRows<DocumentSearchRow>(
@@ -3091,6 +3138,7 @@ async function collectDocumentCandidates(
           lexicalScore: row.score,
         });
       });
+      lexicalDurationMs += Date.now() - lexicalStartedAt;
       continue;
     }
 
@@ -3098,6 +3146,7 @@ async function collectDocumentCandidates(
       .split(/\s+/)
       .filter((word) => word.length > 0);
     if (terms.length === 0) {
+      lexicalDurationMs += Date.now() - lexicalStartedAt;
       continue;
     }
 
@@ -3125,9 +3174,11 @@ async function collectDocumentCandidates(
         lexicalScore: index + 1,
       });
     });
+    lexicalDurationMs += Date.now() - lexicalStartedAt;
   }
 
   if (options?.embeddingConfig) {
+    const vectorStartedAt = Date.now();
     try {
       await ensureDocumentEmbeddings(database, options.embeddingConfig);
       const embeddingResponse = await createEmbeddings(retrievalQuery, options.embeddingConfig);
@@ -3138,13 +3189,24 @@ async function collectDocumentCandidates(
       }
     } catch (error) {
       console.warn('Vector search failed, falling back to lexical results:', error);
+    } finally {
+      vectorDurationMs += Date.now() - vectorStartedAt;
     }
   }
 
+  const graphStartedAt = Date.now();
   const graphCandidates = readGraphCandidates(database, retrievalQuery, options);
   graphCandidates.forEach((candidate) => mergeDocumentSearchCandidate(seen, candidate));
+  graphDurationMs += Date.now() - graphStartedAt;
 
-  return [...seen.values()];
+  return {
+    candidates: [...seen.values()],
+    metrics: {
+      lexicalDurationMs,
+      vectorDurationMs,
+      graphDurationMs,
+    },
+  };
 }
 
 function shapeRetrievedDocumentResults(
@@ -3183,16 +3245,29 @@ export async function searchDocumentsInDatabase(
   query: string,
   options?: KnowledgeDocumentSearchOptions,
 ): Promise<RetrievedDocumentResult[]> {
+  return (await searchDocumentsInDatabaseWithMetrics(database, query, options)).results;
+}
+
+async function searchDocumentsInDatabaseWithMetrics(
+  database: Database,
+  query: string,
+  options?: KnowledgeDocumentSearchOptions,
+): Promise<{ results: RetrievedDocumentResult[]; metrics: KnowledgeDocumentSearchMetrics }> {
+  const totalStartedAt = Date.now();
+  const metrics = createEmptyKnowledgeSearchMetrics();
   try {
     const normalizedQuery = query.trim();
     if (!normalizedQuery) {
-      return [];
+      metrics.totalDurationMs = Date.now() - totalStartedAt;
+      return { results: [], metrics };
     }
 
     const expandedQueries = expandKnowledgeSearchQueries(normalizedQuery);
+    metrics.expandedQueryCount = expandedQueries.length;
     const baseCacheKey = expandedQueries.join('::');
     if (!baseCacheKey) {
-      return [];
+      metrics.totalDurationMs = Date.now() - totalStartedAt;
+      return { results: [], metrics };
     }
     const cacheKey = options?.embeddingConfig
       ? `${baseCacheKey}::hybrid::${options.embeddingConfig.model}`
@@ -3207,26 +3282,43 @@ export async function searchDocumentsInDatabase(
 
     const cached = readDocumentSearchCache(database, scopedCacheKey);
     if (cached) {
-      return cached;
+      metrics.cacheHit = true;
+      metrics.totalDurationMs = Date.now() - totalStartedAt;
+      return { results: cached, metrics };
     }
 
     const subqueries = expandedQueries.length > 0 ? expandedQueries : decomposeTaskQuery(normalizedQuery);
-    const primaryCandidates = await collectDocumentCandidates(database, normalizedQuery, subqueries, options);
+    metrics.subqueryCount = subqueries.length;
+    const primaryCollection = await collectDocumentCandidates(database, normalizedQuery, subqueries, options);
+    const primaryCandidates = primaryCollection.candidates;
+    metrics.primaryCandidateCount = primaryCandidates.length;
+    metrics.lexicalDurationMs += primaryCollection.metrics.lexicalDurationMs;
+    metrics.vectorDurationMs += primaryCollection.metrics.vectorDurationMs;
+    metrics.graphDurationMs += primaryCollection.metrics.graphDurationMs;
     const retrievalStages = new Map<string, 'primary' | 'corrective' | 'hybrid'>(
       primaryCandidates.map((candidate) => [candidate.id, 'primary']),
     );
 
+    const rerankStartedAt = Date.now();
     const primaryResults = shapeRetrievedDocumentResults(normalizedQuery, primaryCandidates, options, retrievalStages);
+    metrics.rerankDurationMs += Date.now() - rerankStartedAt;
     const correctivePlan = planCorrectiveKnowledgeQueries(normalizedQuery, primaryResults, options);
+    metrics.correctiveQueryCount = correctivePlan.queries.length;
 
     let finalResults = primaryResults;
     if (correctivePlan.queries.length > 0) {
-      const correctiveCandidates = await collectDocumentCandidates(
+      const correctiveStartedAt = Date.now();
+      const correctiveCollection = await collectDocumentCandidates(
         database,
         correctivePlan.queries.join(' '),
         correctivePlan.queries,
         options,
       );
+      const correctiveCandidates = correctiveCollection.candidates;
+      metrics.correctiveCandidateCount = correctiveCandidates.length;
+      metrics.lexicalDurationMs += correctiveCollection.metrics.lexicalDurationMs;
+      metrics.vectorDurationMs += correctiveCollection.metrics.vectorDurationMs;
+      metrics.graphDurationMs += correctiveCollection.metrics.graphDurationMs;
 
       if (correctiveCandidates.length > 0) {
         const merged = new Map<string, DocumentSearchCandidate>(
@@ -3246,22 +3338,27 @@ export async function searchDocumentsInDatabase(
             graphHints: [...(candidate.graphHints ?? [])],
           });
           retrievalStages.set(candidate.id, 'corrective');
-        });
+          });
 
+        const correctiveRerankStartedAt = Date.now();
         finalResults = shapeRetrievedDocumentResults(
           normalizedQuery,
           [...merged.values()],
           options,
           retrievalStages,
         );
+        metrics.rerankDurationMs += Date.now() - correctiveRerankStartedAt;
       }
+      metrics.correctiveDurationMs += Date.now() - correctiveStartedAt;
     }
 
     writeDocumentSearchCache(database, scopedCacheKey, normalizedQuery, finalResults);
-    return finalResults;
+    metrics.totalDurationMs = Date.now() - totalStartedAt;
+    return { results: finalResults, metrics };
   } catch (error) {
     console.error('Search error:', error);
-    return [];
+    metrics.totalDurationMs = Date.now() - totalStartedAt;
+    return { results: [], metrics };
   }
 }
 
@@ -3280,18 +3377,28 @@ export async function searchKnowledgeDocuments(
   query: string,
   options: Omit<KnowledgeDocumentSearchOptions, 'embeddingConfig'> = {},
 ): Promise<KnowledgeDocumentSearchResult[]> {
+  return (await searchKnowledgeDocumentsWithMetrics(query, options)).results;
+}
+
+export async function searchKnowledgeDocumentsWithMetrics(
+  query: string,
+  options: Omit<KnowledgeDocumentSearchOptions, 'embeddingConfig'> = {},
+): Promise<KnowledgeDocumentSearchResponse> {
   const database = await initDB();
   const config = await getAgentConfig();
-  const rows = await searchDocumentsInDatabase(database, query, {
+  const response = await searchDocumentsInDatabaseWithMetrics(database, query, {
     ...options,
     embeddingConfig: buildEmbeddingConfigFromDocuments(config.documents),
   });
 
-  const results = rows
+  const results = response.results
     .map((row) =>
       mergeSearchResultWithMetadata(getDocumentMetadataRecord(database, row.id), row),
     )
     .filter((row): row is KnowledgeDocumentSearchResult => Boolean(row));
   await saveDB();
-  return results;
+  return {
+    results,
+    metrics: response.metrics,
+  };
 }

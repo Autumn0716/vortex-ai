@@ -1,14 +1,18 @@
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import {
-  searchKnowledgeDocuments,
+  searchKnowledgeDocumentsWithMetrics,
   type KnowledgeDocumentSearchResult,
+  type KnowledgeDocumentSearchMetrics,
 } from '../db';
 import type { AgentConfig, SearchProviderConfig } from './config';
 import { runSnippetInSandbox } from '../webcontainer';
 import { err, isErr, ok, type Result } from '../result';
 
-export function formatKnowledgeBaseToolPayload(results: KnowledgeDocumentSearchResult[]) {
+export function formatKnowledgeBaseToolPayload(
+  results: KnowledgeDocumentSearchResult[],
+  metrics?: KnowledgeDocumentSearchMetrics,
+) {
   const supportCounts = results.reduce(
     (counts, result) => {
       const label = result.supportLabel ?? 'unknown';
@@ -38,6 +42,7 @@ export function formatKnowledgeBaseToolPayload(results: KnowledgeDocumentSearchR
       supportCounts,
       strongestSupport,
       recommendation,
+      metrics: metrics ?? null,
     },
     results: results.map((result) => ({
       id: result.id,
@@ -64,11 +69,11 @@ export function formatKnowledgeBaseToolPayload(results: KnowledgeDocumentSearchR
 export const searchKnowledgeBaseTool = tool(
   async ({ query }) => {
     try {
-      const results = await searchKnowledgeDocuments(query, { maxResults: 5 });
+      const { results, metrics } = await searchKnowledgeDocumentsWithMetrics(query, { maxResults: 5 });
       if (results.length === 0) {
         return 'No relevant documents found in the local SQLite knowledge base.';
       }
-      return JSON.stringify(formatKnowledgeBaseToolPayload(results), null, 2);
+      return JSON.stringify(formatKnowledgeBaseToolPayload(results, metrics), null, 2);
     } catch (error: any) {
       return `Error searching database: ${error.message}`;
     }

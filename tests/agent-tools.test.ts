@@ -2,44 +2,63 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createAgentTools, formatKnowledgeBaseToolPayload } from '../src/lib/agent/tools';
 import { buildGroundedSystemPrompt } from '../src/lib/agent/runtime';
-import type { KnowledgeDocumentSearchResult } from '../src/lib/db';
+import type { KnowledgeDocumentSearchMetrics, KnowledgeDocumentSearchResult } from '../src/lib/db';
 import { DEFAULT_CONFIG } from '../src/lib/agent/config';
 
 test('formatKnowledgeBaseToolPayload returns evidence summary and stable result metadata', () => {
-  const payload = formatKnowledgeBaseToolPayload([
-    {
-      id: 'doc_high',
-      title: 'Branch Handoff Guide',
-      content: 'Focused branch handoff excerpt',
-      sourceType: 'workspace_doc',
-      sourceUri: 'skills/branch/SKILL.md',
-      tags: ['skill_doc'],
-      supportScore: 0.92,
-      supportLabel: 'high',
-      matchedTerms: ['branch', 'handoff'],
-      graphHints: ['branch handoff'],
-      graphExpansionHints: ['parent topic id'],
-      graphPaths: ['branch handoff -cooccurs-> parent topic id'],
-      retrievalStage: 'hybrid',
-    } satisfies KnowledgeDocumentSearchResult,
-    {
-      id: 'doc_low',
-      title: 'Generic Summary Notes',
-      content: 'Loose notes',
-      sourceType: 'workspace_doc',
-      tags: [],
-      supportScore: 0.28,
-      supportLabel: 'low',
-      matchedTerms: ['summary'],
-      graphHints: [],
-      graphExpansionHints: [],
-      retrievalStage: 'corrective',
-    } satisfies KnowledgeDocumentSearchResult,
-  ]);
+  const metrics: KnowledgeDocumentSearchMetrics = {
+    cacheHit: false,
+    expandedQueryCount: 3,
+    subqueryCount: 3,
+    primaryCandidateCount: 5,
+    correctiveQueryCount: 1,
+    correctiveCandidateCount: 2,
+    lexicalDurationMs: 11,
+    vectorDurationMs: 18,
+    graphDurationMs: 4,
+    rerankDurationMs: 3,
+    correctiveDurationMs: 9,
+    totalDurationMs: 45,
+  };
+  const payload = formatKnowledgeBaseToolPayload(
+    [
+      {
+        id: 'doc_high',
+        title: 'Branch Handoff Guide',
+        content: 'Focused branch handoff excerpt',
+        sourceType: 'workspace_doc',
+        sourceUri: 'skills/branch/SKILL.md',
+        tags: ['skill_doc'],
+        supportScore: 0.92,
+        supportLabel: 'high',
+        matchedTerms: ['branch', 'handoff'],
+        graphHints: ['branch handoff'],
+        graphExpansionHints: ['parent topic id'],
+        graphPaths: ['branch handoff -cooccurs-> parent topic id'],
+        retrievalStage: 'hybrid',
+      } satisfies KnowledgeDocumentSearchResult,
+      {
+        id: 'doc_low',
+        title: 'Generic Summary Notes',
+        content: 'Loose notes',
+        sourceType: 'workspace_doc',
+        tags: [],
+        supportScore: 0.28,
+        supportLabel: 'low',
+        matchedTerms: ['summary'],
+        graphHints: [],
+        graphExpansionHints: [],
+        retrievalStage: 'corrective',
+      } satisfies KnowledgeDocumentSearchResult,
+    ],
+    metrics,
+  );
 
   assert.equal(payload.evidence.totalResults, 2);
   assert.equal(payload.evidence.strongestSupport, 'high');
   assert.equal(payload.evidence.recommendation, 'answer_with_citations');
+  assert.equal(payload.evidence.metrics?.vectorDurationMs, 18);
+  assert.equal(payload.evidence.metrics?.totalDurationMs, 45);
   assert.equal(payload.results[0]?.support.label, 'high');
   assert.equal(payload.results[0]?.retrievalStage, 'hybrid');
   assert.deepEqual(payload.results[0]?.graph.expansionHints, ['parent topic id']);
