@@ -30,14 +30,18 @@ import {
   searchDocumentsInDatabase,
   searchDocumentsInDatabaseWithMetrics,
 } from './db-search-orchestrator';
+import {
+  listAssistantsInDatabase,
+  listPromptSnippetsInDatabase,
+  saveAssistantInDatabase,
+  savePromptSnippetInDatabase,
+} from './db-library-data';
 import { getScalar, mapRows } from './db-row-helpers';
 import {
   toAgentLane,
-  toAssistantProfile,
   toChatMessage,
   toConversationSummary,
   toGlobalMemoryDocument,
-  toPromptSnippet,
 } from './db-row-mappers';
 import { createBaseSchema } from './db-schema';
 import {
@@ -667,213 +671,30 @@ export async function setActiveConversationId(conversationId: string) {
 
 export async function listAssistants(): Promise<AssistantProfile[]> {
   const database = await initDB();
-  const rows = mapRows<{
-    id: string;
-    name: string;
-    description: string;
-    system_prompt: string;
-    provider_id: string | null;
-    model: string | null;
-    accent_color: string;
-    is_default: number;
-    created_at: string;
-    updated_at: string;
-  }>(
-    database.exec(`
-      SELECT
-        id,
-        name,
-        description,
-        system_prompt,
-        provider_id,
-        model,
-        accent_color,
-        is_default,
-        created_at,
-        updated_at
-      FROM assistants
-      ORDER BY is_default DESC, created_at ASC
-    `),
-  );
-
-  return rows.map(toAssistantProfile);
+  return listAssistantsInDatabase(database);
 }
 
 export async function saveAssistant(
   draft: Omit<AssistantProfile, 'createdAt' | 'updatedAt' | 'isDefault'> & { isDefault?: boolean },
 ): Promise<AssistantProfile> {
   const database = await initDB();
-  const timestamp = nowIso();
-  const isNew = !draft.id;
-  const id = draft.id || createId('assistant');
-  const isDefault = draft.isDefault ? 1 : 0;
-
-  await runDatabaseTransaction(database, () => {
-    if (isDefault) {
-      database.run('UPDATE assistants SET is_default = 0');
-    }
-
-    if (isNew) {
-      database.run(
-        `
-          INSERT INTO assistants (
-            id,
-            name,
-            description,
-            system_prompt,
-            provider_id,
-            model,
-            accent_color,
-            is_default,
-            created_at,
-            updated_at
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-        [
-          id,
-          draft.name.trim(),
-          draft.description.trim(),
-          draft.systemPrompt.trim(),
-          draft.providerId ?? null,
-          draft.model ?? null,
-          draft.accentColor,
-          isDefault,
-          timestamp,
-          timestamp,
-        ],
-      );
-    } else {
-      database.run(
-        `
-          UPDATE assistants
-          SET
-            name = ?,
-            description = ?,
-            system_prompt = ?,
-            provider_id = ?,
-            model = ?,
-            accent_color = ?,
-            is_default = ?,
-            updated_at = ?
-          WHERE id = ?
-        `,
-        [
-          draft.name.trim(),
-          draft.description.trim(),
-          draft.systemPrompt.trim(),
-          draft.providerId ?? null,
-          draft.model ?? null,
-          draft.accentColor,
-          isDefault,
-          timestamp,
-          id,
-        ],
-      );
-    }
-  });
-
+  const assistant = await saveAssistantInDatabase(database, draft);
   await saveDB();
-  const assistant = getAssistantRow(database, id);
-  if (!assistant) {
-    throw new Error('Failed to save assistant.');
-  }
   return assistant;
 }
 
 export async function listPromptSnippets(): Promise<PromptSnippet[]> {
   const database = await initDB();
-  const rows = mapRows<{
-    id: string;
-    title: string;
-    content: string;
-    category: string;
-    created_at: string;
-    updated_at: string;
-  }>(
-    database.exec(`
-      SELECT
-        id,
-        title,
-        content,
-        category,
-        created_at,
-        updated_at
-      FROM prompt_snippets
-      ORDER BY created_at ASC
-    `),
-  );
-
-  return rows.map(toPromptSnippet);
+  return listPromptSnippetsInDatabase(database);
 }
 
 export async function savePromptSnippet(
   draft: Omit<PromptSnippet, 'createdAt' | 'updatedAt'>,
 ): Promise<PromptSnippet> {
   const database = await initDB();
-  const timestamp = nowIso();
-  const id = draft.id || createId('snippet');
-  const exists = Number(
-    getScalar(database, 'SELECT COUNT(*) FROM prompt_snippets WHERE id = ?', [id]) ?? 0,
-  );
-
-  if (exists > 0) {
-    database.run(
-      `
-        UPDATE prompt_snippets
-        SET title = ?, content = ?, category = ?, updated_at = ?
-        WHERE id = ?
-      `,
-      [draft.title.trim(), draft.content.trim(), draft.category.trim(), timestamp, id],
-    );
-  } else {
-    database.run(
-      `
-        INSERT INTO prompt_snippets (
-          id,
-          title,
-          content,
-          category,
-          created_at,
-          updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?)
-      `,
-      [id, draft.title.trim(), draft.content.trim(), draft.category.trim(), timestamp, timestamp],
-    );
-  }
-
+  const snippet = savePromptSnippetInDatabase(database, draft);
   await saveDB();
-  const row = mapRows<{
-    id: string;
-    title: string;
-    content: string;
-    category: string;
-    created_at: string;
-    updated_at: string;
-  }>(
-    database.exec(
-      `
-        SELECT
-          id,
-          title,
-          content,
-          category,
-          created_at,
-          updated_at
-        FROM prompt_snippets
-        WHERE id = ?
-        LIMIT 1
-      `,
-      [id],
-    ),
-  )[0];
-
-  if (!row) {
-    throw new Error('Failed to save prompt snippet.');
-  }
-
-  return toPromptSnippet(row);
+  return snippet;
 }
 
 export async function getDataStats(): Promise<DataStats> {
