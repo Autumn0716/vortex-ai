@@ -488,6 +488,17 @@ async function* parseResponseSse(body: ReadableStream<Uint8Array>) {
   const decoder = new TextDecoder();
   let buffer = '';
 
+  const parseFrame = (data: string) => {
+    try {
+      return JSON.parse(data) as Record<string, any>;
+    } catch (error) {
+      const preview = data.trim().slice(0, 200) || '(empty SSE payload)';
+      throw new Error(`Failed to parse responses SSE payload: ${preview}`, {
+        cause: error instanceof Error ? error : undefined,
+      });
+    }
+  };
+
   while (true) {
     const { value, done } = await reader.read();
     if (done) {
@@ -511,7 +522,7 @@ async function* parseResponseSse(body: ReadableStream<Uint8Array>) {
         continue;
       }
 
-      yield JSON.parse(data) as Record<string, any>;
+      yield parseFrame(data);
     }
   }
 
@@ -526,7 +537,7 @@ async function* parseResponseSse(body: ReadableStream<Uint8Array>) {
     .map((line) => line.slice(5).trim())
     .join('\n');
   if (data && data !== '[DONE]') {
-    yield JSON.parse(data) as Record<string, any>;
+    yield parseFrame(data);
   }
 }
 

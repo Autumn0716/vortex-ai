@@ -49,6 +49,26 @@ function createSseResponse(events: Record<string, unknown>[]) {
   );
 }
 
+function createRawSseResponse(frames: string[]) {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        frames.forEach((frame) => {
+          controller.enqueue(encoder.encode(frame));
+        });
+        controller.close();
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+      },
+    },
+  );
+}
+
 function createHumanMessage(content: string) {
   return {
     content,
@@ -192,6 +212,46 @@ test('responses runtime disables thinking when structured output is not plain te
     }
 
     assert.equal(captured.body?.enable_thinking, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('responses runtime surfaces contextual SSE parse errors for malformed event payloads', async () => {
+  const config = buildConfig({
+    id: 'aliyun_responses',
+    name: 'Aliyun Responses',
+    baseUrl: 'https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1',
+    models: ['qwen3.5-plus'],
+    protocol: 'openai_responses_compatible',
+  });
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    createRawSseResponse([
+      'data: {"type":"response.output_text.delta","delta":"partial"}\n\n',
+      'data: {"type":"response.completed"\n\n',
+    ])) as typeof fetch;
+
+  try {
+    const runtime = createAgentRuntime({
+      config,
+      providerId: 'aliyun_responses',
+      model: 'qwen3.5-plus',
+      structuredOutput: { mode: 'text' },
+      responsesTools: {},
+    });
+
+    await assert.rejects(
+      async () => {
+        for await (const _event of runtime.stream({
+          messages: [createHumanMessage('帮我总结这段内容')],
+        })) {
+          // consume stream
+        }
+      },
+      /Failed to parse responses SSE payload:/,
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }
