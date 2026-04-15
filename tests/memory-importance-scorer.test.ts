@@ -99,6 +99,25 @@ test('scoreMemoryImportanceWithModel defensively parses fenced or noisy JSON and
   assert.equal(assessment.source, 'llm');
 });
 
+test('scoreMemoryImportanceWithModel exposes the underlying parse error for invalid JSON', async () => {
+  await assert.rejects(
+    () =>
+      scoreMemoryImportanceWithModel({
+        config: normalizeAgentConfig(),
+        date: '2026-04-01',
+        tier: 'cold',
+        sourceMarkdown: '- malformed scorer output',
+        invokeModel: async () => '```json\n{"importanceScore": \n```',
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /Memory scorer returned invalid JSON/);
+      assert.ok(error.cause instanceof SyntaxError);
+      return true;
+    },
+  );
+});
+
 test('scoreMemoryImportanceWithModel reuses the active provider and model selection for supported providers', async () => {
   const cases = [
     {

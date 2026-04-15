@@ -136,16 +136,20 @@ function extractJsonCandidate(raw: string) {
 
 function parseScorerJson(raw: string) {
   const candidates = extractJsonCandidate(raw);
+  let lastError: unknown;
 
   for (const candidate of candidates) {
     try {
       return JSON.parse(candidate) as unknown;
-    } catch {
+    } catch (error) {
+      lastError = error;
       // Try the next candidate.
     }
   }
 
-  throw new Error(`Memory scorer returned invalid JSON: ${raw.trim().slice(0, 300)}`);
+  throw new Error(`Memory scorer returned invalid JSON: ${raw.trim().slice(0, 300)}`, {
+    cause: lastError instanceof Error ? lastError : undefined,
+  });
 }
 
 function normalizeAssessment(value: unknown, fallbackTier: 'warm' | 'cold', config: AgentConfig): MemoryImportanceAssessment {
