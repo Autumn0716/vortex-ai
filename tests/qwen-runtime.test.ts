@@ -85,6 +85,49 @@ test('buildResponseTools includes official qwen responses tools and enabled SSE 
   assert.equal((tools[5] as Record<string, unknown>).server_protocol, 'sse');
 });
 
+test('buildResponseTools warns and drops malformed MCP headers instead of crashing', () => {
+  const config = normalizeAgentConfig({
+    mcpServers: [
+      {
+        id: 'mcp_bad_headers',
+        name: 'Broken MCP',
+        url: 'https://example.com/sse',
+        description: 'SSE MCP',
+        enabled: true,
+        transport: 'sse',
+        command: '',
+        args: '',
+        headers: '{"Authorization":"Bearer token"',
+        source: 'custom',
+        provider: 'Custom',
+      },
+    ],
+  });
+
+  const originalWarn = console.warn;
+  const warnings: string[] = [];
+  console.warn = (message?: unknown) => {
+    warnings.push(String(message ?? ''));
+  };
+
+  try {
+    const tools = buildResponseTools(config, {
+      enableTools: true,
+      enableWebSearch: false,
+      enableMcp: true,
+    });
+
+    assert.equal(tools.length, 1);
+    assert.equal(tools[0]?.type, 'mcp');
+    assert.equal('headers' in (tools[0] as Record<string, unknown>), false);
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? '', /Failed to parse MCP headers for "Broken MCP"/);
+});
+
 test('buildResponseTools appends custom function tools using official responses schema', () => {
   const config = normalizeAgentConfig();
   const tools = buildResponseTools(config, {

@@ -236,8 +236,12 @@ export function buildResponseTools(
         let headers: Record<string, string> | undefined;
         if (server.headers.trim()) {
           try {
-            headers = JSON.parse(server.headers);
-          } catch {
+            headers = parseRuntimeJson<Record<string, string>>(
+              server.headers,
+              `Failed to parse MCP headers for "${server.name}"`,
+            );
+          } catch (error) {
+            console.warn(error instanceof Error ? error.message : error);
             headers = undefined;
           }
         }
