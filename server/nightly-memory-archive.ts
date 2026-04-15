@@ -218,6 +218,7 @@ async function readJsonFile<T>(filePath: string): Promise<T | null> {
   try {
     return JSON.parse(raw) as T;
   } catch {
+    console.warn(`Failed to parse nightly archive file at ${filePath}; falling back to defaults.`);
     return null;
   }
 }
