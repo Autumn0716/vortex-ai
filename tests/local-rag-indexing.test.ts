@@ -6,6 +6,7 @@ import {
   clearDocumentSearchCache,
   getDocumentFtsEnabled,
   indexDocumentChunks,
+  parseEmbeddingJson,
   searchKnowledgeDocuments,
   searchDocumentsInDatabase,
 } from '../src/lib/db';
@@ -185,6 +186,23 @@ test('clearDocumentSearchCache removes all cached search payloads', async () => 
   } finally {
     database.close();
   }
+});
+
+test('parseEmbeddingJson warns and returns an empty vector for malformed JSON', () => {
+  const originalWarn = console.warn;
+  const warnings: string[] = [];
+  console.warn = (message?: unknown) => {
+    warnings.push(String(message ?? ''));
+  };
+
+  try {
+    assert.deepEqual(parseEmbeddingJson('{"embedding": '), []);
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? '', /Failed to parse embedding JSON/);
 });
 
 test('searchDocumentsInDatabase uses decomposed FTS queries and persists cache entries', async () => {

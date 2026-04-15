@@ -1424,8 +1424,13 @@ function upsertDocumentMetadata(
 export function parseEmbeddingJson(raw: string) {
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.map((value) => Number(value) || 0) : [];
-  } catch {
+    if (Array.isArray(parsed)) {
+      return parsed.map((value) => Number(value) || 0);
+    }
+    console.warn('Failed to parse embedding JSON; expected an array payload.');
+    return [];
+  } catch (error) {
+    console.warn('Failed to parse embedding JSON; falling back to an empty vector:', error);
     return [];
   }
 }
