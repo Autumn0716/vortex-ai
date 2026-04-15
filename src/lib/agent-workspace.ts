@@ -138,6 +138,12 @@ export interface AgentMemoryDocument {
   updatedAt: string;
 }
 
+export interface AgentMemorySearchResult extends AgentMemoryDocument {
+  layer: MemoryRetrievalLayer;
+  retrievalStage: 'preferred' | 'fallback' | 'semantic_cold';
+  score: number;
+}
+
 export type TopicSessionMode = 'agent' | 'quick';
 
 export interface TopicModelFeatures {
@@ -349,20 +355,55 @@ function countNonGlobalMemoryDocuments(documents: AgentMemoryDocument[]) {
   return documents.reduce((count, document) => count + (document.memoryScope === 'global' ? 0 : 1), 0);
 }
 
-function mergeDistinctMemoryDocuments(base: AgentMemoryDocument[], additions: AgentMemoryDocument[]) {
-  const merged: AgentMemoryDocument[] = [];
+function mergeDistinctMemorySearchResults(...groups: AgentMemorySearchResult[][]) {
+  const merged: AgentMemorySearchResult[] = [];
   const seen = new Set<string>();
 
-  [...base, ...additions].forEach((document) => {
-    if (seen.has(document.id)) {
+  groups.flat().forEach((result) => {
+    if (seen.has(result.id)) {
       return;
     }
 
-    seen.add(document.id);
-    merged.push(document);
+    seen.add(result.id);
+    merged.push(result);
   });
 
   return merged;
+}
+
+function scoreMemorySearchResult(document: AgentMemoryDocument, query?: string) {
+  const baseScore = document.importanceScore;
+  if (!query?.trim()) {
+    return baseScore;
+  }
+
+  const terms = query
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}_-]+/u)
+    .filter((term) => term.length > 1);
+  if (terms.length === 0) {
+    return baseScore;
+  }
+
+  const haystack = `${document.title}\n${document.content}`.toLowerCase();
+  const matchScore = terms.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0);
+  return baseScore + matchScore;
+}
+
+function toMemorySearchResults(
+  documents: AgentMemoryDocument[],
+  stage: AgentMemorySearchResult['retrievalStage'],
+  now: string,
+  query?: string,
+): AgentMemorySearchResult[] {
+  return documents
+    .map((document) => ({
+      ...document,
+      layer: getMemoryDocumentLayer(document, now),
+      retrievalStage: stage,
+      score: scoreMemorySearchResult(document, query),
+    }))
+    .sort((left, right) => right.score - left.score || right.updatedAt.localeCompare(left.updatedAt));
 }
 
 async function resolveMemoryEmbeddingConfig(override?: EmbeddingProviderConfig | null) {
@@ -3576,10 +3617,9 @@ export async function saveAgentMemoryDocument(draft: {
   return toAgentMemoryDocument(row);
 }
 
-export async function getAgentMemoryContext(
+export async function searchMemories(
   agentId: string,
   options?: {
-    includeRecentMemorySnapshot?: boolean;
     now?: string;
     query?: string;
     embeddingConfig?: EmbeddingProviderConfig | null;
@@ -3587,7 +3627,7 @@ export async function getAgentMemoryContext(
     includeSessionMemory?: boolean;
     includeAgentSharedShortTerm?: boolean;
   },
-): Promise<string> {
+): Promise<AgentMemorySearchResult[]> {
   const now = options?.now ?? new Date().toISOString();
   const database = await ensureAgentSchema();
   const rawDocuments = await listAgentMemoryDocuments(agentId, {
@@ -3614,48 +3654,73 @@ export async function getAgentMemoryContext(
   );
 
   const normalizedQuery = options?.query?.trim();
-  let routedDocuments = documents;
-
-  if (normalizedQuery) {
-    const route = routeMemoryQuery(normalizedQuery, { now });
-    const preferredDocuments = selectMemoryDocumentsByLayers(documents, route.preferredLayers, now);
-    const preferredGlobalDocuments = preferredDocuments.filter((document) => document.memoryScope === 'global');
-
-    if (route.mode === 'explicit_cold') {
-      const semanticColdDocuments = await searchColdMemoryVectorDocuments(
-        database,
-        agentId,
-        documents,
-        normalizedQuery,
-        now,
-        options?.embeddingConfig,
-      );
-      routedDocuments =
-        semanticColdDocuments.length > 0
-          ? mergeDistinctMemoryDocuments(preferredGlobalDocuments, semanticColdDocuments)
-          : preferredDocuments;
-    } else {
-      if (countNonGlobalMemoryDocuments(preferredDocuments) < 2) {
-        const semanticColdDocuments = await searchColdMemoryVectorDocuments(
-          database,
-          agentId,
-          documents,
-          normalizedQuery,
-          now,
-          options?.embeddingConfig,
-        );
-        routedDocuments =
-          semanticColdDocuments.length > 0
-            ? mergeDistinctMemoryDocuments(preferredDocuments, semanticColdDocuments)
-            : mergeDistinctMemoryDocuments(
-                preferredDocuments,
-                selectMemoryDocumentsByLayers(documents, route.fallbackLayers, now),
-              );
-      } else {
-        routedDocuments = preferredDocuments;
-      }
-    }
+  if (!normalizedQuery) {
+    return toMemorySearchResults(documents, 'preferred', now);
   }
+
+  const route = routeMemoryQuery(normalizedQuery, { now });
+  const preferredDocuments = selectMemoryDocumentsByLayers(documents, route.preferredLayers, now);
+  const preferredResults = toMemorySearchResults(preferredDocuments, 'preferred', now, normalizedQuery);
+  const preferredGlobalDocuments = preferredDocuments.filter((document) => document.memoryScope === 'global');
+
+  if (route.mode === 'explicit_cold') {
+    const semanticColdDocuments = await searchColdMemoryVectorDocuments(
+      database,
+      agentId,
+      documents,
+      normalizedQuery,
+      now,
+      options?.embeddingConfig,
+    );
+    const semanticColdResults = toMemorySearchResults(semanticColdDocuments, 'semantic_cold', now, normalizedQuery);
+
+    return semanticColdResults.length > 0
+      ? mergeDistinctMemorySearchResults(
+          toMemorySearchResults(preferredGlobalDocuments, 'preferred', now, normalizedQuery),
+          semanticColdResults,
+        )
+      : preferredResults;
+  }
+
+  if (countNonGlobalMemoryDocuments(preferredDocuments) >= 2) {
+    return preferredResults;
+  }
+
+  const semanticColdDocuments = await searchColdMemoryVectorDocuments(
+    database,
+    agentId,
+    documents,
+    normalizedQuery,
+    now,
+    options?.embeddingConfig,
+  );
+  const semanticColdResults = toMemorySearchResults(semanticColdDocuments, 'semantic_cold', now, normalizedQuery);
+
+  if (semanticColdResults.length > 0) {
+    return mergeDistinctMemorySearchResults(preferredResults, semanticColdResults);
+  }
+
+  const fallbackDocuments = selectMemoryDocumentsByLayers(documents, route.fallbackLayers, now);
+  return mergeDistinctMemorySearchResults(
+    preferredResults,
+    toMemorySearchResults(fallbackDocuments, 'fallback', now, normalizedQuery),
+  );
+}
+
+export async function getAgentMemoryContext(
+  agentId: string,
+  options?: {
+    includeRecentMemorySnapshot?: boolean;
+    now?: string;
+    query?: string;
+    embeddingConfig?: EmbeddingProviderConfig | null;
+    topicId?: string;
+    includeSessionMemory?: boolean;
+    includeAgentSharedShortTerm?: boolean;
+  },
+): Promise<string> {
+  const now = options?.now ?? new Date().toISOString();
+  const routedDocuments = await searchMemories(agentId, options);
 
   return formatLayeredMemoryContext(routedDocuments, {
     includeRecentMemorySnapshot: options?.includeRecentMemorySnapshot,

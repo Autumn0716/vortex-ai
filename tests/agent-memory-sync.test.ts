@@ -11,7 +11,7 @@ import {
 } from '../src/lib/agent-memory-sync';
 import { ensureAgentWorkspaceSchema } from '../src/lib/agent-workspace-schema';
 import { buildAgentMemoryPaths } from '../src/lib/agent-memory-files';
-import { getAgentMemoryContext, saveAgent, syncCurrentAgentMemory } from '../src/lib/agent-workspace';
+import { getAgentMemoryContext, saveAgent, searchMemories, syncCurrentAgentMemory } from '../src/lib/agent-workspace';
 import { Database, initDB } from '../src/lib/db';
 import type { EmbeddingProviderConfig } from '../src/lib/embedding-client';
 
@@ -736,6 +736,44 @@ test('getAgentMemoryContext routes explicit old dates to cold plus global only',
     assert.match(context, /Cold memory:\n- 2026-03-01 Daily Log: - Cold detail that should be injected\./);
     assert.doesNotMatch(context, /Hot memory:/);
     assert.doesNotMatch(context, /Warm memory:/);
+  } finally {
+    setAgentMemoryFileStore(null);
+  }
+});
+
+test('searchMemories exposes routed layers and stages for explicit cold queries', async () => {
+  const agentId = 'agent_search_memories_explicit_cold';
+  const workspaceRelpath = 'agents/search-memories-explicit-cold';
+  const slug = 'search-memories-explicit-cold';
+  const now = '2026-04-01T12:00:00.000Z';
+  const hotPaths = buildAgentMemoryPaths(slug, '2026-03-31');
+  const coldPaths = buildAgentMemoryPaths(slug, '2026-03-01');
+
+  await setupMemoryContextAgent(
+    agentId,
+    workspaceRelpath,
+    new Map([
+      [buildAgentMemoryPaths(slug, '2026-04-01').memoryFile, '---\ntitle: "Global Memory"\n---\n\nGlobal preference.'],
+      [hotPaths.dailyFile, '---\ntitle: "2026-03-31 Daily Log"\n---\n\n- Hot detail that should stay out.'],
+      [coldPaths.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Cold routed detail.'],
+    ]),
+  );
+
+  try {
+    const results = await searchMemories(agentId, {
+      now,
+      query: '2026-03-01 那天发生了什么？',
+    });
+
+    assert.deepEqual(
+      results
+        .map((result) => [result.title, result.layer, result.retrievalStage])
+        .sort(([left], [right]) => String(left).localeCompare(String(right))),
+      [
+        ['2026-03-01 Daily Log', 'cold', 'preferred'],
+        ['Global Memory', 'global', 'preferred'],
+      ],
+    );
   } finally {
     setAgentMemoryFileStore(null);
   }
