@@ -86,6 +86,10 @@ function sendApiError(response: Response, status: number, errorCode: string, mes
   });
 }
 
+function isModelMetadataStoreFailure(error: unknown) {
+  return error instanceof Error && error.message.includes('Failed to read model metadata store at ');
+}
+
 function applyAuth(app: Express, authToken: string) {
   app.use((request: Request, response: Response, next: NextFunction) => {
     if (!authToken) {
@@ -242,7 +246,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     } catch (error) {
       sendApiError(
         response,
-        400,
+        isModelMetadataStoreFailure(error) ? 500 : 400,
         'MODEL_METADATA_WRITE_FAILED',
         error instanceof Error ? error.message : 'Failed to write stored model metadata.',
       );

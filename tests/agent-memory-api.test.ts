@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -242,6 +242,53 @@ test('API validation errors include stable error_code fields', async () => {
   }
 });
 
+test('API model metadata read errors include contextual file details', async () => {
+  const rootDir = await createTempRoot();
+  await writeFile(path.join(rootDir, 'model-metadata.json'), '{"entries": ', 'utf8');
+  const server = await startServer(rootDir);
+
+  try {
+    const response = await fetch(`${server.baseUrl}/api/model-metadata?providerId=aliyun_responses`);
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      error: `Failed to read model metadata store at ${path.join(rootDir, 'model-metadata.json')}`,
+      error_code: 'MODEL_METADATA_READ_FAILED',
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test('API model metadata write errors return 500 when the local store is malformed', async () => {
+  const rootDir = await createTempRoot();
+  await writeFile(path.join(rootDir, 'model-metadata.json'), '{"entries": ', 'utf8');
+  const server = await startServer(rootDir);
+
+  try {
+    const response = await fetch(`${server.baseUrl}/api/model-metadata`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        providerId: 'aliyun_responses',
+        providerName: 'Aliyun',
+        model: 'qwen3.6plus',
+        metadata: {
+          contextWindow: 1000000,
+        },
+      }),
+    });
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      error: `Failed to read model metadata store at ${path.join(rootDir, 'model-metadata.json')}`,
+      error_code: 'MODEL_METADATA_WRITE_FAILED',
+    });
+  } finally {
+    await server.close();
+  }
+});
+
 test('API memory file listing includes warm and cold surrogate markdown files', async () => {
   const rootDir = await createTempRoot();
   const server = await startServer(rootDir);
@@ -333,6 +380,26 @@ test('model inspector 404 is rewritten to a local upgrade hint', async () => {
     );
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('API model inspector returns contextual errors when the cached metadata store is malformed', async () => {
+  const rootDir = await createTempRoot();
+  await writeFile(path.join(rootDir, 'model-metadata.json'), '{"entries": ', 'utf8');
+  const server = await startServer(rootDir);
+
+  try {
+    const response = await fetch(
+      `${server.baseUrl}/api/model-inspector?providerId=aliyun_responses&providerName=Aliyun&model=qwen3.6plus`,
+    );
+
+    assert.equal(response.status, 500);
+    assert.deepEqual(await response.json(), {
+      error: `Failed to read model metadata store at ${path.join(rootDir, 'model-metadata.json')}`,
+      error_code: 'MODEL_INSPECTOR_FAILED',
+    });
+  } finally {
+    await server.close();
   }
 });
 

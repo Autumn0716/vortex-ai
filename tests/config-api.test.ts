@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -83,6 +83,24 @@ test('project config is readable and writable through the local API helpers', as
 
     const reread = await getProjectConfig(settings);
     assert.equal(reread?.apiServer.baseUrl, 'http://127.0.0.1:3999');
+  } finally {
+    await server.close();
+  }
+});
+
+test('project config API returns contextual read errors for malformed config.json', async () => {
+  const rootDir = await createTempRoot();
+  await writeFile(path.join(rootDir, 'config.json'), '{"activeProviderId": ', 'utf8');
+  const server = await startServer(rootDir);
+
+  try {
+    const response = await fetch(`${server.baseUrl}/api/config`);
+    assert.equal(response.status, 500);
+
+    const payload = (await response.json()) as { error?: string; error_code?: string };
+    assert.equal(payload.error_code, 'CONFIG_READ_FAILED');
+    assert.match(payload.error ?? '', /Failed to read project config at/);
+    assert.match(payload.error ?? '', /config\.json/);
   } finally {
     await server.close();
   }
