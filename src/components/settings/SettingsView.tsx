@@ -93,6 +93,7 @@ import {
   WEB_RUNTIME_CAPABILITIES,
   type RuntimeCapabilityProfile,
 } from '../../lib/runtime-capabilities';
+import type { SessionContextTokenBreakdown } from '../../lib/session-context-budget';
 
 const CATEGORIES = [
   { id: 'models', label: '模型服务', icon: Cloud },
@@ -197,6 +198,12 @@ interface SettingsViewProps {
   activeAgentId?: string | null;
   initialCategory?: CategoryId;
   runtimeCapabilities?: RuntimeCapabilityProfile;
+  sessionContextDiagnostics?: {
+    tokens: number;
+    contextWindow?: number;
+    usagePercentage: number | null;
+    breakdown: SessionContextTokenBreakdown | null;
+  };
   onClose: () => void;
   onConfigSaved?: (config: AgentConfig) => void;
   onMemoryFilesChanged?: (agentId: string) => void | Promise<void>;
@@ -512,6 +519,7 @@ export const SettingsView = ({
   activeAgentId = null,
   initialCategory = 'models',
   runtimeCapabilities = WEB_RUNTIME_CAPABILITIES,
+  sessionContextDiagnostics,
   onClose,
   onConfigSaved,
   onMemoryFilesChanged,
@@ -3228,6 +3236,63 @@ export const SettingsView = ({
                   {runtimeCapabilities.hostBridge.configPath ? (
                     <div className="mt-2 truncate rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/45">
                       config: {runtimeCapabilities.hostBridge.configPath}
+                    </div>
+                  ) : null}
+                  {sessionContextDiagnostics ? (
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
+                            Session Context
+                          </div>
+                          <div className="mt-1 text-xs text-white/45">
+                            当前会话注入到模型上下文的估算快照。
+                          </div>
+                        </div>
+                        <div className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white/55">
+                          {sessionContextDiagnostics.tokens.toLocaleString()} tokens
+                          {sessionContextDiagnostics.contextWindow
+                            ? ` / ${sessionContextDiagnostics.contextWindow.toLocaleString()}`
+                            : ''}
+                          {sessionContextDiagnostics.usagePercentage != null
+                            ? ` · ${sessionContextDiagnostics.usagePercentage.toFixed(sessionContextDiagnostics.usagePercentage >= 10 ? 0 : 1)}%`
+                            : ''}
+                        </div>
+                      </div>
+                      {sessionContextDiagnostics.breakdown ? (
+                        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+                          {[
+                            {
+                              label: 'System',
+                              value: sessionContextDiagnostics.breakdown.systemPromptTokens.toLocaleString(),
+                            },
+                            {
+                              label: 'Summary',
+                              value: sessionContextDiagnostics.breakdown.sessionSummaryTokens.toLocaleString(),
+                            },
+                            {
+                              label: 'Runtime',
+                              value: sessionContextDiagnostics.breakdown.runtimeSystemPromptTokens.toLocaleString(),
+                            },
+                            {
+                              label: 'Tools',
+                              value: sessionContextDiagnostics.breakdown.toolContextTokens.toLocaleString(),
+                            },
+                            {
+                              label: 'Messages',
+                              value: sessionContextDiagnostics.breakdown.messageTokens.toLocaleString(),
+                            },
+                          ].map((entry) => (
+                            <div
+                              key={entry.label}
+                              className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5"
+                            >
+                              <div className="text-[10px] uppercase tracking-[0.14em] text-white/35">{entry.label}</div>
+                              <div className="mt-1 text-sm font-medium text-white/88">{entry.value}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                   {runtimeCapabilities.mode === 'electron' ? (

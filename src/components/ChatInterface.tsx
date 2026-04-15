@@ -2806,6 +2806,16 @@ export const ChatInterface: React.FC<{
             agents={agents}
             activeAgentId={activeAgentId}
             initialCategory={settingsInitialCategory}
+            sessionContextDiagnostics={
+              currentContextTokens != null
+                ? {
+                    tokens: currentContextTokens,
+                    contextWindow: currentContextWindow,
+                    usagePercentage: currentContextUsagePercentage,
+                    breakdown: activeRunState?.isGenerating ? null : currentContextBreakdown,
+                  }
+                : undefined
+            }
             onClose={() => setShowSettings(false)}
             onConfigSaved={(nextConfig) => setConfig(nextConfig)}
             runtimeCapabilities={runtimeCapabilities}
