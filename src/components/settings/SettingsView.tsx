@@ -246,6 +246,13 @@ interface SettingsViewProps {
     totalTokens: number;
     usageSource: 'provider' | 'estimate';
   } | null;
+  modelInvocationStats?: {
+    successCount: number;
+    failureCount: number;
+    totalLatencyMs: number;
+    lastLatencyMs?: number;
+    lastError?: string;
+  };
   onClose: () => void;
   onConfigSaved?: (config: AgentConfig) => void;
   onMemoryFilesChanged?: (agentId: string) => void | Promise<void>;
@@ -568,6 +575,7 @@ export const SettingsView = ({
   runtimeCapabilities = WEB_RUNTIME_CAPABILITIES,
   sessionContextDiagnostics,
   latestModelInvocation,
+  modelInvocationStats,
   onClose,
   onConfigSaved,
   onMemoryFilesChanged,
@@ -3570,6 +3578,47 @@ export const SettingsView = ({
                           </div>
                         ))}
                       </div>
+                    </div>
+                  ) : null}
+                  {modelInvocationStats ? (
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
+                        Model Reliability
+                      </div>
+                      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                        {[
+                          { label: '成功调用', value: String(modelInvocationStats.successCount) },
+                          { label: '失败调用', value: String(modelInvocationStats.failureCount) },
+                          {
+                            label: '平均延迟',
+                            value:
+                              modelInvocationStats.successCount > 0
+                                ? formatDurationShort(
+                                    modelInvocationStats.totalLatencyMs / modelInvocationStats.successCount / 1000,
+                                  )
+                                : '0s',
+                          },
+                          {
+                            label: '最近延迟',
+                            value: modelInvocationStats.lastLatencyMs
+                              ? formatDurationShort(modelInvocationStats.lastLatencyMs / 1000)
+                              : '0s',
+                          },
+                        ].map((entry) => (
+                          <div
+                            key={entry.label}
+                            className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5"
+                          >
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/35">{entry.label}</div>
+                            <div className="mt-1 text-sm font-medium text-white/88">{entry.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {modelInvocationStats.lastError ? (
+                        <div className="mt-2 rounded-xl border border-red-400/20 bg-red-400/10 px-3 py-2 text-xs text-red-100/80">
+                          {modelInvocationStats.lastError}
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                   {runtimeCapabilities.mode === 'electron' ? (

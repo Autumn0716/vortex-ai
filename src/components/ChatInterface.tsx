@@ -475,6 +475,14 @@ interface MessageRunMetrics {
   usageSource: 'provider' | 'estimate';
 }
 
+interface ModelInvocationStats {
+  successCount: number;
+  failureCount: number;
+  totalLatencyMs: number;
+  lastLatencyMs?: number;
+  lastError?: string;
+}
+
 interface SessionSettingsDraft {
   displayName: string;
   systemPromptOverride: string;
@@ -566,6 +574,11 @@ export const ChatInterface: React.FC<{
   const [topicRunStates, setTopicRunStates] = useState<Record<string, TopicRunState>>({});
   const [messageMetricsById, setMessageMetricsById] = useState<Record<string, MessageRunMetrics>>({});
   const [messageReasoningById, setMessageReasoningById] = useState<Record<string, string>>({});
+  const [modelInvocationStats, setModelInvocationStats] = useState<ModelInvocationStats>({
+    successCount: 0,
+    failureCount: 0,
+    totalLatencyMs: 0,
+  });
   const [knowledgeEvidenceFeedbackByKey, setKnowledgeEvidenceFeedbackByKey] = useState<
     Record<string, KnowledgeEvidenceFeedbackValue>
   >({});
@@ -1981,11 +1994,12 @@ export const ChatInterface: React.FC<{
       const inputTokens = finalUsage?.inputTokens ?? estimatedInputTokens;
       const outputTokens = finalUsage?.outputTokens ?? estimatedOutputTokens;
       const totalTokens = finalUsage?.totalTokens ?? inputTokens + outputTokens;
+      const streamDurationMs = Math.max(0, Date.now() - turnStartedAt);
       setMessageMetricsById((previous) => ({
         ...previous,
         [assistantMessage.id ?? finalAssistantMessageId]: {
           completedAt,
-          streamDurationMs: Math.max(0, Date.now() - turnStartedAt),
+          streamDurationMs,
           reasoningDurationMs:
             reasoningStartedAt !== null
               ? Math.max(0, (firstAssistantDeltaAt ?? Date.now()) - reasoningStartedAt)
@@ -1995,6 +2009,13 @@ export const ChatInterface: React.FC<{
           totalTokens,
           usageSource: finalUsage ? 'provider' : 'estimate',
         },
+      }));
+      setModelInvocationStats((previous) => ({
+        successCount: previous.successCount + 1,
+        failureCount: previous.failureCount,
+        totalLatencyMs: previous.totalLatencyMs + streamDurationMs,
+        lastLatencyMs: streamDurationMs,
+        lastError: undefined,
       }));
       if (streamedReasoningContent.trim()) {
         setMessageReasoningById((previous) => ({
@@ -2067,6 +2088,13 @@ export const ChatInterface: React.FC<{
       };
       setWorkspace((previous) => mergeWorkspaceMessages(previous, [toTopicMessage(fallbackMessage)]));
       await addTopicMessages([fallbackMessage]);
+      setModelInvocationStats((previous) => ({
+        successCount: previous.successCount,
+        failureCount: previous.failureCount + 1,
+        totalLatencyMs: previous.totalLatencyMs,
+        lastLatencyMs: Math.max(0, Date.now() - turnStartedAt),
+        lastError: error.message,
+      }));
       void refreshSessionSummary(workspaceSnapshot.topic.id, configSnapshot, messageHistoryTokenBudget).catch(
         (error) => {
           console.warn('Failed to refresh topic session summary after fallback reply:', error);
@@ -2997,6 +3025,7 @@ export const ChatInterface: React.FC<{
                 : undefined
             }
             latestModelInvocation={latestModelInvocation}
+            modelInvocationStats={modelInvocationStats}
             onClose={() => setShowSettings(false)}
             onConfigSaved={(nextConfig) => setConfig(nextConfig)}
             runtimeCapabilities={runtimeCapabilities}
