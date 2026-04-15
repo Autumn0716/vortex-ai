@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { AIMessage, HumanMessage } from '@langchain/core/messages';
+import { ChatOpenAI } from '@langchain/openai';
 import type { AgentConfig, ModelProvider } from '../src/lib/agent/config';
 import { normalizeAgentConfig } from '../src/lib/agent/config';
 import { buildGroundedSystemPrompt, createAgentRuntime } from '../src/lib/agent/runtime';
@@ -296,6 +298,82 @@ test('responses runtime continues with previous_response_id after local function
   } finally {
     globalThis.fetch = originalFetch;
     console.error = originalConsoleError;
+  }
+});
+
+test('langgraph runtime streams reasoning, assistant deltas and final usage for chat-compatible providers', async () => {
+  const config = buildConfig({
+    id: 'openai_chat',
+    name: 'OpenAI Chat',
+    baseUrl: 'https://api.example.com/v1',
+    models: ['gpt-4.1'],
+    protocol: 'openai_chat_compatible',
+  });
+
+  const originalInvoke = ChatOpenAI.prototype.invoke;
+  const captured: { messages?: unknown[] } = {};
+  ChatOpenAI.prototype.invoke = (async function invoke(messages: unknown[]) {
+    captured.messages = messages;
+    return new AIMessage({
+      id: 'ai_langgraph_1',
+      content: 'LangGraph 已返回最终答案。',
+      additional_kwargs: {
+        reasoning_content: '先整理上下文，再生成答案。',
+      },
+      response_metadata: {
+        tokenUsage: {
+          inputTokens: 13,
+          outputTokens: 8,
+          totalTokens: 21,
+        },
+      },
+    });
+  }) as typeof ChatOpenAI.prototype.invoke;
+
+  try {
+    const runtime = createAgentRuntime({
+      config,
+      providerId: 'openai_chat',
+      model: 'gpt-4.1',
+      systemPrompt: 'You are a LangGraph runtime test assistant.',
+      enableTools: false,
+      enableThinking: true,
+      structuredOutput: { mode: 'text' },
+    });
+
+    const events = [];
+    for await (const event of runtime.stream({
+      messages: [new HumanMessage('解释一下当前流程')],
+    })) {
+      events.push(event);
+    }
+
+    assert.equal(Array.isArray(captured.messages), true);
+    assert.equal((captured.messages?.[0] as { _getType?: () => string } | undefined)?._getType?.(), 'system');
+    assert.equal(
+      (captured.messages?.[0] as { content?: unknown } | undefined)?.content,
+      buildGroundedSystemPrompt('You are a LangGraph runtime test assistant.', { enableTools: false }),
+    );
+    assert.equal((captured.messages?.[1] as { _getType?: () => string } | undefined)?._getType?.(), 'human');
+    assert.deepEqual(events[0], { type: 'reasoning_delta', delta: '先整理上下文，再生成答案。' });
+    assert.deepEqual(events[1], {
+      type: 'assistant_delta',
+      messageId: 'ai_langgraph_1',
+      delta: 'LangGraph 已返回最终答案。',
+    });
+    assert.deepEqual(events[2], {
+      type: 'assistant_message',
+      messageId: 'ai_langgraph_1',
+      content: 'LangGraph 已返回最终答案。',
+      tools: [],
+      usage: {
+        inputTokens: 13,
+        outputTokens: 8,
+        totalTokens: 21,
+      },
+    });
+  } finally {
+    ChatOpenAI.prototype.invoke = originalInvoke;
   }
 });
 
