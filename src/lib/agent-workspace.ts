@@ -281,6 +281,15 @@ function normalizeTopicModelFeatures(value?: Partial<TopicModelFeatures> | null)
   };
 }
 
+function formatJsonPreview(raw: unknown) {
+  const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+  return text.length > 160 ? `${text.slice(0, 157)}...` : text;
+}
+
+function warnJsonFallback(context: string, raw: unknown, error: unknown) {
+  console.warn(`Failed to parse ${context}; falling back to defaults: ${formatJsonPreview(raw)}`, error);
+}
+
 function parseTopicModelFeatures(raw: unknown): TopicModelFeatures {
   if (typeof raw !== 'string' || !raw.trim()) {
     return getDefaultTopicModelFeatures();
@@ -289,7 +298,8 @@ function parseTopicModelFeatures(raw: unknown): TopicModelFeatures {
   try {
     const parsed = JSON.parse(raw) as Partial<TopicModelFeatures>;
     return normalizeTopicModelFeatures(parsed);
-  } catch {
+  } catch (error) {
+    warnJsonFallback('topic model features', raw, error);
     return getDefaultTopicModelFeatures();
   }
 }
@@ -439,7 +449,8 @@ function parseTools(raw: unknown): StoredToolRun[] | undefined {
   try {
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? (parsed as StoredToolRun[]) : undefined;
-  } catch {
+  } catch (error) {
+    warnJsonFallback('topic message tool metadata', raw, error);
     return undefined;
   }
 }
@@ -452,7 +463,8 @@ function parseAttachments(raw: unknown): TopicMessageAttachment[] | undefined {
   try {
     const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
     return Array.isArray(parsed) ? (parsed as TopicMessageAttachment[]) : undefined;
-  } catch {
+  } catch (error) {
+    warnJsonFallback('topic message attachments', raw, error);
     return undefined;
   }
 }
@@ -2688,11 +2700,12 @@ type TopicTaskGraphRow = {
   updated_at: string;
 };
 
-function parseJsonArray<T>(value: string): T[] {
+function parseJsonArray<T>(value: string, context = 'JSON array'): T[] {
   try {
     const parsed = JSON.parse(value);
     return Array.isArray(parsed) ? (parsed as T[]) : [];
-  } catch {
+  } catch (error) {
+    warnJsonFallback(context, value, error);
     return [];
   }
 }
@@ -2708,7 +2721,7 @@ function toTopicTaskGraphNode(row: TopicTaskGraphNodeRow): TopicTaskGraphNode {
     title: row.title,
     objective: row.objective,
     acceptanceCriteria: row.acceptance_criteria,
-    dependsOn: parseJsonArray<string>(row.depends_on_json),
+    dependsOn: parseJsonArray<string>(row.depends_on_json, `task graph dependencies for "${row.node_key}"`),
     branchTopicId: row.branch_topic_id ?? undefined,
     status: row.status,
     createdAt: row.created_at,

@@ -21,6 +21,7 @@ import {
   updateTopicModelFeatures,
   updateTopicSessionSettings,
 } from '../src/lib/agent-workspace';
+import { initDB } from '../src/lib/db';
 
 const localforageState = new Map<string, unknown>();
 
@@ -401,6 +402,73 @@ test('topic model features persist and branch topics inherit them', async () => 
   const branchWorkspace = await getTopicWorkspace(branchTopic.id);
   assert.ok(branchWorkspace);
   assert.deepEqual(branchWorkspace?.runtime.modelFeatures, updatedWorkspace?.runtime.modelFeatures);
+});
+
+test('topic workspace warns and falls back when persisted JSON fields are malformed', async () => {
+  localforageState.clear();
+  const agentId = createAgentId('agent_bad_json');
+  await saveAgent({
+    id: agentId,
+    name: 'Bad JSON Agent',
+    description: 'Agent used to verify malformed persisted JSON fallback',
+    systemPrompt: 'Template prompt.',
+    accentColor: 'from-zinc-500/20 to-slate-500/20',
+    workspaceRelpath: `agents/${agentId}`,
+  });
+
+  const topic = await createTopic({ agentId, title: 'Bad JSON topic' });
+  const messageId = `${agentId}_message`;
+  await addTopicMessages([
+    {
+      id: messageId,
+      topicId: topic.id,
+      agentId,
+      role: 'assistant',
+      authorName: 'Bad JSON Agent',
+      content: 'Message with persisted metadata.',
+      attachments: [
+        {
+          id: 'image_1',
+          kind: 'image',
+          name: 'sample.png',
+          mimeType: 'image/png',
+          dataUrl: 'data:image/png;base64,AAAA',
+          sizeBytes: 4,
+        },
+      ],
+      tools: [{ name: 'search_web', status: 'completed', result: 'ok' }],
+    },
+  ]);
+
+  const database = await initDB();
+  database.run('UPDATE topics SET model_features_json = ? WHERE id = ?', ['{"enableThinking": ', topic.id]);
+  database.run('UPDATE topic_messages SET attachments_json = ?, tools_json = ? WHERE id = ?', [
+    '{"id": ',
+    '{"name": ',
+    messageId,
+  ]);
+
+  const originalWarn = console.warn;
+  const warnings: string[] = [];
+  console.warn = (message?: unknown) => {
+    warnings.push(String(message ?? ''));
+  };
+
+  try {
+    const workspace = await getTopicWorkspace(topic.id);
+
+    assert.ok(workspace);
+    assert.deepEqual(workspace?.runtime.modelFeatures, getDefaultTopicModelFeatures());
+    assert.equal(workspace?.messages[0]?.attachments, undefined);
+    assert.equal(workspace?.messages[0]?.tools, undefined);
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(warnings.length, 3);
+  assert.match(warnings[0] ?? '', /Failed to parse topic model features/);
+  assert.match(warnings[1] ?? '', /Failed to parse topic message attachments/);
+  assert.match(warnings[2] ?? '', /Failed to parse topic message tool metadata/);
 });
 
 test('branch topics inherit runtime settings but keep isolated follow-up context', async () => {
