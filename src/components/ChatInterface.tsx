@@ -2860,6 +2860,7 @@ export const ChatInterface: React.FC<{
           <SettingsView
             config={config}
             agents={agents}
+            memoryDocuments={memoryDocuments}
             activeAgentId={activeAgentId}
             initialCategory={settingsInitialCategory}
             sessionContextDiagnostics={

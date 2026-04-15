@@ -64,8 +64,12 @@ import {
   applyThemePreferences,
   getThemePresetByColor,
 } from '../../lib/theme';
-import type { AgentProfile } from '../../lib/agent-workspace';
-import { syncCurrentAgentMemory } from '../../lib/agent-workspace';
+import type { AgentMemoryDocument, AgentProfile } from '../../lib/agent-workspace';
+import {
+  deleteAgentMemoryDocument,
+  saveAgentMemoryDocument,
+  syncCurrentAgentMemory,
+} from '../../lib/agent-workspace';
 import {
   createAgentMemoryApiFileStore,
   deleteAgentMemoryFile,
@@ -151,6 +155,32 @@ const SEARCH_TYPE_OPTIONS = [
   { value: 'local', label: '本地搜索' },
 ] as const;
 
+function resolveMemoryLayer(document: AgentMemoryDocument) {
+  if (document.sourceType === 'warm_summary') {
+    return 'warm';
+  }
+  if (document.sourceType === 'cold_summary') {
+    return 'cold';
+  }
+  if (document.memoryScope === 'daily' || document.memoryScope === 'session') {
+    return 'hot';
+  }
+  return 'long-term';
+}
+
+function memoryLayerLabel(layer: string) {
+  if (layer === 'long-term') {
+    return '长期';
+  }
+  if (layer === 'hot') {
+    return '热层';
+  }
+  if (layer === 'warm') {
+    return '温层';
+  }
+  return '冷层';
+}
+
 const MCP_LIBRARY = [
   {
     id: 'mcp_tpl_alibaba',
@@ -195,6 +225,7 @@ type CategoryId = (typeof CATEGORIES)[number]['id'];
 interface SettingsViewProps {
   config: AgentConfig;
   agents?: AgentProfile[];
+  memoryDocuments?: AgentMemoryDocument[];
   activeAgentId?: string | null;
   initialCategory?: CategoryId;
   runtimeCapabilities?: RuntimeCapabilityProfile;
@@ -531,6 +562,7 @@ function WeightInputCard({
 export const SettingsView = ({
   config,
   agents = [],
+  memoryDocuments = [],
   activeAgentId = null,
   initialCategory = 'models',
   runtimeCapabilities = WEB_RUNTIME_CAPABILITIES,
@@ -589,6 +621,7 @@ export const SettingsView = ({
   const [memoryFileDirty, setMemoryFileDirty] = useState(false);
   const [memoryFileLoading, setMemoryFileLoading] = useState(false);
   const [memoryFileStatus, setMemoryFileStatus] = useState<MemoryFileStatus | null>(null);
+  const [memoryInspectorBusyId, setMemoryInspectorBusyId] = useState('');
   const [apiServerSummary, setApiServerSummary] = useState<string>('');
   const [configSaveStatus, setConfigSaveStatus] = useState<MemoryFileStatus | null>(null);
   const [nightlyArchiveStatus, setNightlyArchiveStatus] = useState<NightlyArchiveStatus | null>(null);
@@ -846,6 +879,22 @@ export const SettingsView = ({
   const activeMemoryAgent =
     agents.find((agent) => agent.id === activeMemoryAgentId) ?? agents.find((agent) => agent.id === activeAgentId) ?? null;
   const activeMemoryFile = memoryFiles.find((file) => file.path === activeMemoryFilePath) ?? null;
+  const activeMemoryDocuments = useMemo(
+    () => memoryDocuments.filter((document) => document.agentId === activeMemoryAgent?.id),
+    [activeMemoryAgent?.id, memoryDocuments],
+  );
+  const memoryLayerCounts = useMemo(
+    () =>
+      activeMemoryDocuments.reduce(
+        (counts, document) => {
+          const layer = resolveMemoryLayer(document);
+          counts[layer] += 1;
+          return counts;
+        },
+        { 'long-term': 0, hot: 0, warm: 0, cold: 0 } as Record<string, number>,
+      ),
+    [activeMemoryDocuments],
+  );
 
   useEffect(() => {
     setModelSearchQuery('');
@@ -1515,6 +1564,48 @@ export const SettingsView = ({
 
   const notifyMemoryFilesChanged = async (agentId: string) => {
     await onMemoryFilesChanged?.(agentId);
+  };
+
+  const updateInspectorMemory = async (
+    document: AgentMemoryDocument,
+    mode: 'important' | 'archive' | 'delete',
+  ) => {
+    if (!activeMemoryAgent) {
+      return;
+    }
+
+    setMemoryInspectorBusyId(`${mode}:${document.id}`);
+    try {
+      if (mode === 'delete') {
+        await deleteAgentMemoryDocument(document.id);
+        setMemoryFileStatus({ tone: 'success', message: '已删除该条索引记忆。' });
+      } else {
+        await saveAgentMemoryDocument({
+          id: document.id,
+          agentId: activeMemoryAgent.id,
+          title: document.title,
+          content: document.content,
+          memoryScope: mode === 'archive' ? 'daily' : document.memoryScope,
+          sourceType: mode === 'archive' ? 'cold_summary' : document.sourceType,
+          importanceScore: mode === 'important' ? Math.max(document.importanceScore, 5) : Math.min(document.importanceScore, 2),
+          topicId: document.topicId,
+          eventDate: document.eventDate,
+        });
+        setMemoryFileStatus({
+          tone: 'success',
+          message: mode === 'important' ? '已提高该条记忆的重要性。' : '已把该条记忆标记为冷层归档。',
+        });
+      }
+
+      await notifyMemoryFilesChanged(activeMemoryAgent.id);
+    } catch (error) {
+      setMemoryFileStatus({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '更新记忆检查器状态失败。',
+      });
+    } finally {
+      setMemoryInspectorBusyId('');
+    }
   };
 
   const rescanAgentMemory = async (agentId: string, statusMessage: string) => {
@@ -2925,6 +3016,94 @@ export const SettingsView = ({
                     }
                   />
                 </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              title="Memory Inspector"
+              description="检查当前 agent 的索引记忆。Markdown 仍是真源，重扫索引可能覆盖派生项。"
+            >
+              <div className="grid gap-3 md:grid-cols-4">
+                {(['long-term', 'hot', 'warm', 'cold'] as const).map((layer) => (
+                  <div key={layer} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                    <div className="text-[10px] uppercase tracking-[0.22em] text-white/35">
+                      {memoryLayerLabel(layer)}
+                    </div>
+                    <div className="mt-2 text-2xl font-semibold text-white">{memoryLayerCounts[layer]}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 grid gap-2">
+                {activeMemoryDocuments.slice(0, 8).map((document) => {
+                  const layer = resolveMemoryLayer(document);
+                  const importantBusy = memoryInspectorBusyId === `important:${document.id}`;
+                  const archiveBusy = memoryInspectorBusyId === `archive:${document.id}`;
+                  const deleteBusy = memoryInspectorBusyId === `delete:${document.id}`;
+
+                  return (
+                    <div
+                      key={document.id}
+                      className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium text-white/90">{document.title}</div>
+                          <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-white/50">
+                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
+                              {memoryLayerLabel(layer)}
+                            </span>
+                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
+                              {document.memoryScope}
+                            </span>
+                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
+                              {document.sourceType}
+                            </span>
+                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
+                              score {document.importanceScore.toFixed(1)}
+                            </span>
+                            {document.eventDate ? (
+                              <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
+                                {document.eventDate}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-2 line-clamp-2 text-xs leading-5 text-white/45">
+                            {document.content}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          <button
+                            onClick={() => updateInspectorMemory(document, 'important').catch(console.error)}
+                            disabled={Boolean(memoryInspectorBusyId)}
+                            className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[10px] text-emerald-100 hover:bg-emerald-400/15 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {importantBusy ? '...' : 'important'}
+                          </button>
+                          <button
+                            onClick={() => updateInspectorMemory(document, 'archive').catch(console.error)}
+                            disabled={Boolean(memoryInspectorBusyId)}
+                            className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2.5 py-1 text-[10px] text-amber-100 hover:bg-amber-400/15 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {archiveBusy ? '...' : 'archive'}
+                          </button>
+                          <button
+                            onClick={() => updateInspectorMemory(document, 'delete').catch(console.error)}
+                            disabled={Boolean(memoryInspectorBusyId)}
+                            className="rounded-full border border-red-400/20 bg-red-400/10 px-2.5 py-1 text-[10px] text-red-100 hover:bg-red-400/15 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {deleteBusy ? '...' : 'delete'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {!activeMemoryDocuments.length ? (
+                  <div className="rounded-2xl border border-dashed border-white/10 p-5 text-center text-sm text-white/45">
+                    当前 agent 还没有索引记忆。先写入 Markdown 文件或点击“重扫索引”。
+                  </div>
+                ) : null}
               </div>
             </SectionCard>
 
