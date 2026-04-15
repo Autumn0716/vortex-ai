@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { DEFAULT_CONFIG, normalizeAgentConfig, type AgentConfig } from '../src/lib/agent/config';
+import { wrapErrorWithContext } from '../src/lib/error-details';
 
 export function getConfigFilePath(rootDir: string) {
   return path.join(rootDir, 'config.json');
@@ -24,7 +25,7 @@ export async function readProjectConfig(rootDir: string): Promise<AgentConfig> {
     return normalizeAgentConfig(JSON.parse(raw) as Partial<AgentConfig>);
   } catch (error) {
     if (!isMissingFileError(error)) {
-      throw error;
+      throw wrapErrorWithContext(`Failed to read project config at ${configFilePath}`, error);
     }
 
     const config = normalizeAgentConfig(DEFAULT_CONFIG);

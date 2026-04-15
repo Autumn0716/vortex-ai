@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { getConfigFilePath, readProjectConfig, writeProjectConfig } from '../server/config-store';
+import { formatErrorDetails } from '../src/lib/error-details';
 import { type AgentConfig, normalizeAgentConfig } from '../src/lib/agent/config';
 
 const tempRoots: string[] = [];
@@ -54,4 +55,19 @@ test('writeProjectConfig persists normalized config to config.json', async () =>
 
   const written = JSON.parse(await readFile(path.join(rootDir, 'config.json'), 'utf8'));
   assert.deepEqual(written, expected);
+});
+
+test('readProjectConfig wraps malformed config.json with file context', async () => {
+  const rootDir = await createTempRoot();
+  const configPath = path.join(rootDir, 'config.json');
+
+  await import('node:fs/promises').then(({ writeFile }) => writeFile(configPath, '{bad json', 'utf8'));
+
+  await assert.rejects(async () => readProjectConfig(rootDir), (error: unknown) => {
+    const details = formatErrorDetails(error);
+    assert.match(details, /Failed to read project config at/);
+    assert.match(details, /config\.json/);
+    assert.match(details, /Unexpected token|Expected property name|JSON/i);
+    return true;
+  });
 });

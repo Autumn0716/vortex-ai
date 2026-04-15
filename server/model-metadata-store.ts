@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import type { ModelInspectorResult } from './model-inspector';
+import { wrapErrorWithContext } from '../src/lib/error-details';
 
 export interface StoredModelMetadataEntry extends ModelInspectorResult {
   providerId?: string;
@@ -57,7 +58,7 @@ async function readStore(rootDir: string): Promise<StoredModelMetadataFile> {
     ) {
       return DEFAULT_STORE;
     }
-    throw error;
+    throw wrapErrorWithContext(`Failed to read model metadata store at ${getModelMetadataStorePath(rootDir)}`, error);
   }
 }
 
