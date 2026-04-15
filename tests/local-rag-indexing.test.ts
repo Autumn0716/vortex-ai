@@ -227,6 +227,54 @@ test('searchDocumentsInDatabase uses decomposed FTS queries and persists cache e
   }
 });
 
+test('searchDocumentsInDatabase warns and recomputes when cached results are malformed', async () => {
+  const database = await createSearchDatabase();
+
+  try {
+    database.run(`
+      CREATE VIRTUAL TABLE document_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        document_id UNINDEXED,
+        title,
+        content
+      );
+    `);
+
+    database.run(
+      'INSERT INTO documents (id, title, content) VALUES (?, ?, ?)',
+      ['doc_cache_corrupt', 'Cache Recovery', 'cache recovery should recompute retrieval results after corruption'],
+    );
+    indexDocumentChunks(database, {
+      id: 'doc_cache_corrupt',
+      title: 'Cache Recovery',
+      content: 'cache recovery should recompute retrieval results after corruption',
+    });
+
+    await searchDocumentsInDatabase(database, 'cache recovery');
+    database.run('UPDATE document_search_cache SET results_json = ?', ['{"broken": ']);
+
+    const originalWarn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (message?: unknown) => {
+      warnings.push(String(message ?? ''));
+    };
+
+    try {
+      const results = await searchDocumentsInDatabase(database, 'cache recovery');
+
+      assert.equal(results.length, 1);
+      assert.equal(results[0]?.id, 'doc_cache_corrupt');
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0] ?? '', /Failed to parse document search cache/);
+  } finally {
+    database.close();
+  }
+});
+
 test('searchDocumentsInDatabase rewrites conversational and cross-lingual queries before recall', async () => {
   const database = await createSearchDatabase();
 

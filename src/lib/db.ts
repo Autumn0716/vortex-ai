@@ -1251,7 +1251,8 @@ function readDocumentSearchCache(database: Database, cacheKey: string): Retrieve
 
   try {
     return JSON.parse(row.results_json) as RetrievedDocumentResult[];
-  } catch {
+  } catch (error) {
+    console.warn(`Failed to parse document search cache for "${cacheKey}"; recomputing results:`, error);
     return null;
   }
 }
