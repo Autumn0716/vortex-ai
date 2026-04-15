@@ -2864,6 +2864,26 @@ export const SettingsView = ({
                 />
                 <p className="mt-2 text-xs text-white/45">每个 lane 最近保留的消息条数。</p>
               </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="mb-2 text-sm font-medium text-white/90">Session Summary</div>
+                <select
+                  value={draft.memory.sessionSummaryMode}
+                  onChange={(event) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      memory: {
+                        ...current.memory,
+                        sessionSummaryMode: event.target.value === 'llm' ? 'llm' : 'deterministic',
+                      },
+                    }))
+                  }
+                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                >
+                  <option value="deterministic">规则摘要</option>
+                  <option value="llm">LLM 摘要</option>
+                </select>
+                <p className="mt-2 text-xs text-white/45">LLM 失败时自动回退到规则摘要。</p>
+              </div>
             </div>
 
             <SectionCard

@@ -32,6 +32,7 @@
     }
   },
   "memory": {
+    "sessionSummaryMode": "deterministic",
     "promotionScoreThreshold": 4,
     "scoringWeights": {
       "compression": 0.8,

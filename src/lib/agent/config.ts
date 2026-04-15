@@ -86,6 +86,7 @@ export interface SearchSettings {
 export interface MemorySettings {
   autoTitleFromFirstMessage: boolean;
   historyWindow: number;
+  sessionSummaryMode: 'deterministic' | 'llm';
   keepAssistantContext: boolean;
   enableSessionMemory: boolean;
   enableAgentSharedShortTerm: boolean;
@@ -378,6 +379,7 @@ export const DEFAULT_CONFIG: AgentConfig = {
   memory: {
     autoTitleFromFirstMessage: true,
     historyWindow: 18,
+    sessionSummaryMode: 'deterministic',
     keepAssistantContext: true,
     enableSessionMemory: true,
     enableAgentSharedShortTerm: false,
@@ -778,6 +780,8 @@ export function normalizeAgentConfig(value?: Partial<AgentConfig> | null): Agent
     memory: {
       ...DEFAULT_CONFIG.memory,
       ...(value?.memory ?? {}),
+      sessionSummaryMode:
+        value?.memory?.sessionSummaryMode === 'llm' ? 'llm' : DEFAULT_CONFIG.memory.sessionSummaryMode,
       scoringWeights: {
         ...DEFAULT_CONFIG.memory.scoringWeights,
         ...(value?.memory?.scoringWeights ?? {}),

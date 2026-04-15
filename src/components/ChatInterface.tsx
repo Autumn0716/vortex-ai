@@ -64,13 +64,16 @@ import {
   updateTopicModelFeatures,
   updateTopicSessionSettings,
   updateTopicTitle,
+  type TopicSessionSummaryBuilderInput,
 } from '../lib/agent-workspace';
 import {
   type AgentConfig,
+  type ModelProvider,
   getAgentConfig,
   normalizeAgentConfig,
   saveAgentConfig,
 } from '../lib/agent/config';
+import { normalizeBaseUrl } from '../lib/provider-compatibility';
 import { applyThemePreferences } from '../lib/theme';
 import { syncProjectKnowledgeDocuments } from '../lib/project-knowledge';
 import { TimeoutError, withSoftTimeout } from '../lib/async-timeout';
@@ -242,6 +245,96 @@ function buildUserMessagePrompt(content: string, attachments: TopicMessageAttach
 
 function estimateTokenCount(input: string) {
   return estimateTextTokens(input);
+}
+
+function extractTextFromModelPayload(payload: any) {
+  if (typeof payload?.output_text === 'string') {
+    return payload.output_text.trim();
+  }
+
+  const chatContent = payload?.choices?.[0]?.message?.content;
+  if (typeof chatContent === 'string') {
+    return chatContent.trim();
+  }
+
+  const responseOutput = Array.isArray(payload?.output) ? payload.output : [];
+  for (const item of responseOutput) {
+    const content = Array.isArray(item?.content) ? item.content : [];
+    const text = content
+      .map((part: any) => (typeof part?.text === 'string' ? part.text : ''))
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+    if (text) {
+      return text;
+    }
+  }
+
+  return '';
+}
+
+async function invokeSessionSummaryModel(provider: ModelProvider, model: string, prompt: string) {
+  const baseUrl = normalizeBaseUrl(provider.baseUrl);
+  if (!provider.apiKey.trim() || !baseUrl || !model.trim()) {
+    return '';
+  }
+
+  const systemPrompt =
+    'Summarize earlier chat turns for a long-running agent session. Return concise markdown bullets only. Preserve decisions, constraints, TODOs, user preferences, tool failures, and open questions.';
+  const endpoint =
+    provider.protocol === 'openai_responses_compatible' ? `${baseUrl}/responses` : `${baseUrl}/chat/completions`;
+  const body =
+    provider.protocol === 'openai_responses_compatible'
+      ? {
+          model,
+          input: `${systemPrompt}\n\n${prompt}`,
+          max_output_tokens: 800,
+        }
+      : {
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.2,
+          max_tokens: 800,
+        };
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${provider.apiKey.trim()}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || payload?.message || `Session summary request failed: ${response.status}`);
+  }
+
+  return extractTextFromModelPayload(payload);
+}
+
+function buildSessionSummaryPrompt(input: TopicSessionSummaryBuilderInput) {
+  const dialogue = input.messages
+    .filter((message) => message.role === 'user' || message.role === 'assistant')
+    .slice(0, Math.max(0, input.messages.length - input.historyWindow))
+    .map((message) => `${message.authorName} (${message.role}): ${message.content.trim()}`)
+    .filter(Boolean)
+    .join('\n\n');
+
+  if (!dialogue.trim()) {
+    return '';
+  }
+
+  return [
+    'Compress these earlier turns for future context injection.',
+    'Keep only durable facts, decisions, constraints, TODOs, errors, and next steps.',
+    'Avoid filler and do not summarize recent turns that are still available raw.',
+    '',
+    dialogue.slice(0, Math.max(4000, input.tokenBudget ? input.tokenBudget * 4 : 12000)),
+  ].join('\n');
 }
 
 const stringifyMessageForEstimate = stringifyMessageForTokenEstimate;
@@ -518,6 +611,36 @@ export const ChatInterface: React.FC<{
     Boolean(activeProvider?.baseUrl?.toLowerCase().includes('dashscope')) ||
     activeProvider?.name.toLowerCase().includes('qwen') ||
     activeModel.toLowerCase().includes('qwen');
+  const refreshSessionSummary = (
+    topicId: string,
+    configSnapshot: AgentConfig,
+    tokenBudget?: number,
+    provider: ModelProvider | null = activeProvider,
+    model: string = activeModel,
+  ) => {
+    const buildSummary =
+      configSnapshot.memory.sessionSummaryMode === 'llm' && provider
+        ? async (input: TopicSessionSummaryBuilderInput) => {
+            if (!input.deterministicSummary) {
+              return null;
+            }
+            const prompt = buildSessionSummaryPrompt(input);
+            if (!prompt) {
+              return null;
+            }
+            try {
+              return await invokeSessionSummaryModel(provider, model, prompt);
+            } catch (error) {
+              console.warn('LLM session summary failed; falling back to deterministic summary:', error);
+              return null;
+            }
+          }
+        : undefined;
+
+    return refreshTopicSessionSummary(topicId, configSnapshot.memory.historyWindow, tokenBudget, {
+      buildSummary,
+    });
+  };
   const activeMemoryEnabled = workspace?.runtime.enableMemory ?? config.memory.enableAgentLongTerm;
   const activeLane = useMemo(
     () =>
@@ -1200,11 +1323,11 @@ export const ChatInterface: React.FC<{
         note: branchHandoffDraft?.note?.trim(),
       });
       await Promise.all([
-        refreshTopicSessionSummary(workspace.topic.id, config.memory.historyWindow, messageHistoryTokenBudget).catch((error) => {
+        refreshSessionSummary(workspace.topic.id, config, messageHistoryTokenBudget).catch((error) => {
           console.warn('Failed to refresh branch session summary after handoff:', error);
           return null;
         }),
-        refreshTopicSessionSummary(result.parentTopic.id, config.memory.historyWindow, messageHistoryTokenBudget).catch((error) => {
+        refreshSessionSummary(result.parentTopic.id, config, messageHistoryTokenBudget).catch((error) => {
           console.warn('Failed to refresh parent session summary after handoff:', error);
           return null;
         }),
@@ -1566,7 +1689,7 @@ export const ChatInterface: React.FC<{
     await addTopicMessages([userMessage]);
     await maybeAutoTitleTopic(workspaceSnapshot.topic.id, userContent);
     const sessionSummary =
-      await refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow, messageHistoryTokenBudget).catch(
+      await refreshSessionSummary(workspaceSnapshot.topic.id, configSnapshot, messageHistoryTokenBudget).catch(
         (error) => {
           console.warn('Failed to refresh topic session summary before send:', error);
           return null;
@@ -1847,7 +1970,7 @@ export const ChatInterface: React.FC<{
 
       setWorkspace((previous) => upsertWorkspaceMessage(previous, toTopicMessage(assistantMessage)));
       await addTopicMessages([assistantMessage]);
-      void refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow, messageHistoryTokenBudget).catch(
+      void refreshSessionSummary(workspaceSnapshot.topic.id, configSnapshot, messageHistoryTokenBudget).catch(
         (error) => {
           console.warn('Failed to refresh topic session summary after assistant reply:', error);
         },
@@ -1897,7 +2020,7 @@ export const ChatInterface: React.FC<{
           };
           setWorkspace((previous) => upsertWorkspaceMessage(previous, toTopicMessage(partialMessage)));
           await addTopicMessages([partialMessage]);
-          void refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow, messageHistoryTokenBudget).catch(
+          void refreshSessionSummary(workspaceSnapshot.topic.id, configSnapshot, messageHistoryTokenBudget).catch(
             (error) => {
               console.warn('Failed to refresh topic session summary after partial reply:', error);
             },
@@ -1944,7 +2067,7 @@ export const ChatInterface: React.FC<{
       };
       setWorkspace((previous) => mergeWorkspaceMessages(previous, [toTopicMessage(fallbackMessage)]));
       await addTopicMessages([fallbackMessage]);
-      void refreshTopicSessionSummary(workspaceSnapshot.topic.id, configSnapshot.memory.historyWindow, messageHistoryTokenBudget).catch(
+      void refreshSessionSummary(workspaceSnapshot.topic.id, configSnapshot, messageHistoryTokenBudget).catch(
         (error) => {
           console.warn('Failed to refresh topic session summary after fallback reply:', error);
         },
@@ -2124,9 +2247,9 @@ export const ChatInterface: React.FC<{
 
     try {
       await deleteTopicMessage(message.id);
-      await refreshTopicSessionSummary(
+      await refreshSessionSummary(
         workspace.topic.id,
-        config.memory.historyWindow,
+        config,
         resolveMessageHistoryTokenBudget({
           maxInputTokens: activeModelMetadata?.maxInputTokens,
           contextWindow: activeModelMetadata?.contextWindow,

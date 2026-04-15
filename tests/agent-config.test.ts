@@ -65,6 +65,24 @@ test('normalizeAgentConfig preserves the recent memory snapshot toggle', () => {
   assert.equal(config.memory.scoringWeights.goldenLabel, 1.2);
 });
 
+test('normalizeAgentConfig preserves the session summary mode', () => {
+  const config = normalizeAgentConfig({
+    memory: {
+      sessionSummaryMode: 'llm',
+    },
+  } as Partial<AgentConfig>);
+
+  assert.equal(config.memory.sessionSummaryMode, 'llm');
+  assert.equal(
+    normalizeAgentConfig({
+      memory: {
+        sessionSummaryMode: 'invalid' as 'llm',
+      },
+    } as Partial<AgentConfig>).memory.sessionSummaryMode,
+    'deterministic',
+  );
+});
+
 test('normalizeAgentConfig preserves configurable RAG search weights', () => {
   const config = normalizeAgentConfig({
     search: {

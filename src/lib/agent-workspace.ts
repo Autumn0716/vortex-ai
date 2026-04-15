@@ -191,6 +191,13 @@ export interface TopicSessionSummary {
   sourceMessageCount: number;
 }
 
+export interface TopicSessionSummaryBuilderInput {
+  messages: TopicMessage[];
+  historyWindow: number;
+  tokenBudget?: number;
+  deterministicSummary: { content: string; sourceMessageCount: number } | null;
+}
+
 export interface TopicTaskGraphNode extends CompiledTaskGraphNode {
   id: string;
   graphId: string;
@@ -2520,6 +2527,9 @@ export async function refreshTopicSessionSummary(
   topicId: string,
   historyWindow: number,
   tokenBudget?: number,
+  options?: {
+    buildSummary?: (input: TopicSessionSummaryBuilderInput) => Promise<string | null | undefined>;
+  },
 ): Promise<TopicSessionSummary | null> {
   const database = await ensureAgentSchema();
   const messageRows = mapRows<{
@@ -2554,7 +2564,21 @@ export async function refreshTopicSessionSummary(
   );
 
   const messages = messageRows.map(toTopicMessage);
-  const nextSummary = buildTopicSessionSummary(messages, historyWindow, tokenBudget);
+  const deterministicSummary = buildTopicSessionSummary(messages, historyWindow, tokenBudget);
+  const modelSummaryContent = options?.buildSummary
+    ? await options.buildSummary({
+        messages,
+        historyWindow,
+        tokenBudget,
+        deterministicSummary,
+      })
+    : null;
+  const nextSummary = modelSummaryContent?.trim()
+    ? {
+        content: modelSummaryContent.trim(),
+        sourceMessageCount: deterministicSummary?.sourceMessageCount ?? messages.length,
+      }
+    : deterministicSummary;
   const current = mapRows<{
     session_summary: string | null;
     session_summary_updated_at: string | null;
