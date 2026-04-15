@@ -510,6 +510,19 @@ test('searchDocumentsInDatabase uses graph overlap as an additional ranking sign
 
     assert.equal(results[0]?.id, 'doc_graph');
     assert.ok((results[0]?.graphHints?.length ?? 0) > 0);
+
+    const graphDisabledResults = await searchDocumentsInDatabase(database, 'parent topic branch handoff', {
+      searchWeights: {
+        graphWeight: 0,
+      },
+    });
+
+    assert.equal(graphDisabledResults.length > 0, true);
+    const cacheKeys = database
+      .exec('SELECT cache_key FROM document_search_cache ORDER BY cache_key ASC')[0]
+      ?.values.map((row) => String(row[0])) ?? [];
+    assert.equal(cacheKeys.length, 2);
+    assert.ok(cacheKeys.some((key) => key.includes('weights=,,0')));
   } finally {
     database.close();
   }

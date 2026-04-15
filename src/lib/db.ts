@@ -316,6 +316,11 @@ export interface KnowledgeDocumentSearchOptions {
   maxResults?: number;
   sourceTypes?: KnowledgeDocumentSourceType[];
   sourceUriPrefixes?: string[];
+  searchWeights?: {
+    lexicalWeight?: number;
+    vectorWeight?: number;
+    graphWeight?: number;
+  };
 }
 
 interface AssistantSeed {
@@ -3221,10 +3226,12 @@ function shapeRetrievedDocumentResults(
   options?: KnowledgeDocumentSearchOptions,
   retrievalStages?: Map<string, 'primary' | 'corrective' | 'hybrid'>,
 ): RetrievedDocumentResult[] {
-  return rerankHybridDocuments(hybridScoreDocuments(candidates), query)
+  const graphWeight = options?.searchWeights?.graphWeight ?? 0.12;
+
+  return rerankHybridDocuments(hybridScoreDocuments(candidates, options?.searchWeights), query)
     .map((row) => ({
       ...row,
-      hybridScore: row.hybridScore + (row.graphScore ?? 0) * 0.12,
+      hybridScore: row.hybridScore + (row.graphScore ?? 0) * graphWeight,
     }))
     .sort((left, right) => right.hybridScore - left.hybridScore)
     .slice(0, options?.maxResults ?? 5)
@@ -3282,6 +3289,9 @@ async function searchDocumentsInDatabaseWithMetrics(
       cacheKey,
       options?.sourceTypes?.length ? `types=${options.sourceTypes.join(',')}` : '',
       options?.sourceUriPrefixes?.length ? `uris=${options.sourceUriPrefixes.join(',')}` : '',
+      options?.searchWeights
+        ? `weights=${options.searchWeights.lexicalWeight ?? ''},${options.searchWeights.vectorWeight ?? ''},${options.searchWeights.graphWeight ?? ''}`
+        : '',
     ]
       .filter(Boolean)
       .join('::');
