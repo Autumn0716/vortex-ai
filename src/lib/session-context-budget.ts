@@ -58,6 +58,42 @@ export function estimateMessageTokens(message: TokenEstimateMessage) {
   return estimateTextTokens(stringifyMessageForTokenEstimate(message));
 }
 
+export interface SessionContextTokenBreakdown {
+  systemPromptTokens: number;
+  sessionSummaryTokens: number;
+  runtimeSystemPromptTokens: number;
+  toolContextTokens: number;
+  messageTokens: number;
+  totalTokens: number;
+}
+
+export function estimateSessionContextTokens(input: {
+  systemPrompt?: string;
+  sessionSummary?: string;
+  runtimeSystemPrompt?: string;
+  toolContext?: string;
+  messages?: TokenEstimateMessage[];
+}): SessionContextTokenBreakdown {
+  const systemPromptTokens = estimateTextTokens(input.systemPrompt ?? '');
+  const sessionSummaryTokens = estimateTextTokens(input.sessionSummary ?? '');
+  const runtimeSystemPromptTokens = estimateTextTokens(input.runtimeSystemPrompt ?? '');
+  const toolContextTokens = estimateTextTokens(input.toolContext ?? '');
+  const messageTokens = (input.messages ?? []).reduce((total, message) => total + estimateMessageTokens(message), 0);
+  return {
+    systemPromptTokens,
+    sessionSummaryTokens,
+    runtimeSystemPromptTokens,
+    toolContextTokens,
+    messageTokens,
+    totalTokens:
+      systemPromptTokens +
+      sessionSummaryTokens +
+      runtimeSystemPromptTokens +
+      toolContextTokens +
+      messageTokens,
+  };
+}
+
 export function selectBudgetedRecentItems<T>(
   items: T[],
   options: {

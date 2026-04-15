@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   estimateMessageTokens,
+  estimateSessionContextTokens,
   estimateTextTokens,
   splitBudgetedRecentItems,
 } from '../src/lib/session-context-budget';
@@ -54,4 +55,42 @@ test('estimateMessageTokens includes attachments and tools for shared context bo
 
   assert.deepEqual(result.liveItems, [items[3]]);
   assert.deepEqual(result.summarySourceItems, [items[0], items[1], items[2]]);
+});
+
+test('estimateSessionContextTokens reports per-section totals for context observability', () => {
+  const messages = [
+    { role: 'user', content: '第一条用户消息' },
+    {
+      role: 'assistant',
+      content: '第二条助手消息',
+      tools: [{ name: 'search_knowledge_base', status: 'completed', result: '检索到一条相关知识。' }],
+    },
+  ];
+  const breakdown = estimateSessionContextTokens({
+    systemPrompt: 'You are FlowAgent.',
+    sessionSummary: '已完成前置总结。',
+    runtimeSystemPrompt: '请优先引用证据。',
+    toolContext: 'tools: search_knowledge_base, web_search',
+    messages,
+  });
+
+  assert.equal(breakdown.systemPromptTokens, estimateTextTokens('You are FlowAgent.'));
+  assert.equal(breakdown.sessionSummaryTokens, estimateTextTokens('已完成前置总结。'));
+  assert.equal(breakdown.runtimeSystemPromptTokens, estimateTextTokens('请优先引用证据。'));
+  assert.equal(
+    breakdown.toolContextTokens,
+    estimateTextTokens('tools: search_knowledge_base, web_search'),
+  );
+  assert.equal(
+    breakdown.messageTokens,
+    estimateMessageTokens(messages[0]) + estimateMessageTokens(messages[1]),
+  );
+  assert.equal(
+    breakdown.totalTokens,
+    breakdown.systemPromptTokens +
+      breakdown.sessionSummaryTokens +
+      breakdown.runtimeSystemPromptTokens +
+      breakdown.toolContextTokens +
+      breakdown.messageTokens,
+  );
 });

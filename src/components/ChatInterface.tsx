@@ -87,6 +87,7 @@ import {
   estimateAttachmentTokens,
   estimateTextTokens,
   estimateMessageTokens,
+  estimateSessionContextTokens,
   splitBudgetedRecentItems,
   stringifyMessageForTokenEstimate,
 } from '../lib/session-context-budget';
@@ -545,10 +546,6 @@ export const ChatInterface: React.FC<{
       return (activeRunState.currentInputTokens ?? 0) + streamedOutputTokens;
     }
 
-    if (latestAssistantMetrics?.totalTokens) {
-      return latestAssistantMetrics.totalTokens;
-    }
-
     if (!workspace) {
       return undefined;
     }
@@ -570,17 +567,13 @@ export const ChatInterface: React.FC<{
       }),
     );
 
-    return estimateTokenCount(
-      [
-        config.systemPrompt,
-        workspace.sessionSummary?.content,
-        workspace.runtime.systemPrompt,
-        toolContextEstimate,
-        ...sessionMessages.map((message) => stringifyMessageForEstimate(message)),
-      ]
-        .filter(Boolean)
-        .join('\n'),
-    );
+    return estimateSessionContextTokens({
+      systemPrompt: config.systemPrompt,
+      sessionSummary: workspace.sessionSummary?.content,
+      runtimeSystemPrompt: workspace.runtime.systemPrompt,
+      toolContext: toolContextEstimate,
+      messages: sessionMessages,
+    }).totalTokens;
   }, [
     activeModelFeatures.enableCustomFunctionCalling,
     activeModelFeatures.responsesTools,
@@ -593,7 +586,6 @@ export const ChatInterface: React.FC<{
     composerWebSearchEnabled,
     config.memory.historyWindow,
     config.systemPrompt,
-    latestAssistantMetrics?.totalTokens,
     workspace,
   ]);
   const currentContextWindow = activeModelMetadata?.contextWindow;
