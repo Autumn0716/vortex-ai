@@ -441,14 +441,18 @@ function SectionCard({
   description,
   action,
   children,
+  className = '',
 }: {
   title: string;
   description?: string;
   action?: React.ReactNode;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.025))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+    <section
+      className={`rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.025))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${className}`}
+    >
       <div className="mb-3 flex items-start justify-between gap-4">
         <div>
           <h3 className="text-sm font-semibold text-white/90">{title}</h3>
@@ -3586,6 +3590,53 @@ export const SettingsView = ({
                 }
                 className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
               />
+            </SectionCard>
+            <SectionCard
+              title="RAG 权重"
+              description="调整 BM25、向量和图谱信号的排序影响。权重会写入 config.json，并参与检索缓存隔离。"
+              className="md:col-span-2"
+            >
+              <div className="grid gap-3 md:grid-cols-3">
+                {[
+                  {
+                    key: 'lexicalWeight' as const,
+                    label: 'BM25',
+                    description: '关键词与标题命中',
+                  },
+                  {
+                    key: 'vectorWeight' as const,
+                    label: 'Vector',
+                    description: '语义相似度',
+                  },
+                  {
+                    key: 'graphWeight' as const,
+                    label: 'Graph',
+                    description: '实体与关系路径',
+                  },
+                ].map((item) => (
+                  <WeightInputCard
+                    key={item.key}
+                    label={item.label}
+                    description={item.description}
+                    value={draft.search.weights[item.key]}
+                    min={0}
+                    max={2}
+                    step={0.05}
+                    onChange={(value) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        search: {
+                          ...current.search,
+                          weights: {
+                            ...current.search.weights,
+                            [item.key]: value,
+                          },
+                        },
+                      }))
+                    }
+                  />
+                ))}
+              </div>
             </SectionCard>
             <SectionCard title="文档预览长度" description="控制搜索结果卡片的摘要长度。">
               <input
