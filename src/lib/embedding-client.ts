@@ -52,11 +52,21 @@ async function requestEmbeddingPayload(
     return err(new Error(`Embedding request failed: ${detail}`));
   }
 
-  const payload = (await response.json()) as
+  let payload:
     | (EmbeddingResponse & {
         error?: { message?: string; code?: string };
       })
     | null;
+  try {
+    payload = (await response.json()) as typeof payload;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return err(new Error(`Embedding response was not valid JSON: ${detail}`));
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    return err(new Error('Embedding response was empty or invalid.'));
+  }
 
   if (!response.ok || payload.error) {
     const message =

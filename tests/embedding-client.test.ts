@@ -58,6 +58,24 @@ test('createEmbeddings surfaces remote API error payloads', async () => {
   }
 });
 
+test('createEmbeddings surfaces invalid JSON responses with a stable prefix', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    ({
+      ok: true,
+      status: 200,
+      async json() {
+        throw new SyntaxError('Unexpected token <');
+      },
+    }) as unknown as Response) as typeof fetch;
+
+  try {
+    await assert.rejects(createEmbeddings('hello', TEST_CONFIG), /Embedding response was not valid JSON/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('buildEmbeddingContentHash normalizes casing and whitespace', () => {
   assert.equal(buildEmbeddingContentHash('Alpha   Beta'), buildEmbeddingContentHash(' alpha beta '));
 });
