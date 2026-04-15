@@ -602,6 +602,19 @@ export const ChatInterface: React.FC<{
     currentContextTokens && currentContextWindow
       ? Math.min(100, (currentContextTokens / currentContextWindow) * 100)
       : null;
+  const latestModelInvocation = latestAssistantMetrics
+    ? {
+        providerName: activeProviderName,
+        model: activeModel,
+        completedAt: latestAssistantMetrics.completedAt,
+        streamDurationMs: latestAssistantMetrics.streamDurationMs,
+        reasoningDurationMs: latestAssistantMetrics.reasoningDurationMs,
+        inputTokens: latestAssistantMetrics.inputTokens,
+        outputTokens: latestAssistantMetrics.outputTokens,
+        totalTokens: latestAssistantMetrics.totalTokens,
+        usageSource: latestAssistantMetrics.usageSource,
+      }
+    : null;
   const branchTopicMode = branchTopicDraft?.mode ?? 'single';
   const branchTopicIsWorkflow = branchTopicMode === 'workflow';
   const officialModelResourceLinks = useMemo(
@@ -2816,6 +2829,7 @@ export const ChatInterface: React.FC<{
                   }
                 : undefined
             }
+            latestModelInvocation={latestModelInvocation}
             onClose={() => setShowSettings(false)}
             onConfigSaved={(nextConfig) => setConfig(nextConfig)}
             runtimeCapabilities={runtimeCapabilities}

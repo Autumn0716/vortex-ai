@@ -204,6 +204,17 @@ interface SettingsViewProps {
     usagePercentage: number | null;
     breakdown: SessionContextTokenBreakdown | null;
   };
+  latestModelInvocation?: {
+    providerName: string;
+    model: string;
+    completedAt: string;
+    streamDurationMs: number;
+    reasoningDurationMs?: number;
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    usageSource: 'provider' | 'estimate';
+  } | null;
   onClose: () => void;
   onConfigSaved?: (config: AgentConfig) => void;
   onMemoryFilesChanged?: (agentId: string) => void | Promise<void>;
@@ -520,6 +531,7 @@ export const SettingsView = ({
   initialCategory = 'models',
   runtimeCapabilities = WEB_RUNTIME_CAPABILITIES,
   sessionContextDiagnostics,
+  latestModelInvocation,
   onClose,
   onConfigSaved,
   onMemoryFilesChanged,
@@ -3293,6 +3305,57 @@ export const SettingsView = ({
                           ))}
                         </div>
                       ) : null}
+                    </div>
+                  ) : null}
+                  {latestModelInvocation ? (
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
+                            Latest Model Call
+                          </div>
+                          <div className="mt-1 text-xs text-white/45">
+                            最近一次完成的模型调用快照。
+                          </div>
+                        </div>
+                        <div className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white/55">
+                          {latestModelInvocation.providerName} · {latestModelInvocation.model}
+                        </div>
+                      </div>
+                      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                        {[
+                          {
+                            label: '完成时间',
+                            value: formatTimestampShort(latestModelInvocation.completedAt),
+                          },
+                          {
+                            label: '总耗时',
+                            value: formatDurationShort(latestModelInvocation.streamDurationMs / 1000),
+                          },
+                          {
+                            label: '思考时长',
+                            value: latestModelInvocation.reasoningDurationMs
+                              ? formatDurationShort(latestModelInvocation.reasoningDurationMs / 1000)
+                              : '0s',
+                          },
+                          {
+                            label: 'Token',
+                            value: `${latestModelInvocation.inputTokens} / ${latestModelInvocation.outputTokens} / ${latestModelInvocation.totalTokens}`,
+                          },
+                          {
+                            label: 'Usage Source',
+                            value: latestModelInvocation.usageSource,
+                          },
+                        ].map((entry) => (
+                          <div
+                            key={entry.label}
+                            className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5"
+                          >
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/35">{entry.label}</div>
+                            <div className="mt-1 text-sm font-medium text-white/88">{entry.value}</div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                   {runtimeCapabilities.mode === 'electron' ? (
