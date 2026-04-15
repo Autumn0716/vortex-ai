@@ -118,6 +118,17 @@ function normalizeWorkerPlan(worker: Partial<CompilerWorkerPlan>, index: number)
   };
 }
 
+function parseCompilerPlanPayload(rawContent: string) {
+  try {
+    return JSON.parse(rawContent) as Partial<CompilerPlanPayload>;
+  } catch (error) {
+    const preview = rawContent.trim().slice(0, 240) || '(empty response)';
+    throw new Error(`The model returned invalid workflow JSON: ${preview}`, {
+      cause: error instanceof Error ? error : undefined,
+    });
+  }
+}
+
 function buildGraphFromPlan(input: {
   goal: string;
   title?: string;
@@ -324,7 +335,7 @@ async function requestTaskPlanViaProvider(input: {
     rawContent = String(payloadResult.value?.choices?.[0]?.message?.content ?? '');
   }
 
-  const parsed = JSON.parse(rawContent) as Partial<CompilerPlanPayload>;
+  const parsed = parseCompilerPlanPayload(rawContent);
   const workers = Array.isArray(parsed.workers) ? parsed.workers.map(normalizeWorkerPlan).slice(0, 4) : [];
   if (workers.length === 0) {
     throw new Error('The model returned no worker tasks.');

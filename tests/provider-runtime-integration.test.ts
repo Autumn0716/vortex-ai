@@ -522,3 +522,55 @@ test('task graph compiler falls back deterministically when provider request fai
     console.warn = originalWarn;
   }
 });
+
+test('task graph compiler falls back deterministically when the model returns invalid workflow JSON', async () => {
+  const config = buildConfig({
+    id: 'openai_chat',
+    name: 'OpenAI Chat',
+    baseUrl: 'https://api.example.com/v1',
+    models: ['gpt-4.1'],
+    protocol: 'openai_chat_compatible',
+  });
+
+  const originalFetch = globalThis.fetch;
+  const originalWarn = console.warn;
+  const warnings: unknown[] = [];
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: '{"title":"Broken plan"',
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      },
+    )) as typeof fetch;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+
+  try {
+    const graph = await compileTaskGraphFromGoal({
+      config,
+      providerId: 'openai_chat',
+      model: 'gpt-4.1',
+      goal: '把当前问题拆成几个可并行分支。',
+      title: 'Broken Workflow',
+    });
+
+    assert.equal(graph.compilerStrategy, 'fallback');
+    assert.equal(graph.title, 'Broken Workflow');
+    assert.ok(graph.nodes.some((node) => node.type === 'worker'));
+    assert.equal(warnings.length > 0, true);
+    assert.match(String(warnings[0]?.[1] ?? ''), /The model returned invalid workflow JSON/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.warn = originalWarn;
+  }
+});
