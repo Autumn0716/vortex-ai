@@ -2,6 +2,7 @@ import React, { memo, useEffect, useRef, useState } from 'react';
 import { Globe, ImagePlus, Paperclip, Plus, Search, Send, X } from 'lucide-react';
 import type { AgentProfile, TopicMessageAttachment } from '../../lib/agent-workspace';
 import type { SearchProviderConfig } from '../../lib/agent/config';
+import type { SessionContextTokenBreakdown } from '../../lib/session-context-budget';
 
 export interface ComposerAppendRequest {
   id: number;
@@ -22,6 +23,7 @@ interface ChatComposerProps {
   currentContextTokens?: number;
   currentContextWindow?: number;
   currentContextUsagePercentage: number | null;
+  currentContextBreakdown: SessionContextTokenBreakdown | null;
   imageAttachments: TopicMessageAttachment[];
   appendRequest: ComposerAppendRequest | null;
   webSearchEnabled: boolean;
@@ -54,6 +56,7 @@ function ChatComposerComponent({
   currentContextTokens,
   currentContextWindow,
   currentContextUsagePercentage,
+  currentContextBreakdown,
   imageAttachments,
   appendRequest,
   webSearchEnabled,
@@ -324,13 +327,24 @@ function ChatComposerComponent({
           <span>{selectedAgentName} · Shared knowledge base</span>
           <div className="flex min-w-0 items-center gap-3">
             {currentContextTokens != null ? (
-              <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/58">
-                当前会话上下文 {currentContextTokens.toLocaleString()} tokens
-                {currentContextWindow ? ` / ${currentContextWindow.toLocaleString()}` : ''}
-                {currentContextUsagePercentage != null
-                  ? ` · ${currentContextUsagePercentage.toFixed(currentContextUsagePercentage >= 10 ? 0 : 1)}%`
-                  : ''}
-              </span>
+              <div className="flex flex-col items-end gap-1">
+                <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/58">
+                  当前会话上下文 {currentContextTokens.toLocaleString()} tokens
+                  {currentContextWindow ? ` / ${currentContextWindow.toLocaleString()}` : ''}
+                  {currentContextUsagePercentage != null
+                    ? ` · ${currentContextUsagePercentage.toFixed(currentContextUsagePercentage >= 10 ? 0 : 1)}%`
+                    : ''}
+                </span>
+                {currentContextBreakdown ? (
+                  <span className="text-[10px] text-white/28">
+                    系统 {currentContextBreakdown.systemPromptTokens.toLocaleString()} · 摘要{' '}
+                    {currentContextBreakdown.sessionSummaryTokens.toLocaleString()} · 会话设定{' '}
+                    {currentContextBreakdown.runtimeSystemPromptTokens.toLocaleString()} · 工具{' '}
+                    {currentContextBreakdown.toolContextTokens.toLocaleString()} · 消息{' '}
+                    {currentContextBreakdown.messageTokens.toLocaleString()}
+                  </span>
+                ) : null}
+              </div>
             ) : null}
             {composerNotice ? (
               <span className="max-w-[60ch] truncate">{composerNotice}</span>

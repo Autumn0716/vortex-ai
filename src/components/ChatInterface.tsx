@@ -540,14 +540,9 @@ export const ChatInterface: React.FC<{
     : undefined;
   const activeModelMetadataKey = `${activeProviderId}::${activeModel}`.toLowerCase();
   const activeModelMetadata = modelMetadataCache[activeModelMetadataKey] ?? null;
-  const currentContextTokens = useMemo(() => {
-    if (activeRunState?.isGenerating) {
-      const streamedOutputTokens = estimateTokenCount(activeRunState.draftAssistantMessage?.content ?? '');
-      return (activeRunState.currentInputTokens ?? 0) + streamedOutputTokens;
-    }
-
+  const currentContextBreakdown = useMemo(() => {
     if (!workspace) {
-      return undefined;
+      return null;
     }
 
     const requestMode = activeProvider?.protocol === 'openai_responses_compatible' ? 'responses' : 'chat';
@@ -573,19 +568,33 @@ export const ChatInterface: React.FC<{
       runtimeSystemPrompt: workspace.runtime.systemPrompt,
       toolContext: toolContextEstimate,
       messages: sessionMessages,
-    }).totalTokens;
+    });
   }, [
     activeModelFeatures.enableCustomFunctionCalling,
     activeModelFeatures.responsesTools,
-    activeProvider?.protocol,
-    activeRunState?.currentInputTokens,
-    activeRunState?.draftAssistantMessage?.content,
-    activeRunState?.isGenerating,
     activeModelMetadata?.contextWindow,
     activeModelMetadata?.maxInputTokens,
+    activeProvider?.protocol,
     composerWebSearchEnabled,
     config.memory.historyWindow,
     config.systemPrompt,
+    workspace,
+  ]);
+  const currentContextTokens = useMemo(() => {
+    if (activeRunState?.isGenerating) {
+      const streamedOutputTokens = estimateTokenCount(activeRunState.draftAssistantMessage?.content ?? '');
+      return (activeRunState.currentInputTokens ?? 0) + streamedOutputTokens;
+    }
+
+    if (!workspace) {
+      return undefined;
+    }
+    return currentContextBreakdown?.totalTokens;
+  }, [
+    activeRunState?.currentInputTokens,
+    activeRunState?.draftAssistantMessage?.content,
+    activeRunState?.isGenerating,
+    currentContextBreakdown,
     workspace,
   ]);
   const currentContextWindow = activeModelMetadata?.contextWindow;
@@ -2706,6 +2715,7 @@ export const ChatInterface: React.FC<{
               currentContextTokens={currentContextTokens}
               currentContextWindow={currentContextWindow}
               currentContextUsagePercentage={currentContextUsagePercentage}
+              currentContextBreakdown={activeRunState?.isGenerating ? null : currentContextBreakdown}
               imageAttachments={composerImageAttachments}
               appendRequest={composerAppendRequest}
               webSearchEnabled={composerWebSearchEnabled}
