@@ -1,3 +1,5 @@
+import { err, isErr, ok, type Result } from './result';
+
 export interface EmbeddingProviderConfig {
   apiKey: string;
   model: string;
@@ -26,36 +28,55 @@ export function buildEmbeddingEndpoint(baseUrl: string) {
   return `${baseUrl.replace(/\/$/, '')}/embeddings`;
 }
 
-export async function createEmbeddings(
+async function requestEmbeddingPayload(
   input: string[] | string,
   config: EmbeddingProviderConfig,
-): Promise<EmbeddingResponse> {
-  const response = await fetch(buildEmbeddingEndpoint(config.baseUrl), {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: config.model,
-      input,
-      dimensions: config.dimensions,
-      encoding_format: config.encodingFormat ?? 'float',
-    }),
-  });
+): Promise<Result<EmbeddingResponse, Error>> {
+  let response: Response;
+  try {
+    response = await fetch(buildEmbeddingEndpoint(config.baseUrl), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: config.model,
+        input,
+        dimensions: config.dimensions,
+        encoding_format: config.encodingFormat ?? 'float',
+      }),
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : 'Unknown error';
+    return err(new Error(`Embedding request failed: ${detail}`));
+  }
 
-  const payload = (await response.json()) as EmbeddingResponse & {
-    error?: { message?: string; code?: string };
-  };
+  const payload = (await response.json()) as
+    | (EmbeddingResponse & {
+        error?: { message?: string; code?: string };
+      })
+    | null;
 
   if (!response.ok || payload.error) {
     const message =
       payload.error?.message ||
       `Embedding request failed with status ${response.status}`;
-    throw new Error(message);
+    return err(new Error(message));
   }
 
-  return payload;
+  return ok(payload);
+}
+
+export async function createEmbeddings(
+  input: string[] | string,
+  config: EmbeddingProviderConfig,
+): Promise<EmbeddingResponse> {
+  const result = await requestEmbeddingPayload(input, config);
+  if (isErr(result)) {
+    throw result.error;
+  }
+  return result.value;
 }
 
 export function buildEmbeddingContentHash(content: string) {
