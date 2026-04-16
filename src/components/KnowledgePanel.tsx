@@ -291,7 +291,7 @@ export const KnowledgePanel = ({ onClose }: { onClose: () => void }) => {
           <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-white/40">Stored Documents</h3>
           <p className="mb-3 text-xs text-white/35">
             Project markdown, shared <code className="rounded bg-white/5 px-1 py-0.5">skills/**/SKILL.md</code>，
-            以及当前 agent 的私有 skills 文档都会同步到本地索引。
+            <code className="rounded bg-white/5 px-1 py-0.5">src/**/*.ts</code> 代码摘要，以及当前 agent 的私有 skills 文档都会同步到本地索引。
           </p>
 
           {isLoading ? (

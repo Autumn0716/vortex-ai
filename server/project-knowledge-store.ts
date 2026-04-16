@@ -5,6 +5,8 @@ import path from 'node:path';
 import {
   PROJECT_KNOWLEDGE_ROOT_DIRECTORIES,
   PROJECT_KNOWLEDGE_ROOT_FILES,
+  PROJECT_KNOWLEDGE_CODE_DIRECTORIES,
+  PROJECT_KNOWLEDGE_CODE_EXTENSIONS,
   createProjectKnowledgeRecord,
   normalizeProjectKnowledgePath,
   type ProjectKnowledgeRecord,
@@ -52,6 +54,22 @@ async function collectProjectKnowledgePaths(rootDir: string) {
       const files = await walkDirectory(absolutePath);
       files
         .filter((filePath) => filePath.toLowerCase().endsWith('.md'))
+        .forEach((filePath) => absolutePaths.add(filePath));
+    }),
+  );
+
+  await Promise.all(
+    PROJECT_KNOWLEDGE_CODE_DIRECTORIES.map(async (relativePath) => {
+      const absolutePath = path.join(normalizedRoot, relativePath);
+      const stat = await fs.stat(absolutePath).catch(() => null);
+      if (!stat?.isDirectory()) {
+        return;
+      }
+      const files = await walkDirectory(absolutePath);
+      files
+        .filter((filePath) =>
+          PROJECT_KNOWLEDGE_CODE_EXTENSIONS.some((extension) => filePath.toLowerCase().endsWith(extension)),
+        )
         .forEach((filePath) => absolutePaths.add(filePath));
     }),
   );

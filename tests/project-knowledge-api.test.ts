@@ -55,8 +55,14 @@ test('project knowledge API exposes shared docs and SKILL.md snapshots with chan
   const rootDir = await createTempRoot();
   await mkdir(path.join(rootDir, 'docs'), { recursive: true });
   await mkdir(path.join(rootDir, 'skills/systematic-debugging'), { recursive: true });
+  await mkdir(path.join(rootDir, 'src/lib'), { recursive: true });
   await writeFile(path.join(rootDir, 'README.md'), '# FlowAgent\n\nworkspace guidance', 'utf8');
   await writeFile(path.join(rootDir, 'docs/guide.md'), '# Guide\n\nuse docs', 'utf8');
+  await writeFile(
+    path.join(rootDir, 'src/lib/runtime.ts'),
+    "import { ok } from './result';\nexport function runRuntime() { return ok(true); }\n",
+    'utf8',
+  );
   await writeFile(
     path.join(rootDir, 'skills/systematic-debugging/SKILL.md'),
     '# Systematic Debugging\n\nUse reproduction first.',
@@ -72,11 +78,12 @@ test('project knowledge API exposes shared docs and SKILL.md snapshots with chan
 
   try {
     const statusBefore = await getProjectKnowledgeStatus(settings);
-    assert.equal(statusBefore?.documentCount, 3);
+    assert.equal(statusBefore?.documentCount, 4);
     assert.ok(statusBefore?.paths.includes('skills/systematic-debugging/SKILL.md'));
+    assert.ok(statusBefore?.paths.includes('src/lib/runtime.ts'));
 
     const snapshot = await getProjectKnowledgeSnapshot(settings);
-    assert.equal(snapshot?.documents.length, 3);
+    assert.equal(snapshot?.documents.length, 4);
     assert.equal(
       snapshot?.documents.find((document) => document.sourceUri === 'skills/systematic-debugging/SKILL.md')?.sourceType,
       'skill_doc',
@@ -85,6 +92,9 @@ test('project knowledge API exposes shared docs and SKILL.md snapshots with chan
       snapshot?.documents.find((document) => document.sourceUri === 'README.md')?.sourceType,
       'workspace_doc',
     );
+    const codeDocument = snapshot?.documents.find((document) => document.sourceUri === 'src/lib/runtime.ts');
+    assert.equal(codeDocument?.sourceType, 'code_doc');
+    assert.match(codeDocument?.content ?? '', /export function runRuntime/);
 
     await writeFile(
       path.join(rootDir, 'skills/systematic-debugging/SKILL.md'),

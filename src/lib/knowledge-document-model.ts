@@ -1,6 +1,7 @@
 export type KnowledgeDocumentSourceType =
   | 'user_upload'
   | 'workspace_doc'
+  | 'code_doc'
   | 'skill_doc'
   | 'system_note';
 
@@ -49,6 +50,18 @@ export function classifyKnowledgeDocument(
     return {
       sourceType: 'workspace_doc',
       tags: normalizeKnowledgeTags(['knowledge', 'workspace']),
+    };
+  }
+
+  if (/(\.ts|\.tsx|\.py|\.go)$/.test(sourceUri) && (sourceUri.startsWith('src/') || sourceUri.includes('/src/'))) {
+    const languageTag = sourceUri.endsWith('.py')
+      ? 'python'
+      : sourceUri.endsWith('.go')
+        ? 'go'
+        : 'typescript';
+    return {
+      sourceType: 'code_doc',
+      tags: normalizeKnowledgeTags(['code', 'knowledge', languageTag, 'workspace']),
     };
   }
 
