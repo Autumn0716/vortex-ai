@@ -1748,6 +1748,7 @@ export const SettingsView = ({
 
     setMemoryFileLoading(true);
     try {
+      const previousContent = (await readAgentMemoryFile(activeMemoryFilePath, draft.apiServer)) ?? '';
       await writeAgentMemoryFile(activeMemoryFilePath, memoryFileContent, draft.apiServer);
       await rescanAgentMemory(activeMemoryAgent.id, '已写入 Markdown 文件并刷新当前 agent 索引。');
       await loadMemoryFiles({ preferredPath: activeMemoryFilePath });
@@ -1762,6 +1763,8 @@ export const SettingsView = ({
           agentSlug: activeMemoryAgent.slug,
           path: activeMemoryFilePath,
           size: memoryFileContent.length,
+          previousContent,
+          nextContent: memoryFileContent,
         },
         createdAt: new Date().toISOString(),
       }).catch((error) => {
@@ -1829,6 +1832,7 @@ export const SettingsView = ({
     setMemoryFileLoading(true);
     try {
       const removedPath = activeMemoryFile.path;
+      const deletedContent = (await readAgentMemoryFile(removedPath, draft.apiServer)) ?? '';
       await deleteAgentMemoryFile(activeMemoryFile.path, draft.apiServer);
       await rescanAgentMemory(activeMemoryAgent.id, '已删除日记文件并刷新索引。');
       await loadMemoryFiles({
@@ -1844,6 +1848,7 @@ export const SettingsView = ({
         metadata: {
           agentSlug: activeMemoryAgent.slug,
           path: removedPath,
+          deletedContent,
         },
         createdAt: new Date().toISOString(),
       }).catch((error) => {
@@ -1857,6 +1862,45 @@ export const SettingsView = ({
     } finally {
       setMemoryFileLoading(false);
       setConfirmMemoryDelete(null);
+    }
+  };
+
+  const restoreMemoryTimelineFile = async (input: { path: string; content: string; reason: string }) => {
+    if (!activeMemoryAgent) {
+      return;
+    }
+
+    setMemoryFileLoading(true);
+    try {
+      const currentContent = (await readAgentMemoryFile(input.path, draft.apiServer)) ?? '';
+      await writeAgentMemoryFile(input.path, input.content, draft.apiServer);
+      await rescanAgentMemory(activeMemoryAgent.id, '已按时间线快照撤销记忆文件并刷新索引。');
+      await loadMemoryFiles({ preferredPath: input.path });
+      void recordAuditLog({
+        category: 'memory',
+        action: 'memory_file_restored',
+        agentId: activeMemoryAgent.id,
+        target: input.path,
+        status: 'success',
+        summary: `Restored memory file for ${activeMemoryAgent.name}.`,
+        metadata: {
+          agentSlug: activeMemoryAgent.slug,
+          path: input.path,
+          reason: input.reason,
+          previousContent: currentContent,
+          nextContent: input.content,
+        },
+        createdAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('Failed to record memory restore audit log:', error);
+      });
+    } catch (error) {
+      setMemoryFileStatus({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '撤销记忆文件失败。',
+      });
+    } finally {
+      setMemoryFileLoading(false);
     }
   };
 
@@ -3297,6 +3341,7 @@ export const SettingsView = ({
               agentId={activeMemoryAgent?.id}
               agentName={activeMemoryAgent?.name}
               documents={activeMemoryDocuments}
+              onRestoreMemoryFile={restoreMemoryTimelineFile}
             />
 
             <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">

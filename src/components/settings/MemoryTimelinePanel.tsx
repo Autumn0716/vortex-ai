@@ -146,14 +146,17 @@ export function MemoryTimelinePanel({
   agentId,
   agentName,
   documents,
+  onRestoreMemoryFile,
 }: {
   agentId?: string;
   agentName?: string;
   documents: AgentMemoryDocument[];
+  onRestoreMemoryFile?: (input: { path: string; content: string; reason: string }) => Promise<void>;
 }) {
   const [filter, setFilter] = useState<TimelineFilter>('all');
   const [query, setQuery] = useState('');
   const [expandedEntryIds, setExpandedEntryIds] = useState<Set<string>>(() => new Set());
+  const [restoringEntryId, setRestoringEntryId] = useState<string | null>(null);
   const [auditEntries, setAuditEntries] = useState<AuditLogRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -222,6 +225,33 @@ export function MemoryTimelinePanel({
     });
   };
 
+  const resolveRestoreCandidate = (entry: TimelineEntry) => {
+    if (!entry.metadata || entry.source !== 'audit') {
+      return null;
+    }
+    const path = entry.metadata.path;
+    if (typeof path !== 'string' || !path.trim()) {
+      return null;
+    }
+    const previousContent = entry.metadata.previousContent;
+    if (entry.subtitle.includes('memory_file_saved') && typeof previousContent === 'string') {
+      return {
+        path,
+        content: previousContent,
+        reason: 'restore_previous_memory_file',
+      };
+    }
+    const deletedContent = entry.metadata.deletedContent;
+    if (entry.subtitle.includes('memory_daily_deleted') && typeof deletedContent === 'string') {
+      return {
+        path,
+        content: deletedContent,
+        reason: 'restore_deleted_memory_file',
+      };
+    }
+    return null;
+  };
+
   return (
     <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -286,6 +316,8 @@ export function MemoryTimelinePanel({
             const entryKey = `${entry.source}:${entry.id}`;
             const metadataRows = buildMetadataRows(entry.metadata);
             const expanded = expandedEntryIds.has(entryKey);
+            const restoreCandidate = resolveRestoreCandidate(entry);
+            const restoreBusy = restoringEntryId === entryKey;
             return (
             <div key={entryKey} className="relative pl-5">
               <div className="absolute left-[7px] top-0 h-full w-px bg-white/10" />
@@ -316,12 +348,30 @@ export function MemoryTimelinePanel({
                   {entry.detail || '无详细内容'}
                 </div>
                 {metadataRows.length ? (
-                  <button
-                    onClick={() => toggleExpanded(entryKey)}
-                    className="mt-3 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white"
-                  >
-                    {expanded ? '收起细节' : `展开 ${metadataRows.length} 项 metadata`}
-                  </button>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      onClick={() => toggleExpanded(entryKey)}
+                      className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] text-white/55 transition-colors hover:bg-white/[0.08] hover:text-white"
+                    >
+                      {expanded ? '收起细节' : `展开 ${metadataRows.length} 项 metadata`}
+                    </button>
+                    {restoreCandidate && onRestoreMemoryFile ? (
+                      <button
+                        onClick={async () => {
+                          setRestoringEntryId(entryKey);
+                          try {
+                            await onRestoreMemoryFile(restoreCandidate);
+                          } finally {
+                            setRestoringEntryId(null);
+                          }
+                        }}
+                        disabled={restoreBusy}
+                        className="rounded-full border border-amber-300/20 bg-amber-400/10 px-2.5 py-1 text-[10px] text-amber-100/75 transition-colors hover:bg-amber-400/15 hover:text-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {restoreBusy ? '撤销中...' : '撤销'}
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
                 {expanded && metadataRows.length ? (
                   <div className="mt-3 grid gap-2 rounded-2xl border border-white/8 bg-black/20 p-3">
