@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { readProjectConfig, writeProjectConfig } from './config-store';
+import { createDailySummaryScheduler } from './daily-summary-automation';
 import { inspectOfficialModelMetadata, MODEL_INSPECTOR_RESOLVER_VERSION } from './model-inspector';
 import {
   listStoredModelMetadata,
@@ -130,6 +131,12 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     now: options.nightlyArchiveNow,
   });
   const nightlyArchiveReady = nightlyArchiveScheduler.start();
+  const dailySummaryScheduler = createDailySummaryScheduler({
+    rootDir,
+    now: options.nightlyArchiveNow,
+    logger,
+  });
+  const dailySummaryReady = dailySummaryScheduler.start();
   const projectKnowledgeWatcher = createProjectKnowledgeWatcher(rootDir);
   const projectKnowledgeReady = projectKnowledgeWatcher.ready;
   const app = express();
@@ -319,8 +326,20 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
   app.get('/api/automations', async (_request, response) => {
     try {
       const nightlyArchive = await nightlyArchiveScheduler.getStatus();
+      const dailySummary = await dailySummaryScheduler.getStatus();
       response.json({
         automations: [
+          {
+            id: 'daily_summary',
+            title: '昨日会话摘要',
+            description: '每天早 8 点为昨日 daily 记忆写入自动摘要区块。',
+            enabled: dailySummary.enabled,
+            schedule: dailySummary.schedule,
+            running: dailySummary.running,
+            nextRunAt: dailySummary.nextRunAt,
+            lastRunSummary: dailySummary.state.lastRunSummary,
+            capabilities: ['manual_run', 'scheduled_run', 'catch_up'],
+          },
           {
             id: 'nightly_archive',
             title: '记忆归档',
@@ -346,11 +365,15 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
 
   app.post('/api/automations/:id/run', async (request, response) => {
     try {
-      if (request.params.id !== 'nightly_archive') {
-        sendApiError(response, 404, 'AUTOMATION_NOT_FOUND', `Unknown automation: ${request.params.id}`);
+      if (request.params.id === 'daily_summary') {
+        response.json(await dailySummaryScheduler.runNow('manual'));
         return;
       }
-      response.json(await nightlyArchiveScheduler.runNow('manual'));
+      if (request.params.id === 'nightly_archive') {
+        response.json(await nightlyArchiveScheduler.runNow('manual'));
+        return;
+      }
+      sendApiError(response, 404, 'AUTOMATION_NOT_FOUND', `Unknown automation: ${request.params.id}`);
     } catch (error) {
       sendApiError(
         response,
@@ -517,6 +540,8 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     memoryRootDir,
     nightlyArchiveScheduler,
     nightlyArchiveReady,
+    dailySummaryScheduler,
+    dailySummaryReady,
     projectKnowledgeWatcher,
     projectKnowledgeReady,
   };
@@ -525,8 +550,8 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
 async function startServer() {
   const port = Number(process.env.FLOWAGENT_API_PORT ?? 3850);
   const host = process.env.FLOWAGENT_API_HOST ?? '127.0.0.1';
-  const { app, memoryRootDir, nightlyArchiveReady, projectKnowledgeReady } = createFlowAgentApiServer();
-  await Promise.all([nightlyArchiveReady, projectKnowledgeReady]);
+  const { app, memoryRootDir, nightlyArchiveReady, dailySummaryReady, projectKnowledgeReady } = createFlowAgentApiServer();
+  await Promise.all([nightlyArchiveReady, dailySummaryReady, projectKnowledgeReady]);
 
   app.listen(port, host, () => {
     console.log(`FlowAgent API server listening on http://${host}:${port}`);

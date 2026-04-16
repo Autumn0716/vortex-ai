@@ -92,6 +92,7 @@ import {
   syncAgentMemoryLifecycleForAgent,
   writeAgentMemoryFile,
   type AgentMemoryFileEntry,
+  type AutomationRunStatus,
   type AutomationSnapshot,
   type NightlyArchiveStatus,
   type OfficialModelMetadataResponse,
@@ -330,6 +331,10 @@ function formatNightlyArchiveSchedule(settings?: NightlyArchiveStatus['settings'
     return '未读取';
   }
   return settings.cronExpression ? `cron ${settings.cronExpression}` : `每天 ${settings.time}`;
+}
+
+function isNightlyArchiveStatus(status: AutomationRunStatus | null): status is NightlyArchiveStatus {
+  return Boolean(status && 'settings' in status);
 }
 
 function formatNightlyArchiveRunSummary(status: NightlyArchiveStatus | null) {
@@ -2015,11 +2020,13 @@ export const SettingsView = ({
     setAutomationLoadingId(automationId);
     try {
       const nextStatus = await runAutomation(draft.apiServer, automationId);
-      setNightlyArchiveStatus(nextStatus);
-      setNightlyArchiveEnabled(nextStatus?.settings.enabled ?? nightlyArchiveEnabled);
-      setNightlyArchiveTime(nextStatus?.settings.time ?? nightlyArchiveTime);
-      setNightlyArchiveCronExpression(nextStatus?.settings.cronExpression ?? nightlyArchiveCronExpression);
-      setNightlyArchiveUseLlmScoring(nextStatus?.settings.useLlmScoring ?? nightlyArchiveUseLlmScoring);
+      if (isNightlyArchiveStatus(nextStatus)) {
+        setNightlyArchiveStatus(nextStatus);
+        setNightlyArchiveEnabled(nextStatus.settings.enabled);
+        setNightlyArchiveTime(nextStatus.settings.time);
+        setNightlyArchiveCronExpression(nextStatus.settings.cronExpression ?? '');
+        setNightlyArchiveUseLlmScoring(nextStatus.settings.useLlmScoring);
+      }
       setAutomationSnapshot(await getAutomationSnapshot(draft.apiServer));
       setAutomationMessage({
         tone: 'success',

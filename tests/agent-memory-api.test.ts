@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -196,13 +196,47 @@ test('API server exposes readable and writable nightly archive settings', async 
     assert.equal(runStatus?.state.lastRunSummary?.processedAgents, 0);
 
     const automationSnapshot = await getAutomationSnapshot(settings);
-    assert.equal(automationSnapshot?.automations[0]?.id, 'nightly_archive');
-    assert.equal(automationSnapshot?.automations[0]?.schedule, 'cron 15 4 * * *');
+    const nightlyAutomation = automationSnapshot?.automations.find((automation) => automation.id === 'nightly_archive');
+    assert.equal(nightlyAutomation?.schedule, 'cron 15 4 * * *');
 
     const automationRunStatus = await runAutomation(settings, 'nightly_archive');
     assert.equal(automationRunStatus?.state.lastRunSummary?.trigger, 'manual');
 
     await assert.rejects(() => runAutomation(settings, 'missing'), /Unknown automation: missing/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('API automation registry can generate yesterday daily summaries', async () => {
+  const rootDir = await createTempRoot();
+  await mkdir(path.join(rootDir, 'memory/agents/core/daily'), { recursive: true });
+  await writeFile(
+    path.join(rootDir, 'memory/agents/core/daily/2026-04-15.md'),
+    '- [09:00] You: 需要继续做自动化触发器。\n- [09:30] Assistant: 已完成 cron 设置。\n- [10:00] TODO 接入昨日会话摘要。',
+    'utf8',
+  );
+  const server = await startServer(rootDir, '', () => '2026-04-16T07:30:00.000Z');
+  const settings = {
+    enabled: true,
+    baseUrl: server.baseUrl,
+    authToken: '',
+  };
+
+  try {
+    const automationSnapshot = await getAutomationSnapshot(settings);
+    const dailyAutomation = automationSnapshot?.automations.find((automation) => automation.id === 'daily_summary');
+    assert.equal(dailyAutomation?.schedule, '每天 08:00');
+
+    const runStatus = await runAutomation(settings, 'daily_summary');
+    assert.equal(runStatus?.state.lastRunSummary?.trigger, 'manual');
+    assert.equal(runStatus?.state.lastRunSummary?.processedAgents, 1);
+
+    const dailyFile = await readFile(path.join(rootDir, 'memory/agents/core/daily/2026-04-15.md'), 'utf8');
+    assert.match(dailyFile, /flowagent:daily-summary:start/);
+    assert.match(dailyFile, /Summary:/);
+    assert.match(dailyFile, /Open Loops:/);
+    assert.match(dailyFile, /自动化触发器/);
   } finally {
     await server.close();
   }

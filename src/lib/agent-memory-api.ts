@@ -104,6 +104,33 @@ export interface NightlyArchiveStatus {
   running: boolean;
 }
 
+export interface DailySummaryRunSummary {
+  processedAgents: number;
+  updatedFiles: number;
+  skippedFiles: number;
+  failedAgents: number;
+  failures: Array<{ agentSlug: string; message: string }>;
+  targetDate: string;
+  trigger: 'catchup' | 'scheduled' | 'manual';
+  startedAt: string;
+  completedAt: string;
+}
+
+export interface DailySummaryStatus {
+  enabled: boolean;
+  schedule: string;
+  state: {
+    lastSuccessfulRunAt: string | null;
+    lastAttemptedRunAt: string | null;
+    lastRunSummary: DailySummaryRunSummary | null;
+  };
+  nextRunAt: string | null;
+  catchUpDue: boolean;
+  running: boolean;
+}
+
+export type AutomationRunStatus = NightlyArchiveStatus | DailySummaryStatus;
+
 export interface AutomationEntry {
   id: string;
   title: string;
@@ -112,7 +139,7 @@ export interface AutomationEntry {
   schedule: string;
   running: boolean;
   nextRunAt: string | null;
-  lastRunSummary: NightlyArchiveRunSummary | null;
+  lastRunSummary: NightlyArchiveRunSummary | DailySummaryRunSummary | null;
   capabilities: string[];
 }
 
@@ -316,7 +343,7 @@ export async function getAutomationSnapshot(settings: ApiServerSettings): Promis
 export async function runAutomation(
   settings: ApiServerSettings,
   automationId: string,
-): Promise<NightlyArchiveStatus | null> {
+): Promise<AutomationRunStatus | null> {
   if (!settings.enabled) {
     throw new Error('The local API server is disabled.');
   }
