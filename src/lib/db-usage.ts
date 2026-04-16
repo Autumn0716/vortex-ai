@@ -30,6 +30,14 @@ function addUsage(target: TokenUsageAggregate, usage: TokenUsageRecord) {
   }
 }
 
+export function accumulateTokenUsage(records: TokenUsageRecord[]): TokenUsageAggregate {
+  const aggregate = emptyAggregate();
+  records.forEach((record) => {
+    addUsage(aggregate, record);
+  });
+  return aggregate;
+}
+
 function toTokenUsageRecord(row: {
   id: string;
   topic_id: string;

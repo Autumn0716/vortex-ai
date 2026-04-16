@@ -50,6 +50,7 @@ import {
   savePromptSnippetInDatabase,
 } from './db-library-data';
 import {
+  accumulateTokenUsage,
   getTokenUsageSummaryInDatabase,
   listTokenUsageForTopicInDatabase,
   upsertTokenUsageInDatabase,
@@ -91,12 +92,14 @@ import type {
   KnowledgeEvidenceFeedbackInput,
   PromptSnippet,
   StoredToolRun,
+  TokenUsageAggregate,
   TokenUsageRecord,
   TokenUsageSummary,
 } from './db-types';
 
 export { Database };
 export {
+  accumulateTokenUsage,
   buildEmbeddingConfigFromDocuments,
   clearDocumentSearchCache,
   getDocumentFtsEnabled,
@@ -125,6 +128,7 @@ export type {
   KnowledgeEvidenceFeedbackValue,
   PromptSnippet,
   StoredToolRun,
+  TokenUsageAggregate,
   TokenUsageRecord,
   TokenUsageSummary,
 } from './db-types';

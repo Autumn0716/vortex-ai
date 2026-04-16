@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getTokenUsageSummaryInDatabase, upsertTokenUsageInDatabase } from '../src/lib/db-usage';
+import { accumulateTokenUsage, getTokenUsageSummaryInDatabase, upsertTokenUsageInDatabase } from '../src/lib/db-usage';
 
 function createFakeDatabase(rows: unknown[][] = []) {
   const runCalls: Array<{ query: string; params: unknown[] }> = [];
@@ -153,4 +153,46 @@ test('getTokenUsageSummaryInDatabase aggregates periods, trends, models and topi
   assert.equal(summary.byTopic[0]?.callCount, 2);
   assert.equal(summary.daily.length, 7);
   assert.equal(summary.daily[6]?.date, '2026-04-16');
+});
+
+test('accumulateTokenUsage sums all calls in the topic history', () => {
+  const aggregate = accumulateTokenUsage([
+    {
+      id: 'usage_1',
+      topicId: 'topic_alpha',
+      topicTitle: 'Alpha',
+      agentId: 'agent_1',
+      model: 'qwen3.5-plus',
+      sessionMode: 'agent',
+      messageId: 'message_1',
+      inputTokens: 100,
+      outputTokens: 50,
+      totalTokens: 150,
+      estimatedCost: 0.003,
+      usageSource: 'provider',
+      createdAt: '2026-04-16T08:00:00.000Z',
+    },
+    {
+      id: 'usage_2',
+      topicId: 'topic_alpha',
+      topicTitle: 'Alpha',
+      agentId: 'agent_1',
+      model: 'qwen3.5-plus',
+      sessionMode: 'agent',
+      messageId: 'message_2',
+      inputTokens: 120,
+      outputTokens: 60,
+      totalTokens: 180,
+      estimatedCost: 0.004,
+      usageSource: 'provider',
+      createdAt: '2026-04-16T08:05:00.000Z',
+    },
+  ]);
+
+  assert.equal(aggregate.callCount, 2);
+  assert.equal(aggregate.pricedCallCount, 2);
+  assert.equal(aggregate.inputTokens, 220);
+  assert.equal(aggregate.outputTokens, 110);
+  assert.equal(aggregate.totalTokens, 330);
+  assert.equal(aggregate.estimatedCost, 0.007);
 });

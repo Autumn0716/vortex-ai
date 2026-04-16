@@ -28,6 +28,7 @@ import {
 } from './chat/PromptInspectorDialog';
 import {
   addDocument,
+  accumulateTokenUsage,
   getTokenUsageSummary,
   listPromptSnippets,
   listTopicTokenUsage,
@@ -36,6 +37,8 @@ import {
   recordTokenUsage,
   savePromptSnippet,
   type PromptSnippet,
+  type TokenUsageAggregate,
+  type TokenUsageRecord,
   type TokenUsageSummary,
 } from '../lib/db';
 import {
@@ -707,6 +710,7 @@ export const ChatInterface: React.FC<{
     totalLatencyMs: 0,
   });
   const [promptInspectorByTopicId, setPromptInspectorByTopicId] = useState<Record<string, PromptInspectorSnapshot>>({});
+  const [topicUsageRecordsByTopicId, setTopicUsageRecordsByTopicId] = useState<Record<string, TokenUsageRecord[]>>({});
   const [tokenUsageSummary, setTokenUsageSummary] = useState<TokenUsageSummary | null>(null);
   const [knowledgeEvidenceFeedbackByKey, setKnowledgeEvidenceFeedbackByKey] = useState<
     Record<string, KnowledgeEvidenceFeedbackValue>
@@ -808,6 +812,13 @@ export const ChatInterface: React.FC<{
   const latestAssistantMetrics = latestAssistantMessageId
     ? messageMetricsById[latestAssistantMessageId]
     : undefined;
+  const activeTopicUsage = useMemo<TokenUsageAggregate | null>(() => {
+    if (!activeTopicId) {
+      return null;
+    }
+    const records = topicUsageRecordsByTopicId[activeTopicId] ?? [];
+    return records.length ? accumulateTokenUsage(records) : null;
+  }, [activeTopicId, topicUsageRecordsByTopicId]);
   const activeModelMetadataKey = `${activeProviderId}::${activeModel}`.toLowerCase();
   const activeModelMetadata = modelMetadataCache[activeModelMetadataKey] ?? null;
   const currentContextBreakdown = useMemo(() => {
@@ -1071,6 +1082,26 @@ export const ChatInterface: React.FC<{
     });
   };
 
+  const upsertTopicUsageRecord = (topicId: string, record: TokenUsageRecord) => {
+    startTransition(() => {
+      setTopicUsageRecordsByTopicId((previous) => {
+        const existing = previous[topicId] ?? [];
+        const next = [...existing];
+        const targetIndex = next.findIndex((entry) => entry.messageId === record.messageId);
+        if (targetIndex >= 0) {
+          next[targetIndex] = record;
+        } else {
+          next.push(record);
+        }
+        next.sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime());
+        return {
+          ...previous,
+          [topicId]: next,
+        };
+      });
+    });
+  };
+
   const stopTopicGeneration = (topicId: string) => {
     const controller = topicAbortControllersRef.current[topicId];
     if (!controller) {
@@ -1180,6 +1211,10 @@ export const ChatInterface: React.FC<{
       );
       setTopics(topicRecords);
       setMemoryDocuments(memoryRecords);
+      setTopicUsageRecordsByTopicId((previous) => ({
+        ...previous,
+        [topicId]: topicUsageRecords,
+      }));
       setMessageMetricsById((previous) => ({
         ...previous,
         ...Object.fromEntries(
@@ -2344,6 +2379,24 @@ export const ChatInterface: React.FC<{
         inputCostPerMillion: runtimeModelMetadata?.inputCostPerMillion,
         outputCostPerMillion: runtimeModelMetadata?.outputCostPerMillion,
       });
+      const usageRecord: TokenUsageRecord = {
+        id: `usage_${assistantMessage.id ?? finalAssistantMessageId}`,
+        topicId: workspaceSnapshot.topic.id,
+        topicTitle: workspaceSnapshot.topic.title,
+        agentId: workspaceSnapshot.agent.id,
+        providerId: runtimeProviderId,
+        model: runtimeModel,
+        sessionMode: workspaceSnapshot.topic.sessionMode,
+        messageId: assistantMessage.id ?? finalAssistantMessageId,
+        inputTokens,
+        outputTokens,
+        totalTokens,
+        estimatedCost,
+        usageSource: finalUsage ? 'provider' : 'estimate',
+        streamDurationMs,
+        reasoningDurationMs,
+        createdAt: completedAt,
+      };
       setMessageMetricsById((previous) => ({
         ...previous,
         [assistantMessage.id ?? finalAssistantMessageId]: {
@@ -2357,24 +2410,9 @@ export const ChatInterface: React.FC<{
           usageSource: finalUsage ? 'provider' : 'estimate',
         },
       }));
+      upsertTopicUsageRecord(workspaceSnapshot.topic.id, usageRecord);
       try {
-        await recordTokenUsage({
-          topicId: workspaceSnapshot.topic.id,
-          topicTitle: workspaceSnapshot.topic.title,
-          agentId: workspaceSnapshot.agent.id,
-          providerId: runtimeProviderId,
-          model: runtimeModel,
-          sessionMode: workspaceSnapshot.topic.sessionMode,
-          messageId: assistantMessage.id ?? finalAssistantMessageId,
-          inputTokens,
-          outputTokens,
-          totalTokens,
-          estimatedCost,
-          usageSource: finalUsage ? 'provider' : 'estimate',
-          streamDurationMs,
-          reasoningDurationMs,
-          createdAt: completedAt,
-        });
+        await recordTokenUsage(usageRecord);
       } catch (error) {
         console.warn('Failed to record token usage for assistant reply:', error);
       }
@@ -2426,6 +2464,25 @@ export const ChatInterface: React.FC<{
             inputCostPerMillion: runtimeModelMetadata?.inputCostPerMillion,
             outputCostPerMillion: runtimeModelMetadata?.outputCostPerMillion,
           });
+          const usageRecord: TokenUsageRecord = {
+            id: `usage_${partialMessage.id ?? assistantDraftId}`,
+            topicId: workspaceSnapshot.topic.id,
+            topicTitle: workspaceSnapshot.topic.title,
+            agentId: workspaceSnapshot.agent.id,
+            providerId: runtimeProviderId,
+            model: runtimeModel,
+            sessionMode: workspaceSnapshot.topic.sessionMode,
+            messageId: partialMessage.id ?? assistantDraftId,
+            inputTokens: estimatedInputTokens,
+            outputTokens: estimatedOutputTokens,
+            totalTokens: estimatedInputTokens + estimatedOutputTokens,
+            estimatedCost,
+            usageSource: 'estimate',
+            streamDurationMs: Math.max(0, Date.now() - turnStartedAt),
+            reasoningDurationMs:
+              reasoningStartedAt !== null ? Math.max(0, Date.now() - reasoningStartedAt) : undefined,
+            createdAt: completedAt,
+          };
           setMessageMetricsById((previous) => ({
             ...previous,
             [partialMessage.id ?? assistantDraftId]: {
@@ -2442,25 +2499,9 @@ export const ChatInterface: React.FC<{
               usageSource: 'estimate',
             },
           }));
+          upsertTopicUsageRecord(workspaceSnapshot.topic.id, usageRecord);
           try {
-            await recordTokenUsage({
-              topicId: workspaceSnapshot.topic.id,
-              topicTitle: workspaceSnapshot.topic.title,
-              agentId: workspaceSnapshot.agent.id,
-              providerId: runtimeProviderId,
-              model: runtimeModel,
-              sessionMode: workspaceSnapshot.topic.sessionMode,
-              messageId: partialMessage.id ?? assistantDraftId,
-              inputTokens: estimatedInputTokens,
-              outputTokens: estimatedOutputTokens,
-              totalTokens: estimatedInputTokens + estimatedOutputTokens,
-              estimatedCost,
-              usageSource: 'estimate',
-              streamDurationMs: Math.max(0, Date.now() - turnStartedAt),
-              reasoningDurationMs:
-                reasoningStartedAt !== null ? Math.max(0, Date.now() - reasoningStartedAt) : undefined,
-              createdAt: completedAt,
-            });
+            await recordTokenUsage(usageRecord);
           } catch (error) {
             console.warn('Failed to record token usage for partial reply:', error);
           }
@@ -3346,6 +3387,7 @@ export const ChatInterface: React.FC<{
               currentContextWindow={currentContextWindow}
               currentContextUsagePercentage={currentContextUsagePercentage}
               currentContextBreakdown={activeRunState?.isGenerating ? null : currentContextBreakdown}
+              sessionUsage={activeTopicUsage}
               imageAttachments={composerImageAttachments}
               appendRequest={composerAppendRequest}
               webSearchEnabled={composerWebSearchEnabled}
@@ -3448,6 +3490,7 @@ export const ChatInterface: React.FC<{
                 : undefined
             }
             latestModelInvocation={latestModelInvocation}
+            activeTopicUsageSnapshot={activeTopicUsage}
             tokenUsageSummary={tokenUsageSummary}
             modelInvocationStats={modelInvocationStats}
             onClose={() => setShowSettings(false)}

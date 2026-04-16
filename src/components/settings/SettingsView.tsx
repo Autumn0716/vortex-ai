@@ -58,6 +58,7 @@ import {
   importWorkspaceData,
   recordAuditLog,
   type DataStats,
+  type TokenUsageAggregate,
   type TokenUsageSummary,
 } from '../../lib/db';
 import {
@@ -260,6 +261,7 @@ interface SettingsViewProps {
     estimatedCost?: number;
     usageSource: 'provider' | 'estimate';
   } | null;
+  activeTopicUsageSnapshot?: TokenUsageAggregate | null;
   tokenUsageSummary?: TokenUsageSummary | null;
   modelInvocationStats?: {
     successCount: number;
@@ -590,6 +592,7 @@ export const SettingsView = ({
   runtimeCapabilities = WEB_RUNTIME_CAPABILITIES,
   sessionContextDiagnostics,
   latestModelInvocation,
+  activeTopicUsageSnapshot,
   tokenUsageSummary,
   modelInvocationStats,
   onClose,
@@ -3713,6 +3716,54 @@ export const SettingsView = ({
                           {
                             label: 'Usage Source',
                             value: latestModelInvocation.usageSource,
+                          },
+                        ].map((entry) => (
+                          <div
+                            key={entry.label}
+                            className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5"
+                          >
+                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/35">{entry.label}</div>
+                            <div className="mt-1 text-sm font-medium text-white/88">{entry.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  {activeTopicUsageSnapshot ? (
+                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
+                            Current Topic Usage
+                          </div>
+                          <div className="mt-1 text-xs text-white/45">
+                            当前 topic 全部 assistant 调用的累计 token 与费用。
+                          </div>
+                        </div>
+                        <div className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white/55">
+                          {activeTopicUsageSnapshot.callCount} 次调用
+                        </div>
+                      </div>
+                      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+                        {[
+                          {
+                            label: '输入累计',
+                            value: activeTopicUsageSnapshot.inputTokens.toLocaleString(),
+                          },
+                          {
+                            label: '输出累计',
+                            value: activeTopicUsageSnapshot.outputTokens.toLocaleString(),
+                          },
+                          {
+                            label: '总计累计',
+                            value: activeTopicUsageSnapshot.totalTokens.toLocaleString(),
+                          },
+                          {
+                            label: '累计费用',
+                            value:
+                              activeTopicUsageSnapshot.pricedCallCount > 0
+                                ? `¥${activeTopicUsageSnapshot.estimatedCost >= 0.01 ? activeTopicUsageSnapshot.estimatedCost.toFixed(3) : activeTopicUsageSnapshot.estimatedCost.toFixed(4)}`
+                                : '未识别',
                           },
                         ].map((entry) => (
                           <div

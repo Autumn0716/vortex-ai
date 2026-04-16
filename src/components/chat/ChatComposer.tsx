@@ -2,6 +2,7 @@ import React, { memo, useEffect, useRef, useState } from 'react';
 import { Globe, ImagePlus, Paperclip, Plus, Search, Send, X } from 'lucide-react';
 import type { AgentProfile, TopicMessageAttachment } from '../../lib/agent-workspace';
 import type { SearchProviderConfig } from '../../lib/agent/config';
+import type { TokenUsageAggregate } from '../../lib/db';
 import type { SessionContextTokenBreakdown } from '../../lib/session-context-budget';
 
 export interface ComposerAppendRequest {
@@ -24,6 +25,7 @@ interface ChatComposerProps {
   currentContextWindow?: number;
   currentContextUsagePercentage: number | null;
   currentContextBreakdown: SessionContextTokenBreakdown | null;
+  sessionUsage: TokenUsageAggregate | null;
   imageAttachments: TopicMessageAttachment[];
   appendRequest: ComposerAppendRequest | null;
   webSearchEnabled: boolean;
@@ -57,6 +59,7 @@ function ChatComposerComponent({
   currentContextWindow,
   currentContextUsagePercentage,
   currentContextBreakdown,
+  sessionUsage,
   imageAttachments,
   appendRequest,
   webSearchEnabled,
@@ -345,6 +348,14 @@ function ChatComposerComponent({
                   </span>
                 ) : null}
               </div>
+            ) : null}
+            {sessionUsage ? (
+              <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/58">
+                当前会话累计 输入 {sessionUsage.inputTokens.toLocaleString()} · 输出{' '}
+                {sessionUsage.outputTokens.toLocaleString()} · 总计 {sessionUsage.totalTokens.toLocaleString()}
+                {' · '}
+                {sessionUsage.callCount} 次
+              </span>
             ) : null}
             {composerNotice ? (
               <span className="max-w-[60ch] truncate">{composerNotice}</span>
