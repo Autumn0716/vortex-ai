@@ -144,6 +144,25 @@ export function createBaseSchema(database: Database) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS token_usage (
+      id TEXT PRIMARY KEY,
+      topic_id TEXT NOT NULL,
+      topic_title TEXT NOT NULL,
+      agent_id TEXT NOT NULL,
+      provider_id TEXT,
+      model TEXT NOT NULL,
+      session_mode TEXT NOT NULL DEFAULT 'agent',
+      message_id TEXT NOT NULL UNIQUE,
+      input_tokens INTEGER NOT NULL,
+      output_tokens INTEGER NOT NULL,
+      total_tokens INTEGER NOT NULL,
+      estimated_cost REAL,
+      usage_source TEXT NOT NULL,
+      stream_duration_ms INTEGER,
+      reasoning_duration_ms INTEGER,
+      created_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_agent_lanes_conversation ON agent_lanes(conversation_id, position ASC);
     CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at ASC);
@@ -156,5 +175,8 @@ export function createBaseSchema(database: Database) {
     CREATE INDEX IF NOT EXISTS idx_document_graph_nodes_doc ON document_graph_nodes(document_id, weight DESC);
     CREATE INDEX IF NOT EXISTS idx_document_graph_edges_doc ON document_graph_edges(document_id, weight DESC);
     CREATE INDEX IF NOT EXISTS idx_document_chunk_embeddings_doc ON document_chunk_embeddings(document_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_token_usage_topic_created ON token_usage(topic_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_token_usage_model_created ON token_usage(model, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_token_usage_created ON token_usage(created_at DESC);
   `);
 }

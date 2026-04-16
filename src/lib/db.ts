@@ -49,6 +49,11 @@ import {
   saveAssistantInDatabase,
   savePromptSnippetInDatabase,
 } from './db-library-data';
+import {
+  getTokenUsageSummaryInDatabase,
+  listTokenUsageForTopicInDatabase,
+  upsertTokenUsageInDatabase,
+} from './db-usage';
 import { getScalar, mapRows } from './db-row-helpers';
 import { toConversationSummary } from './db-row-mappers';
 import { createBaseSchema } from './db-schema';
@@ -84,6 +89,8 @@ import type {
   KnowledgeEvidenceFeedbackInput,
   PromptSnippet,
   StoredToolRun,
+  TokenUsageRecord,
+  TokenUsageSummary,
 } from './db-types';
 
 export { Database };
@@ -115,6 +122,8 @@ export type {
   KnowledgeEvidenceFeedbackValue,
   PromptSnippet,
   StoredToolRun,
+  TokenUsageRecord,
+  TokenUsageSummary,
 } from './db-types';
 
 let sqlite3Module: SQLiteModule | null = null;
@@ -382,6 +391,25 @@ export async function getDataStats(): Promise<DataStats> {
     assistants: Number(getScalar(database, 'SELECT COUNT(*) FROM assistants') ?? 0),
     snippets: Number(getScalar(database, 'SELECT COUNT(*) FROM prompt_snippets') ?? 0),
   };
+}
+
+export async function recordTokenUsage(input: Omit<TokenUsageRecord, 'id'> & { id?: string }) {
+  const database = await initDB();
+  upsertTokenUsageInDatabase(database, input);
+  await saveDB();
+}
+
+export async function listTopicTokenUsage(topicId: string): Promise<TokenUsageRecord[]> {
+  const database = await initDB();
+  return listTokenUsageForTopicInDatabase(database, topicId);
+}
+
+export async function getTokenUsageSummary(options?: {
+  now?: string;
+  dailyWindowDays?: number;
+}): Promise<TokenUsageSummary> {
+  const database = await initDB();
+  return getTokenUsageSummaryInDatabase(database, options);
 }
 
 export async function listGlobalMemoryDocuments(): Promise<GlobalMemoryDocument[]> {

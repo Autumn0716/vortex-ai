@@ -2,6 +2,7 @@ import React, { Suspense, lazy, startTransition, useEffect, useMemo, useRef, use
 import { motion } from 'motion/react';
 import {
   House,
+  BarChart3,
   ChevronDown,
   ChevronRight,
   Cloud,
@@ -22,11 +23,19 @@ import {
 import { AgentLaneColumn } from './chat/AgentLaneColumn';
 import { ChatComposer, type ComposerAppendRequest } from './chat/ChatComposer';
 import {
+  PromptInspectorDialog,
+  type PromptInspectorSnapshot,
+} from './chat/PromptInspectorDialog';
+import {
   addDocument,
+  getTokenUsageSummary,
   listPromptSnippets,
+  listTopicTokenUsage,
   recordKnowledgeEvidenceFeedback,
+  recordTokenUsage,
   savePromptSnippet,
   type PromptSnippet,
+  type TokenUsageSummary,
 } from '../lib/db';
 import {
   addTopicMessages,
@@ -389,6 +398,120 @@ function formatMetricsDuration(durationMs?: number) {
   return `${(durationMs / 1000).toFixed(durationMs >= 10_000 ? 0 : 1)}s`;
 }
 
+function estimateUsageCost(input: {
+  inputTokens: number;
+  outputTokens: number;
+  inputCostPerMillion?: number;
+  outputCostPerMillion?: number;
+}) {
+  const inputCost =
+    typeof input.inputCostPerMillion === 'number'
+      ? (input.inputTokens / 1_000_000) * input.inputCostPerMillion
+      : 0;
+  const outputCost =
+    typeof input.outputCostPerMillion === 'number'
+      ? (input.outputTokens / 1_000_000) * input.outputCostPerMillion
+      : 0;
+  const total = inputCost + outputCost;
+  return total > 0 ? total : undefined;
+}
+
+function buildPromptInspectorSnapshot(input: {
+  capturedAt: string;
+  providerName: string;
+  model: string;
+  requestMode: 'chat' | 'responses';
+  contextWindow?: number;
+  systemPrompt: string;
+  memoryContext: string;
+  sessionSummary?: string;
+  skillContext: string;
+  runtimeSystemPrompt: string;
+  toolContext: string;
+  messageHistory: TopicMessage[];
+  userContent: string;
+  attachments: TopicMessageAttachment[];
+}): PromptInspectorSnapshot {
+  const historyContent = input.messageHistory.map((message) => stringifyMessageForEstimate(message)).join('\n\n');
+  const attachmentContent = input.attachments
+    .map(
+      (attachment) =>
+        `[current-image:${attachment.name || attachment.mimeType || 'attachment'} ~${estimateAttachmentTokens(
+          attachment,
+        )} tokens]`,
+    )
+    .join('\n');
+  const sections = [
+    {
+      key: 'base_system',
+      label: 'Base System Prompt',
+      content: input.systemPrompt,
+      tokens: estimateTokenCount(input.systemPrompt),
+    },
+    {
+      key: 'memory',
+      label: 'Memory Context',
+      content: input.memoryContext,
+      tokens: estimateTokenCount(input.memoryContext),
+    },
+    {
+      key: 'summary',
+      label: 'Session Summary',
+      content: input.sessionSummary ?? '',
+      tokens: estimateTokenCount(input.sessionSummary ?? ''),
+    },
+    {
+      key: 'skills',
+      label: 'Skill Context',
+      content: input.skillContext,
+      tokens: estimateTokenCount(input.skillContext),
+    },
+    {
+      key: 'runtime',
+      label: 'Session Identity',
+      content: input.runtimeSystemPrompt,
+      tokens: estimateTokenCount(input.runtimeSystemPrompt),
+    },
+    {
+      key: 'tools',
+      label: 'Tool Context',
+      content: input.toolContext,
+      tokens: estimateTokenCount(input.toolContext),
+    },
+    {
+      key: 'history',
+      label: 'Live Message History',
+      content: historyContent,
+      tokens: input.messageHistory.reduce((total, message) => total + estimateMessageTokens(message), 0),
+    },
+    {
+      key: 'user_input',
+      label: 'Current User Input',
+      content: input.userContent,
+      tokens: estimateTokenCount(input.userContent),
+    },
+    {
+      key: 'attachments',
+      label: 'Current Attachments',
+      content: attachmentContent,
+      tokens: input.attachments.reduce((total, attachment) => total + estimateAttachmentTokens(attachment), 0),
+    },
+  ];
+  const totalTokens = sections.reduce((total, section) => total + section.tokens, 0);
+
+  return {
+    capturedAt: input.capturedAt,
+    providerName: input.providerName,
+    model: input.model,
+    requestMode: input.requestMode,
+    totalTokens,
+    contextWindow: input.contextWindow,
+    usagePercentage:
+      input.contextWindow && input.contextWindow > 0 ? Math.min(100, (totalTokens / input.contextWindow) * 100) : null,
+    sections,
+  };
+}
+
 interface OfficialModelResourceLink {
   label: string;
   href: string;
@@ -472,6 +595,7 @@ interface MessageRunMetrics {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  estimatedCost?: number;
   usageSource: 'provider' | 'estimate';
 }
 
@@ -533,6 +657,7 @@ export const ChatInterface: React.FC<{
   const [showBranchTopicDialog, setShowBranchTopicDialog] = useState(false);
   const [showBranchHandoffDialog, setShowBranchHandoffDialog] = useState(false);
   const [showModelFeaturesDialog, setShowModelFeaturesDialog] = useState(false);
+  const [showPromptInspector, setShowPromptInspector] = useState(false);
   const [sessionSettingsDraft, setSessionSettingsDraft] = useState<SessionSettingsDraft | null>(null);
   const [quickTopicDraft, setQuickTopicDraft] = useState<QuickTopicDraft | null>(null);
   const [branchTopicDraft, setBranchTopicDraft] = useState<BranchTopicDraft | null>(null);
@@ -579,6 +704,8 @@ export const ChatInterface: React.FC<{
     failureCount: 0,
     totalLatencyMs: 0,
   });
+  const [promptInspectorByTopicId, setPromptInspectorByTopicId] = useState<Record<string, PromptInspectorSnapshot>>({});
+  const [tokenUsageSummary, setTokenUsageSummary] = useState<TokenUsageSummary | null>(null);
   const [knowledgeEvidenceFeedbackByKey, setKnowledgeEvidenceFeedbackByKey] = useState<
     Record<string, KnowledgeEvidenceFeedbackValue>
   >({});
@@ -753,6 +880,7 @@ export const ChatInterface: React.FC<{
         inputTokens: latestAssistantMetrics.inputTokens,
         outputTokens: latestAssistantMetrics.outputTokens,
         totalTokens: latestAssistantMetrics.totalTokens,
+        estimatedCost: latestAssistantMetrics.estimatedCost,
         usageSource: latestAssistantMetrics.usageSource,
       }
     : null;
@@ -830,6 +958,56 @@ export const ChatInterface: React.FC<{
       topicModeFilter === 'quick' ? topic.sessionMode === 'quick' : topic.sessionMode !== 'quick',
     );
   }, [topicModeFilter, topics]);
+  const fallbackPromptInspectorSnapshot = useMemo(() => {
+    if (!workspace) {
+      return null;
+    }
+
+    const requestMode = activeProvider?.protocol === 'openai_responses_compatible' ? 'responses' : 'chat';
+    return buildPromptInspectorSnapshot({
+      capturedAt: new Date().toISOString(),
+      providerName: activeProviderName,
+      model: activeModel,
+      requestMode,
+      contextWindow: activeModelMetadata?.contextWindow,
+      systemPrompt: config.systemPrompt,
+      memoryContext: '',
+      sessionSummary: workspace.sessionSummary?.content,
+      skillContext: '',
+      runtimeSystemPrompt: workspace.runtime.systemPrompt,
+      toolContext: buildToolContextEstimate({
+        requestMode,
+        enableTools: workspace.runtime.enableTools,
+        webSearchEnabled: composerWebSearchEnabled,
+        responsesTools: activeModelFeatures.responsesTools,
+        enableCustomFunctionCalling: activeModelFeatures.enableCustomFunctionCalling,
+      }),
+      messageHistory: buildMessageHistoryForGeneration(
+        workspace.messages,
+        config.memory.historyWindow,
+        resolveMessageHistoryTokenBudget({
+          maxInputTokens: activeModelMetadata?.maxInputTokens,
+          contextWindow: activeModelMetadata?.contextWindow,
+        }),
+      ),
+      userContent: '',
+      attachments: [],
+    });
+  }, [
+    activeModel,
+    activeModelFeatures.enableCustomFunctionCalling,
+    activeModelFeatures.responsesTools,
+    activeModelMetadata?.contextWindow,
+    activeModelMetadata?.maxInputTokens,
+    activeProvider?.protocol,
+    activeProviderName,
+    composerWebSearchEnabled,
+    config.memory.historyWindow,
+    config.systemPrompt,
+    workspace,
+  ]);
+  const activePromptInspectorSnapshot =
+    (activeTopicId ? promptInspectorByTopicId[activeTopicId] ?? null : null) ?? fallbackPromptInspectorSnapshot;
 
   const setTopicRunState = (topicId: string, updater: (previous: TopicRunState | undefined) => TopicRunState) => {
     setTopicRunStates((previous) => ({
@@ -881,6 +1059,13 @@ export const ChatInterface: React.FC<{
         ...previous,
         [topicId]: merged,
       };
+    });
+  };
+
+  const refreshTokenUsageSummary = async () => {
+    const summary = await getTokenUsageSummary();
+    startTransition(() => {
+      setTokenUsageSummary(summary);
     });
   };
 
@@ -974,11 +1159,12 @@ export const ChatInterface: React.FC<{
     }
 
     const shouldRefreshMemory = activeAgentId !== nextWorkspace.agent.id || memoryDocuments.length === 0;
-    const [topicRecords, memoryRecords] = await Promise.all([
+    const [topicRecords, memoryRecords, topicUsageRecords] = await Promise.all([
       listTopics(nextWorkspace.agent.id),
       shouldRefreshMemory
         ? listAgentMemoryDocuments(nextWorkspace.agent.id)
         : Promise.resolve(memoryDocuments),
+      listTopicTokenUsage(topicId),
     ]);
     const draftAssistantMessage = topicRunStates[topicId]?.draftAssistantMessage;
     const hydratedWorkspace = {
@@ -992,6 +1178,24 @@ export const ChatInterface: React.FC<{
       );
       setTopics(topicRecords);
       setMemoryDocuments(memoryRecords);
+      setMessageMetricsById((previous) => ({
+        ...previous,
+        ...Object.fromEntries(
+          topicUsageRecords.map((record) => [
+            record.messageId,
+            {
+              completedAt: record.createdAt,
+              streamDurationMs: record.streamDurationMs ?? 0,
+              reasoningDurationMs: record.reasoningDurationMs,
+              inputTokens: record.inputTokens,
+              outputTokens: record.outputTokens,
+              totalTokens: record.totalTokens,
+              estimatedCost: record.estimatedCost,
+              usageSource: record.usageSource,
+            },
+          ]),
+        ),
+      }));
       setActiveAgentIdState(nextWorkspace.agent.id);
       setActiveTopicIdState(nextWorkspace.topic.id);
       if (shouldBlock) {
@@ -1766,6 +1970,15 @@ export const ChatInterface: React.FC<{
     let reasoningStartedAt: number | null = null;
     let firstAssistantDeltaAt: number | null = null;
     let aggregatedInputText = '';
+    const runtimeProviderId =
+      workspaceSnapshot.runtime.providerId ?? workspaceSnapshot.agent.providerId ?? configSnapshot.activeProviderId;
+    const runtimeModel = workspaceSnapshot.runtime.model ?? workspaceSnapshot.agent.model ?? configSnapshot.activeModel;
+    const runtimeProvider =
+      configSnapshot.providers.find((provider) => provider.id === runtimeProviderId) ?? null;
+    const runtimeRequestMode = runtimeProvider?.protocol === 'openai_responses_compatible' ? 'responses' : 'chat';
+    const runtimeModelMetadata =
+      modelMetadataCache[`${runtimeProviderId}::${runtimeModel}`.toLowerCase()] ??
+      (runtimeProviderId === activeProviderId && runtimeModel === activeModel ? activeModelMetadata : null);
 
     try {
       const [{ HumanMessage, AIMessage }, { createAgentRuntime }] = await Promise.all([
@@ -1796,12 +2009,6 @@ export const ChatInterface: React.FC<{
             })
           ).slice(0, 2400)
         : '';
-      const runtimeProviderId =
-        workspaceSnapshot.runtime.providerId ?? workspaceSnapshot.agent.providerId ?? configSnapshot.activeProviderId;
-      const runtimeProvider =
-        configSnapshot.providers.find((provider) => provider.id === runtimeProviderId) ?? null;
-      const runtimeRequestMode = runtimeProvider?.protocol === 'openai_responses_compatible' ? 'responses' : 'chat';
-      const runtimeModel = workspaceSnapshot.runtime.model ?? workspaceSnapshot.agent.model ?? configSnapshot.activeModel;
       const runtimeIsQwenCompatible =
         Boolean(runtimeProvider?.baseUrl?.toLowerCase().includes('dashscope')) ||
         runtimeProvider?.name.toLowerCase().includes('qwen') ||
@@ -1868,6 +2075,7 @@ export const ChatInterface: React.FC<{
       aggregatedInputText = [
         configSnapshot.systemPrompt,
         memoryContext,
+        sessionSummary,
         skillContext,
         workspaceSnapshot.runtime.systemPrompt,
         toolContextEstimate,
@@ -1883,6 +2091,25 @@ export const ChatInterface: React.FC<{
         .filter(Boolean)
         .join('\n');
       const estimatedCurrentInputTokens = estimateTokenCount(aggregatedInputText);
+      setPromptInspectorByTopicId((previous) => ({
+        ...previous,
+        [workspaceSnapshot.topic.id]: buildPromptInspectorSnapshot({
+          capturedAt: new Date().toISOString(),
+          providerName: runtimeProvider?.name ?? activeProviderName,
+          model: runtimeModel,
+          requestMode: runtimeRequestMode,
+          contextWindow: runtimeModelMetadata?.contextWindow,
+          systemPrompt: configSnapshot.systemPrompt,
+          memoryContext,
+          sessionSummary,
+          skillContext,
+          runtimeSystemPrompt: workspaceSnapshot.runtime.systemPrompt,
+          toolContext: toolContextEstimate,
+          messageHistory,
+          userContent,
+          attachments,
+        }),
+      }));
       setTopicRunState(workspaceSnapshot.topic.id, (previous) => ({
         isGenerating: true,
         composerNotice: previous?.composerNotice ?? '',
@@ -1995,21 +2222,53 @@ export const ChatInterface: React.FC<{
       const outputTokens = finalUsage?.outputTokens ?? estimatedOutputTokens;
       const totalTokens = finalUsage?.totalTokens ?? inputTokens + outputTokens;
       const streamDurationMs = Math.max(0, Date.now() - turnStartedAt);
+      const reasoningDurationMs =
+        reasoningStartedAt !== null
+          ? Math.max(0, (firstAssistantDeltaAt ?? Date.now()) - reasoningStartedAt)
+          : undefined;
+      const estimatedCost = estimateUsageCost({
+        inputTokens,
+        outputTokens,
+        inputCostPerMillion: runtimeModelMetadata?.inputCostPerMillion,
+        outputCostPerMillion: runtimeModelMetadata?.outputCostPerMillion,
+      });
       setMessageMetricsById((previous) => ({
         ...previous,
         [assistantMessage.id ?? finalAssistantMessageId]: {
           completedAt,
           streamDurationMs,
-          reasoningDurationMs:
-            reasoningStartedAt !== null
-              ? Math.max(0, (firstAssistantDeltaAt ?? Date.now()) - reasoningStartedAt)
-              : undefined,
+          reasoningDurationMs,
           inputTokens,
           outputTokens,
           totalTokens,
+          estimatedCost,
           usageSource: finalUsage ? 'provider' : 'estimate',
         },
       }));
+      try {
+        await recordTokenUsage({
+          topicId: workspaceSnapshot.topic.id,
+          topicTitle: workspaceSnapshot.topic.title,
+          agentId: workspaceSnapshot.agent.id,
+          providerId: runtimeProviderId,
+          model: runtimeModel,
+          sessionMode: workspaceSnapshot.topic.sessionMode,
+          messageId: assistantMessage.id ?? finalAssistantMessageId,
+          inputTokens,
+          outputTokens,
+          totalTokens,
+          estimatedCost,
+          usageSource: finalUsage ? 'provider' : 'estimate',
+          streamDurationMs,
+          reasoningDurationMs,
+          createdAt: completedAt,
+        });
+      } catch (error) {
+        console.warn('Failed to record token usage for assistant reply:', error);
+      }
+      void refreshTokenUsageSummary().catch((error) => {
+        console.warn('Failed to refresh token usage summary after assistant reply:', error);
+      });
       setModelInvocationStats((previous) => ({
         successCount: previous.successCount + 1,
         failureCount: previous.failureCount,
@@ -2049,6 +2308,12 @@ export const ChatInterface: React.FC<{
           const completedAt = new Date().toISOString();
           const estimatedInputTokens = estimateTokenCount(aggregatedInputText);
           const estimatedOutputTokens = estimateTokenCount(partialContent);
+          const estimatedCost = estimateUsageCost({
+            inputTokens: estimatedInputTokens,
+            outputTokens: estimatedOutputTokens,
+            inputCostPerMillion: runtimeModelMetadata?.inputCostPerMillion,
+            outputCostPerMillion: runtimeModelMetadata?.outputCostPerMillion,
+          });
           setMessageMetricsById((previous) => ({
             ...previous,
             [partialMessage.id ?? assistantDraftId]: {
@@ -2061,9 +2326,35 @@ export const ChatInterface: React.FC<{
               inputTokens: estimatedInputTokens,
               outputTokens: estimatedOutputTokens,
               totalTokens: estimatedInputTokens + estimatedOutputTokens,
+              estimatedCost,
               usageSource: 'estimate',
             },
           }));
+          try {
+            await recordTokenUsage({
+              topicId: workspaceSnapshot.topic.id,
+              topicTitle: workspaceSnapshot.topic.title,
+              agentId: workspaceSnapshot.agent.id,
+              providerId: runtimeProviderId,
+              model: runtimeModel,
+              sessionMode: workspaceSnapshot.topic.sessionMode,
+              messageId: partialMessage.id ?? assistantDraftId,
+              inputTokens: estimatedInputTokens,
+              outputTokens: estimatedOutputTokens,
+              totalTokens: estimatedInputTokens + estimatedOutputTokens,
+              estimatedCost,
+              usageSource: 'estimate',
+              streamDurationMs: Math.max(0, Date.now() - turnStartedAt),
+              reasoningDurationMs:
+                reasoningStartedAt !== null ? Math.max(0, Date.now() - reasoningStartedAt) : undefined,
+              createdAt: completedAt,
+            });
+          } catch (error) {
+            console.warn('Failed to record token usage for partial reply:', error);
+          }
+          void refreshTokenUsageSummary().catch((error) => {
+            console.warn('Failed to refresh token usage summary after partial reply:', error);
+          });
           if (streamedReasoningContent.trim()) {
             setMessageReasoningById((previous) => ({
               ...previous,
@@ -2370,6 +2661,16 @@ export const ChatInterface: React.FC<{
       cancelled = true;
     };
   }, [activeModel, activeProviderId, config.apiServer]);
+
+  useEffect(() => {
+    if (!showSettings) {
+      return;
+    }
+
+    void refreshTokenUsageSummary().catch((error) => {
+      console.warn('Failed to refresh token usage summary:', error);
+    });
+  }, [showSettings]);
 
   return (
     <div className="app-shell relative z-10 flex h-screen w-full overflow-hidden font-sans text-white">
@@ -2765,6 +3066,16 @@ export const ChatInterface: React.FC<{
                     ) : null}
                   </span>
                 </button>
+                <button
+                  onClick={() => setShowPromptInspector(true)}
+                  disabled={!activePromptInspectorSnapshot}
+                  className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] text-white/75 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <span className="flex items-center gap-2">
+                    <BarChart3 size={13} />
+                    Prompt Inspector
+                  </span>
+                </button>
               </div>
             </header>
 
@@ -3006,7 +3317,7 @@ export const ChatInterface: React.FC<{
         )}
       </div>
 
-	      {showSettings ? (
+      {showSettings ? (
         <Suspense fallback={null}>
           <SettingsView
             config={config}
@@ -3025,6 +3336,7 @@ export const ChatInterface: React.FC<{
                 : undefined
             }
             latestModelInvocation={latestModelInvocation}
+            tokenUsageSummary={tokenUsageSummary}
             modelInvocationStats={modelInvocationStats}
             onClose={() => setShowSettings(false)}
             onConfigSaved={(nextConfig) => setConfig(nextConfig)}
@@ -3035,6 +3347,13 @@ export const ChatInterface: React.FC<{
           />
         </Suspense>
 	      ) : null}
+
+      <PromptInspectorDialog
+        open={showPromptInspector}
+        onClose={() => setShowPromptInspector(false)}
+        snapshot={activePromptInspectorSnapshot}
+        latestInvocation={latestModelInvocation}
+      />
 
       {showQuickTopicDialog && quickTopicDraft ? (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/55 p-6 backdrop-blur-sm">

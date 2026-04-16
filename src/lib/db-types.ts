@@ -92,6 +92,54 @@ export interface DataStats {
   snippets: number;
 }
 
+export type TokenUsageSource = 'provider' | 'estimate';
+
+export interface TokenUsageRecord {
+  id: string;
+  topicId: string;
+  topicTitle: string;
+  agentId: string;
+  providerId?: string;
+  model: string;
+  sessionMode: 'agent' | 'quick';
+  messageId: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  estimatedCost?: number;
+  usageSource: TokenUsageSource;
+  streamDurationMs?: number;
+  reasoningDurationMs?: number;
+  createdAt: string;
+}
+
+export interface TokenUsageAggregate {
+  callCount: number;
+  pricedCallCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  estimatedCost: number;
+}
+
+export interface TokenUsageBreakdownEntry extends TokenUsageAggregate {
+  key: string;
+  label: string;
+}
+
+export interface TokenUsageDailyPoint extends TokenUsageAggregate {
+  date: string;
+}
+
+export interface TokenUsageSummary {
+  today: TokenUsageAggregate;
+  week: TokenUsageAggregate;
+  month: TokenUsageAggregate;
+  daily: TokenUsageDailyPoint[];
+  byModel: TokenUsageBreakdownEntry[];
+  byTopic: TokenUsageBreakdownEntry[];
+}
+
 export interface GlobalMemoryDocument {
   id: string;
   title: string;

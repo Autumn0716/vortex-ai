@@ -57,6 +57,7 @@ import {
   getDataStats,
   importWorkspaceData,
   type DataStats,
+  type TokenUsageSummary,
 } from '../../lib/db';
 import {
   THEME_COLOR_BOARD,
@@ -98,6 +99,7 @@ import {
   type RuntimeCapabilityProfile,
 } from '../../lib/runtime-capabilities';
 import type { SessionContextTokenBreakdown } from '../../lib/session-context-budget';
+import { UsagePanel } from './UsagePanel';
 
 const CATEGORIES = [
   { id: 'models', label: '模型服务', icon: Cloud },
@@ -244,8 +246,10 @@ interface SettingsViewProps {
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;
+    estimatedCost?: number;
     usageSource: 'provider' | 'estimate';
   } | null;
+  tokenUsageSummary?: TokenUsageSummary | null;
   modelInvocationStats?: {
     successCount: number;
     failureCount: number;
@@ -575,6 +579,7 @@ export const SettingsView = ({
   runtimeCapabilities = WEB_RUNTIME_CAPABILITIES,
   sessionContextDiagnostics,
   latestModelInvocation,
+  tokenUsageSummary,
   modelInvocationStats,
   onClose,
   onConfigSaved,
@@ -3565,6 +3570,13 @@ export const SettingsView = ({
                             value: `${latestModelInvocation.inputTokens} / ${latestModelInvocation.outputTokens} / ${latestModelInvocation.totalTokens}`,
                           },
                           {
+                            label: '估算费用',
+                            value:
+                              typeof latestModelInvocation.estimatedCost === 'number'
+                                ? `¥${latestModelInvocation.estimatedCost >= 0.01 ? latestModelInvocation.estimatedCost.toFixed(3) : latestModelInvocation.estimatedCost.toFixed(4)}`
+                                : '未识别',
+                          },
+                          {
                             label: 'Usage Source',
                             value: latestModelInvocation.usageSource,
                           },
@@ -3621,6 +3633,17 @@ export const SettingsView = ({
                       ) : null}
                     </div>
                   ) : null}
+                  <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                    <div className="mb-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
+                        Usage Panel
+                      </div>
+                      <div className="mt-1 text-xs text-white/45">
+                        topic/runtime 链路下 assistant 输出的 token 与费用聚合。
+                      </div>
+                    </div>
+                    <UsagePanel summary={tokenUsageSummary ?? null} />
+                  </div>
                   {runtimeCapabilities.mode === 'electron' ? (
                     <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
                       <div className="flex items-center justify-between gap-3">
