@@ -142,6 +142,13 @@ function buildDailyMemoryTitle(markdown: string, fallbackTitle: string) {
     : fallbackTitle;
 }
 
+function buildBootstrapMemoryTitle(markdown: string, fallbackTitle: string) {
+  const { frontmatter } = parseMemoryMarkdown(markdown);
+  return typeof frontmatter.title === 'string' && frontmatter.title.trim()
+    ? frontmatter.title.trim()
+    : fallbackTitle;
+}
+
 function resolveFrontmatterImportance(markdown: string, fallbackContent: string, sourceType: MemorySourceType) {
   const { frontmatter } = parseMemoryMarkdown(markdown);
   const value = frontmatter.importance;
@@ -288,6 +295,8 @@ function buildDerivedDocuments(input: {
   agentId: string;
   agentSlug: string;
   memoryMarkdown: string | null;
+  correctionsMarkdown: string | null;
+  reflectionsMarkdown: string | null;
   dailyFiles: Array<{ path: string; markdown: string }>;
   now: string;
 }) {
@@ -305,6 +314,38 @@ function buildDerivedDocuments(input: {
         memoryScope: 'global',
         sourceType: 'manual',
         importanceScore: scoreMemoryImportance(content, 'manual'),
+        eventDate: null,
+        updatedAt: input.now,
+      });
+    }
+  }
+
+  if (input.correctionsMarkdown !== null) {
+    const content = normalizeBody(input.correctionsMarkdown);
+    if (content) {
+      documents.push({
+        id: buildDerivedMemoryId(input.agentId, paths.correctionsFile),
+        title: buildBootstrapMemoryTitle(input.correctionsMarkdown, 'Agent Corrections'),
+        content,
+        memoryScope: 'global',
+        sourceType: 'correction',
+        importanceScore: 5,
+        eventDate: null,
+        updatedAt: input.now,
+      });
+    }
+  }
+
+  if (input.reflectionsMarkdown !== null) {
+    const content = normalizeBody(input.reflectionsMarkdown);
+    if (content) {
+      documents.push({
+        id: buildDerivedMemoryId(input.agentId, paths.reflectionsFile),
+        title: buildBootstrapMemoryTitle(input.reflectionsMarkdown, 'Agent Reflections'),
+        content,
+        memoryScope: 'global',
+        sourceType: 'reflection',
+        importanceScore: 4,
         eventDate: null,
         updatedAt: input.now,
       });
@@ -702,6 +743,8 @@ export async function syncAgentMemoryFromStore(
   const today = now.slice(0, 10);
   const paths = buildAgentMemoryPaths(input.agentSlug, today);
   const memoryMarkdown = await input.fileStore.readText(paths.memoryFile);
+  const correctionsMarkdown = await input.fileStore.readText(paths.correctionsFile);
+  const reflectionsMarkdown = await input.fileStore.readText(paths.reflectionsFile);
   const dailyPaths = (await input.fileStore.listPaths(paths.dailyDir))
     .filter((path) => path.endsWith('.md'))
     .sort();
@@ -716,6 +759,8 @@ export async function syncAgentMemoryFromStore(
     agentId: input.agentId,
     agentSlug: input.agentSlug,
     memoryMarkdown,
+    correctionsMarkdown,
+    reflectionsMarkdown,
     dailyFiles,
     now,
   });

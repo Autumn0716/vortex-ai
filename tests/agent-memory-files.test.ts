@@ -13,6 +13,8 @@ test('buildAgentMemoryPaths resolves MEMORY.md and daily paths for an agent slug
   const paths = buildAgentMemoryPaths('flowagent-core', '2026-04-01');
   assert.equal(paths.baseDir, 'memory/agents/flowagent-core');
   assert.equal(paths.memoryFile, 'memory/agents/flowagent-core/MEMORY.md');
+  assert.equal(paths.correctionsFile, 'memory/agents/flowagent-core/corrections.md');
+  assert.equal(paths.reflectionsFile, 'memory/agents/flowagent-core/reflections.md');
   assert.equal(paths.dailyDir, 'memory/agents/flowagent-core/daily');
   assert.equal(paths.dailyFile, 'memory/agents/flowagent-core/daily/2026-04-01.md');
   assert.equal(paths.warmFile, 'memory/agents/flowagent-core/daily/2026-04-01.warm.md');
@@ -21,6 +23,8 @@ test('buildAgentMemoryPaths resolves MEMORY.md and daily paths for an agent slug
 
 test('detectMemoryFileKind distinguishes source warm and cold daily files', () => {
   assert.equal(detectMemoryFileKind('memory/agents/core/MEMORY.md'), 'memory');
+  assert.equal(detectMemoryFileKind('memory/agents/core/corrections.md'), 'corrections');
+  assert.equal(detectMemoryFileKind('memory/agents/core/reflections.md'), 'reflections');
   assert.equal(detectMemoryFileKind('memory/agents/core/daily/2026-04-01.md'), 'daily_source');
   assert.equal(detectMemoryFileKind('memory/agents/core/daily/2026-04-01.warm.md'), 'daily_warm');
   assert.equal(detectMemoryFileKind('memory/agents/core/daily/2026-04-01.cold.md'), 'daily_cold');
@@ -30,6 +34,8 @@ test('detectMemoryFileKind distinguishes source warm and cold daily files', () =
 
 test('resolveDailyMemoryDate extracts the source date from surrogate file names', () => {
   assert.equal(resolveDailyMemoryDate('memory/agents/core/MEMORY.md'), null);
+  assert.equal(resolveDailyMemoryDate('memory/agents/core/corrections.md'), null);
+  assert.equal(resolveDailyMemoryDate('memory/agents/core/reflections.md'), null);
   assert.equal(resolveDailyMemoryDate('memory/agents/core/daily/2026-04-01.cold.md'), '2026-04-01');
   assert.equal(resolveDailyMemoryDate('memory/agents/core/notes/2026-04-01.md'), null);
   assert.equal(resolveDailyMemoryDate('docs/2026-04-01.md'), null);

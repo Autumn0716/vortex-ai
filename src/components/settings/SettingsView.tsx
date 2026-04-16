@@ -1055,13 +1055,20 @@ export const SettingsView = ({
       );
 
       const files = await listAgentMemoryFiles(activeMemoryAgent.slug, draft.apiServer);
-      const memoryFile = files.find((file) => file.kind === 'memory');
-      if (memoryFile && !memoryFile.exists) {
+      for (const file of files) {
+        const bootstrapKind =
+          file.kind === 'memory' || file.kind === 'corrections' || file.kind === 'reflections' ? file.kind : null;
+        if (!bootstrapKind) {
+          continue;
+        }
+        if (file.exists) {
+          continue;
+        }
         await ensureAgentMemoryFile(
           {
             agentSlug: activeMemoryAgent.slug,
             agentName: activeMemoryAgent.name,
-            kind: 'memory',
+            kind: bootstrapKind,
           },
           draft.apiServer,
         );
@@ -3351,7 +3358,9 @@ export const SettingsView = ({
                 <div className="mb-4 flex items-center justify-between">
                   <div>
                     <div className="text-sm font-semibold text-white/90">记忆文件</div>
-                    <p className="mt-1 text-xs text-white/45">直接编辑当前 agent 的 MEMORY.md 与 daily 日志。</p>
+                    <p className="mt-1 text-xs text-white/45">
+                      直接编辑当前 agent 的 bootstrap 记忆与 daily 日志。
+                    </p>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -3387,13 +3396,14 @@ export const SettingsView = ({
                         try {
                           const content =
                             (await readAgentMemoryFile(file.path, draft.apiServer)) ??
-                            (file.kind === 'memory' && activeMemoryAgent
+                            ((file.kind === 'memory' || file.kind === 'corrections' || file.kind === 'reflections') &&
+                            activeMemoryAgent
                               ? (
                                   await ensureAgentMemoryFile(
                                     {
                                       agentSlug: activeMemoryAgent.slug,
                                       agentName: activeMemoryAgent.name,
-                                      kind: 'memory',
+                                      kind: file.kind,
                                     },
                                     draft.apiServer,
                                   )
@@ -3422,17 +3432,19 @@ export const SettingsView = ({
                         <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">
                           {file.kind === 'memory'
                             ? 'LONG-TERM'
-                            : file.kind === 'daily_source'
-                              ? 'SOURCE'
-                              : file.kind === 'daily_warm'
-                                ? 'WARM'
-                                : 'COLD'}
+                            : file.kind === 'corrections'
+                              ? 'CORRECTIONS'
+                              : file.kind === 'reflections'
+                                ? 'REFLECTIONS'
+                                : file.kind === 'daily_source'
+                                  ? 'SOURCE'
+                                  : file.kind === 'daily_warm'
+                                    ? 'WARM'
+                                    : 'COLD'}
                         </div>
                       </div>
                       <div className="mt-1 text-xs text-white/45">
-                        {file.kind === 'memory'
-                          ? `memory/agents/${activeMemoryAgent?.slug ?? 'agent'}/MEMORY.md`
-                          : file.path}
+                        {file.path}
                       </div>
                     </button>
                   ))}

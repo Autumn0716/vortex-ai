@@ -5,6 +5,8 @@ export function buildAgentMemoryPaths(agentSlug: string, date: string) {
   return {
     baseDir,
     memoryFile: `${baseDir}/MEMORY.md`,
+    correctionsFile: `${baseDir}/corrections.md`,
+    reflectionsFile: `${baseDir}/reflections.md`,
     dailyDir,
     dailyFile: `${dailyDir}/${date}.md`,
     warmFile: `${dailyDir}/${date}.warm.md`,
@@ -14,12 +16,14 @@ export function buildAgentMemoryPaths(agentSlug: string, date: string) {
 
 export type AgentMemoryFileKind =
   | 'memory'
+  | 'corrections'
+  | 'reflections'
   | 'daily_source'
   | 'daily_warm'
   | 'daily_cold'
   | 'unknown';
 
-const AGENT_MEMORY_FILE_PATTERN = /^memory\/agents\/[^/]+\/(MEMORY\.md|daily\/(\d{4}-\d{2}-\d{2})(?:\.(warm|cold))?\.md)$/;
+const AGENT_MEMORY_FILE_PATTERN = /^memory\/agents\/[^/]+\/(MEMORY\.md|corrections\.md|reflections\.md|daily\/(\d{4}-\d{2}-\d{2})(?:\.(warm|cold))?\.md)$/;
 
 export function detectMemoryFileKind(path: string): AgentMemoryFileKind {
   const match = path.match(AGENT_MEMORY_FILE_PATTERN);
@@ -29,6 +33,12 @@ export function detectMemoryFileKind(path: string): AgentMemoryFileKind {
 
   if (match[1] === 'MEMORY.md') {
     return 'memory';
+  }
+  if (match[1] === 'corrections.md') {
+    return 'corrections';
+  }
+  if (match[1] === 'reflections.md') {
+    return 'reflections';
   }
 
   if (match[3] === 'warm') {

@@ -371,6 +371,28 @@ function createMemoryTemplate(agentName: string) {
   });
 }
 
+function createCorrectionsTemplate(agentName: string) {
+  return serializeMemoryMarkdown({
+    frontmatter: {
+      title: `${agentName} Corrections`,
+      kind: 'corrections',
+      updatedAt: new Date().toISOString(),
+    },
+    body: '## Active Corrections\n',
+  });
+}
+
+function createReflectionsTemplate(agentName: string) {
+  return serializeMemoryMarkdown({
+    frontmatter: {
+      title: `${agentName} Reflections`,
+      kind: 'reflections',
+      updatedAt: new Date().toISOString(),
+    },
+    body: '## Active Reflections\n',
+  });
+}
+
 function createDailyTemplate(date: string) {
   return serializeMemoryMarkdown({
     frontmatter: {
@@ -394,6 +416,8 @@ export async function listAgentMemoryFiles(
   const today = new Date().toISOString().slice(0, 10);
   const paths = buildAgentMemoryPaths(agentSlug, today);
   const memoryExists = (await fileStore.readText(paths.memoryFile)) !== null;
+  const correctionsExists = (await fileStore.readText(paths.correctionsFile)) !== null;
+  const reflectionsExists = (await fileStore.readText(paths.reflectionsFile)) !== null;
   const dailyPaths = (await fileStore.listPaths(paths.dailyDir))
     .map((path) => ({ path, kind: detectMemoryFileKind(path) }))
     .filter((entry): entry is { path: string; kind: Exclude<AgentMemoryFileKind, 'unknown'> } =>
@@ -407,6 +431,18 @@ export async function listAgentMemoryFiles(
       kind: 'memory',
       label: 'MEMORY.md',
       exists: memoryExists,
+    },
+    {
+      path: paths.correctionsFile,
+      kind: 'corrections',
+      label: 'corrections.md',
+      exists: correctionsExists,
+    },
+    {
+      path: paths.reflectionsFile,
+      kind: 'reflections',
+      label: 'reflections.md',
+      exists: reflectionsExists,
     },
     ...dailyPaths.map(({ path, kind }) => {
       const date = resolveDailyMemoryDate(path);
@@ -457,14 +493,21 @@ export async function ensureAgentMemoryFile(
   input: {
     agentSlug: string;
     agentName: string;
-    kind: 'memory' | 'daily';
+    kind: 'memory' | 'daily' | 'corrections' | 'reflections';
     date?: string;
   },
   settings: ApiServerSettings,
 ) {
   const today = input.date ?? new Date().toISOString().slice(0, 10);
   const paths = buildAgentMemoryPaths(input.agentSlug, today);
-  const targetPath = input.kind === 'memory' ? paths.memoryFile : paths.dailyFile;
+  const targetPath =
+    input.kind === 'memory'
+      ? paths.memoryFile
+      : input.kind === 'corrections'
+        ? paths.correctionsFile
+        : input.kind === 'reflections'
+          ? paths.reflectionsFile
+          : paths.dailyFile;
   const existing = await readAgentMemoryFile(targetPath, settings);
   if (existing !== null) {
     return {
@@ -476,7 +519,11 @@ export async function ensureAgentMemoryFile(
   const content =
     input.kind === 'memory'
       ? createMemoryTemplate(input.agentName)
-      : createDailyTemplate(today);
+      : input.kind === 'corrections'
+        ? createCorrectionsTemplate(input.agentName)
+        : input.kind === 'reflections'
+          ? createReflectionsTemplate(input.agentName)
+          : createDailyTemplate(today);
 
   await writeAgentMemoryFile(targetPath, content, settings);
   return {

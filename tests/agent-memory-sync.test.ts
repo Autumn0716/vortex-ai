@@ -11,7 +11,13 @@ import {
 } from '../src/lib/agent-memory-sync';
 import { ensureAgentWorkspaceSchema } from '../src/lib/agent-workspace-schema';
 import { buildAgentMemoryPaths } from '../src/lib/agent-memory-files';
-import { getAgentMemoryContext, saveAgent, searchMemories, syncCurrentAgentMemory } from '../src/lib/agent-workspace';
+import {
+  getAgentBootstrapMemoryContext,
+  getAgentMemoryContext,
+  saveAgent,
+  searchMemories,
+  syncCurrentAgentMemory,
+} from '../src/lib/agent-workspace';
 import { Database, initDB } from '../src/lib/db';
 import type { EmbeddingProviderConfig } from '../src/lib/embedding-client';
 
@@ -276,6 +282,54 @@ test('syncAgentMemoryFromStore upserts derived rows for long-term and daily mark
   ]);
 
   database.close();
+});
+
+test('syncAgentMemoryFromStore indexes corrections and reflections bootstrap files', async () => {
+  const database = await createDatabase();
+  const paths = buildAgentMemoryPaths('flowagent-core', '2026-04-01');
+  const fileStore = new InMemoryFileStore(
+    new Map([
+      [
+        paths.correctionsFile,
+        '---\n' +
+          'title: "Agent Corrections"\n' +
+          'kind: "corrections"\n' +
+          '---\n\n' +
+          '## Active Corrections\n\n' +
+          '- Rule: 不要把 todo-list.md 纳入 git。',
+      ],
+      [
+        paths.reflectionsFile,
+        '---\n' +
+          'title: "Agent Reflections"\n' +
+          'kind: "reflections"\n' +
+          '---\n\n' +
+          '## Active Reflections\n\n' +
+          '- Lesson: 配置变更要同时检查 web、api-server、desktop。',
+      ],
+    ]),
+  );
+
+  await syncAgentMemoryFromStore(database, {
+    agentId: 'agent_flowagent_core',
+    agentSlug: 'flowagent-core',
+    fileStore,
+    now: '2026-04-01T09:00:00.000Z',
+  });
+
+  const rowsBySourceType = new Map(selectDerivedRows(database).map((row) => [row[4], row]));
+  const correction = rowsBySourceType.get('correction');
+  const reflection = rowsBySourceType.get('reflection');
+
+  assert.equal(correction?.[1], 'Agent Corrections');
+  assert.match(String(correction?.[2] ?? ''), /不要把 todo-list\.md 纳入 git/);
+  assert.equal(correction?.[3], 'global');
+  assert.equal(correction?.[6], '2026-04-01T09:00:00.000Z');
+
+  assert.equal(reflection?.[1], 'Agent Reflections');
+  assert.match(String(reflection?.[2] ?? ''), /配置变更要同时检查/);
+  assert.equal(reflection?.[3], 'global');
+  assert.equal(reflection?.[6], '2026-04-01T09:00:00.000Z');
 });
 
 test('syncAgentMemoryFromStore is idempotent when markdown content is unchanged', async () => {
@@ -701,6 +755,43 @@ test('getAgentMemoryContext only injects one effective document per date', async
   assert.equal((context.match(/2026-03-10 /g) ?? []).length, 1);
   assert.equal((context.match(/2026-03-20 /g) ?? []).length, 2);
   assert.equal((context.match(/2026-03-31 /g) ?? []).length, 2);
+
+  setAgentMemoryFileStore(null);
+});
+
+test('bootstrap corrections and reflections are read separately from routed memory context', async () => {
+  const agentId = 'agent_bootstrap_memory';
+  await saveAgent({
+    id: agentId,
+    name: 'Bootstrap Memory',
+    description: 'Bootstrap memory test agent',
+    systemPrompt: 'System prompt',
+    accentColor: 'from-emerald-500/20 to-teal-500/20',
+    workspaceRelpath: 'agents/bootstrap-memory',
+  });
+
+  const paths = buildAgentMemoryPaths('bootstrap-memory', '2026-04-01');
+  setAgentMemoryFileStore(
+    new InMemoryFileStore(
+      new Map([
+        [paths.memoryFile, '---\ntitle: "Prefs"\n---\n\nKeep answers compact.'],
+        [paths.correctionsFile, '---\ntitle: "Corrections"\n---\n\n- Rule: 不要把 todo-list.md 纳入 git。'],
+        [paths.reflectionsFile, '---\ntitle: "Reflections"\n---\n\n- Lesson: 配置变更要检查 desktop。'],
+      ]),
+    ),
+  );
+
+  const bootstrapContext = await getAgentBootstrapMemoryContext(agentId);
+  const routedContext = await getAgentMemoryContext(agentId, {
+    includeRecentMemorySnapshot: true,
+    now: '2026-04-01T12:00:00.000Z',
+  });
+
+  assert.match(bootstrapContext.corrections, /不要把 todo-list\.md 纳入 git/);
+  assert.match(bootstrapContext.reflections, /配置变更要检查 desktop/);
+  assert.match(routedContext, /Long-term memory:\n- Prefs: Keep answers compact\./);
+  assert.doesNotMatch(routedContext, /不要把 todo-list\.md 纳入 git/);
+  assert.doesNotMatch(routedContext, /配置变更要检查 desktop/);
 
   setAgentMemoryFileStore(null);
 });

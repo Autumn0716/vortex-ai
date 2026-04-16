@@ -318,6 +318,32 @@ test('API memory file listing includes warm and cold surrogate markdown files', 
   }
 });
 
+test('API memory file listing includes bootstrap correction and reflection files', async () => {
+  const rootDir = await createTempRoot();
+  const server = await startServer(rootDir);
+  const settings = {
+    enabled: true,
+    baseUrl: server.baseUrl,
+    authToken: '',
+  };
+
+  try {
+    await writeAgentMemoryFile('memory/agents/flowagent-core/MEMORY.md', '# Memory', settings);
+
+    const files = await listAgentMemoryFiles('flowagent-core', settings);
+    assert.deepEqual(
+      files.slice(0, 3).map((file) => [file.path, file.kind, file.label, file.exists]),
+      [
+        ['memory/agents/flowagent-core/MEMORY.md', 'memory', 'MEMORY.md', true],
+        ['memory/agents/flowagent-core/corrections.md', 'corrections', 'corrections.md', false],
+        ['memory/agents/flowagent-core/reflections.md', 'reflections', 'reflections.md', false],
+      ],
+    );
+  } finally {
+    await server.close();
+  }
+});
+
 test('API server exposes official model inspector results', async () => {
   const rootDir = await createTempRoot();
   const server = await startServer(rootDir);

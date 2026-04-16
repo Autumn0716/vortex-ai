@@ -52,6 +52,7 @@ import {
 } from './agent-memory-search';
 import type { MemoryRetrievalLayer } from './memory-lifecycle/query-router';
 import { getAgentMemoryFileStore, syncAgentMemoryFromStore } from './agent-memory-sync';
+import { buildAgentMemoryPaths, parseMemoryMarkdown } from './agent-memory-files';
 import { createEmbeddings, type EmbeddingProviderConfig } from './embedding-client';
 import {
   compileTaskGraphFromGoal,
@@ -2210,6 +2211,41 @@ export async function getAgentMemoryContextSnapshot(
     includeRecentMemorySnapshot: options?.includeRecentMemorySnapshot,
     now,
   });
+}
+
+function readMemoryMarkdownBody(markdown: string | null) {
+  return markdown ? parseMemoryMarkdown(markdown).body.trim() : '';
+}
+
+function limitBootstrapMemory(content: string, maxChars: number) {
+  return content.length > maxChars ? `${content.slice(0, maxChars).trimEnd()}\n...` : content;
+}
+
+export async function getAgentBootstrapMemoryContext(agentId: string): Promise<{
+  corrections: string;
+  reflections: string;
+}> {
+  const fileStore = getAgentMemoryFileStore();
+  if (!fileStore) {
+    return { corrections: '', reflections: '' };
+  }
+
+  const database = await initDB();
+  const agent = getAgentRow(database, agentId);
+  if (!agent) {
+    return { corrections: '', reflections: '' };
+  }
+
+  const paths = buildAgentMemoryPaths(agent.slug, new Date().toISOString().slice(0, 10));
+  const [correctionsMarkdown, reflectionsMarkdown] = await Promise.all([
+    fileStore.readText(paths.correctionsFile).catch(() => null),
+    fileStore.readText(paths.reflectionsFile).catch(() => null),
+  ]);
+
+  return {
+    corrections: limitBootstrapMemory(readMemoryMarkdownBody(correctionsMarkdown), 5000),
+    reflections: limitBootstrapMemory(readMemoryMarkdownBody(reflectionsMarkdown), 3000),
+  };
 }
 
 export async function deleteAgentMemoryDocument(id: string): Promise<void> {

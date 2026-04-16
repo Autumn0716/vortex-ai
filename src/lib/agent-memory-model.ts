@@ -4,6 +4,8 @@ export type MemorySourceType =
   | 'conversation_log'
   | 'warm_summary'
   | 'cold_summary'
+  | 'correction'
+  | 'reflection'
   | 'promotion';
 export type MemoryTier = 'hot' | 'warm' | 'cold';
 
@@ -308,8 +310,15 @@ export function shouldPromoteMemory(content: string, role: 'user' | 'assistant' 
 export function scoreMemoryImportance(content: string, sourceType: MemorySourceType): number {
   const normalized = normalizeMemoryText(content).toLowerCase();
 
-  if (sourceType === 'promotion' || /(记住|remember|默认|偏好|总是|请始终|重要决策|核心身份)/i.test(normalized)) {
+  if (
+    sourceType === 'promotion' ||
+    sourceType === 'correction' ||
+    /(记住|remember|默认|偏好|总是|请始终|重要决策|核心身份)/i.test(normalized)
+  ) {
     return 5;
+  }
+  if (sourceType === 'reflection') {
+    return 4;
   }
   if (/(deadline|due|todo|待办|风险|阻塞|urgent|紧急|决策)/i.test(normalized)) {
     return 4;
@@ -510,6 +519,7 @@ export function buildLayeredMemoryContextSnapshot(
   const includeRecentMemorySnapshot = options.includeRecentMemorySnapshot ?? true;
   const globalDocs = documents
     .filter((document) => document.memoryScope === 'global')
+    .filter((document) => document.sourceType !== 'correction' && document.sourceType !== 'reflection')
     .sort(sortMemoryDocuments);
   const tieredDocs = documents.filter((document) => document.memoryScope !== 'global');
   const hotDocs = tieredDocs.filter((document) => resolveMemoryTier(document.updatedAt, now) === 'hot').sort(sortMemoryDocuments);

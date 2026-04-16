@@ -52,6 +52,7 @@ import {
   deleteTopicMessage,
   deleteAgentMemoryDocument,
   ensureAgentWorkspaceBootstrap,
+  getAgentBootstrapMemoryContext,
   getAgentMemoryContextSnapshot,
   getOrCreateActiveTopic,
   getSearchCapabilities,
@@ -429,7 +430,9 @@ function buildPromptInspectorSnapshot(input: {
   requestMode: 'chat' | 'responses';
   contextWindow?: number;
   systemPrompt: string;
+  correctionsContext?: string;
   memoryContext: string;
+  reflectionsContext?: string;
   memorySectionItems?: PromptInspectorSection['items'];
   sessionSummary?: string;
   skillContext: string;
@@ -456,11 +459,23 @@ function buildPromptInspectorSnapshot(input: {
       tokens: estimateTokenCount(input.systemPrompt),
     },
     {
+      key: 'corrections',
+      label: 'Corrections',
+      content: input.correctionsContext ?? '',
+      tokens: estimateTokenCount(input.correctionsContext ?? ''),
+    },
+    {
       key: 'memory',
       label: 'Memory Context',
       content: input.memoryContext,
       tokens: estimateTokenCount(input.memoryContext),
       items: input.memorySectionItems,
+    },
+    {
+      key: 'reflections',
+      label: 'Reflections',
+      content: input.reflectionsContext ?? '',
+      tokens: estimateTokenCount(input.reflectionsContext ?? ''),
     },
     {
       key: 'summary',
@@ -1020,7 +1035,9 @@ export const ChatInterface: React.FC<{
       requestMode,
       contextWindow: activeModelMetadata?.contextWindow,
       systemPrompt: config.systemPrompt,
+      correctionsContext: '',
       memoryContext: '',
+      reflectionsContext: '',
       memorySectionItems: [],
       sessionSummary: workspace.sessionSummary?.content,
       skillContext: '',
@@ -2161,6 +2178,7 @@ export const ChatInterface: React.FC<{
         : null;
       const memoryContext = memoryContextSnapshot?.content.slice(0, 4000) ?? '';
       const memorySectionItems = memoryContextSnapshot ? buildPromptInspectorMemoryItems(memoryContextSnapshot) : [];
+      const bootstrapMemoryContext = await getAgentBootstrapMemoryContext(workspaceSnapshot.agent.id);
       if (workspaceSnapshot.runtime.enableSkills && configSnapshot.apiServer.enabled) {
         await syncAgentSkillDocuments(workspaceSnapshot.agent.id, configSnapshot.apiServer).catch((error) => {
           console.warn('Agent skill sync failed before send:', error);
@@ -2217,7 +2235,9 @@ export const ChatInterface: React.FC<{
               },
         systemPrompt: [
           configSnapshot.systemPrompt,
+          bootstrapMemoryContext.corrections ? `User corrections:\n${bootstrapMemoryContext.corrections}` : '',
           memoryContext ? `Agent memory:\n${memoryContext}` : '',
+          bootstrapMemoryContext.reflections ? `Agent reflections:\n${bootstrapMemoryContext.reflections}` : '',
           sessionSummary ? `Session summary:\n${sessionSummary}` : '',
           skillContext ? skillContext : '',
           effectiveStructuredOutput.mode === 'json_object'
@@ -2239,7 +2259,9 @@ export const ChatInterface: React.FC<{
       });
       aggregatedInputText = [
         configSnapshot.systemPrompt,
+        bootstrapMemoryContext.corrections,
         memoryContext,
+        bootstrapMemoryContext.reflections,
         sessionSummary,
         skillContext,
         workspaceSnapshot.runtime.systemPrompt,
@@ -2265,7 +2287,9 @@ export const ChatInterface: React.FC<{
           requestMode: runtimeRequestMode,
           contextWindow: runtimeModelMetadata?.contextWindow,
           systemPrompt: configSnapshot.systemPrompt,
+          correctionsContext: bootstrapMemoryContext.corrections,
           memoryContext,
+          reflectionsContext: bootstrapMemoryContext.reflections,
           memorySectionItems,
           sessionSummary,
           skillContext,
