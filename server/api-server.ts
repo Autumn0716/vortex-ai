@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { exportAgentPackage, importAgentPackage } from './agent-package-store';
 import { createCodeReviewAutomation } from './code-review-automation';
 import { readProjectConfig, writeProjectConfig } from './config-store';
 import { createDailySummaryScheduler } from './daily-summary-automation';
@@ -284,6 +285,41 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
         400,
         'CONFIG_WRITE_FAILED',
         error instanceof Error ? error.message : 'Failed to write project config.',
+      );
+    }
+  });
+
+  app.get('/api/agent-packages/export', async (request, response) => {
+    try {
+      const agentSlug = String(request.query.agentSlug ?? '');
+      const packageData = await exportAgentPackage({ rootDir, agentSlug });
+      response.setHeader('Content-Disposition', `attachment; filename="${packageData.agentSlug}.flowagent"`);
+      response.json(packageData);
+    } catch (error) {
+      sendApiError(
+        response,
+        400,
+        'AGENT_PACKAGE_EXPORT_FAILED',
+        error instanceof Error ? error.message : 'Failed to export agent package.',
+      );
+    }
+  });
+
+  app.post('/api/agent-packages/import', async (request, response) => {
+    try {
+      const result = await importAgentPackage({
+        rootDir,
+        packageData: request.body?.packageData ?? request.body?.package,
+        targetAgentSlug: typeof request.body?.targetAgentSlug === 'string' ? request.body.targetAgentSlug : undefined,
+        importConfig: request.body?.importConfig === true,
+      });
+      response.json(result);
+    } catch (error) {
+      sendApiError(
+        response,
+        400,
+        'AGENT_PACKAGE_IMPORT_FAILED',
+        error instanceof Error ? error.message : 'Failed to import agent package.',
       );
     }
   });

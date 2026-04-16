@@ -21,6 +21,7 @@
 - Added agent-scoped `corrections.md` and `reflections.md` bootstrap memory files so user corrections and agent failure lessons can be edited in Settings, indexed from Markdown, injected into runtime prompts, and inspected separately in Prompt Inspector.
 - Improved Memory Timeline with text search, finer event labels, expandable metadata, and snapshot-backed undo for future memory file saves or daily-file deletes.
 - Added code-aware project knowledge indexing for `src/**/*.ts|tsx|py|go`, producing compact code-summary documents with imports, symbols, source paths, and previews for local RAG.
+- Added first-pass FlowAgent package export/import APIs for bundling project config, agent Markdown memory files, and shared Markdown skills into a `.flowagent` JSON package.
 - Added a manual automation trigger for the nightly memory archive via `POST /api/nightly-archive/run` and a matching Settings action to run the archive job immediately.
 - Added a first-pass automation registry with `GET /api/automations` and `POST /api/automations/:id/run`, plus a Settings card that lists and runs registered background jobs.
 - Added optional daily cron scheduling for the nightly memory archive, persisted as `cronExpression` while preserving older fixed-time settings and exposing the effective schedule through the automation registry.

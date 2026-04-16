@@ -49,6 +49,28 @@ export interface OfficialModelMetadataResponse {
   updatedAt?: string;
 }
 
+export interface FlowAgentPackageFile {
+  path: string;
+  content: string;
+}
+
+export interface FlowAgentPackage {
+  format: 'flowagent.package';
+  formatVersion: 1;
+  exportedAt: string;
+  agentSlug: string;
+  config: AgentConfig;
+  memoryFiles: FlowAgentPackageFile[];
+  skillFiles: FlowAgentPackageFile[];
+}
+
+export interface ImportAgentPackageResult {
+  agentSlug: string;
+  memoryFileCount: number;
+  skillFileCount: number;
+  configImported: boolean;
+}
+
 export interface ApiHealthResponse {
   ok?: boolean;
   rootDir?: string;
@@ -386,7 +408,7 @@ export async function runAutomation(
     throw new Error('The local API server is disabled.');
   }
 
-  return requestApi<NightlyArchiveStatus>(settings, `/api/automations/${encodeURIComponent(automationId)}/run`, {
+  return requestApi<AutomationRunStatus>(settings, `/api/automations/${encodeURIComponent(automationId)}/run`, {
     method: 'POST',
   });
 }
@@ -410,6 +432,41 @@ export async function saveProjectConfig(
   return requestApi<AgentConfig>(settings, '/api/config', {
     method: 'PUT',
     body: JSON.stringify(value),
+  });
+}
+
+export async function exportAgentPackage(
+  settings: ApiServerSettings,
+  agentSlug: string,
+): Promise<FlowAgentPackage | null> {
+  if (!settings.enabled) {
+    return null;
+  }
+
+  return requestApi<FlowAgentPackage>(
+    settings,
+    `/api/agent-packages/export?agentSlug=${encodeURIComponent(agentSlug)}`,
+    {},
+    { allowNotFound: true },
+  );
+}
+
+export async function importAgentPackage(
+  settings: ApiServerSettings,
+  packageData: FlowAgentPackage,
+  options: { targetAgentSlug?: string; importConfig?: boolean } = {},
+): Promise<ImportAgentPackageResult | null> {
+  if (!settings.enabled) {
+    throw new Error('The local API server is disabled.');
+  }
+
+  return requestApi<ImportAgentPackageResult>(settings, '/api/agent-packages/import', {
+    method: 'POST',
+    body: JSON.stringify({
+      packageData,
+      targetAgentSlug: options.targetAgentSlug,
+      importConfig: options.importConfig === true,
+    }),
   });
 }
 

@@ -13,6 +13,8 @@ import {
   getApiServerHealth,
   getAutomationSnapshot,
   getNightlyArchiveStatus,
+  exportAgentPackage as exportAgentPackageViaApi,
+  importAgentPackage as importAgentPackageViaApi,
   inspectOfficialModelMetadata,
   listStoredModelMetadata,
   listAgentMemoryFiles,
@@ -307,6 +309,35 @@ test('API automation registry can generate yesterday daily summaries', async () 
     assert.match(dailyFile, /Summary:/);
     assert.match(dailyFile, /Open Loops:/);
     assert.match(dailyFile, /自动化触发器/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('API server exports and imports FlowAgent agent packages', async () => {
+  const rootDir = await createTempRoot();
+  await mkdir(path.join(rootDir, 'memory/agents/core/daily'), { recursive: true });
+  await mkdir(path.join(rootDir, 'skills/review'), { recursive: true });
+  await writeFile(path.join(rootDir, 'memory/agents/core/MEMORY.md'), '# Core Memory\n', 'utf8');
+  await writeFile(path.join(rootDir, 'skills/review/SKILL.md'), '# Review Skill\n', 'utf8');
+  const server = await startServer(rootDir);
+  const settings = {
+    enabled: true,
+    baseUrl: server.baseUrl,
+    authToken: '',
+  };
+
+  try {
+    const packageData = await exportAgentPackageViaApi(settings, 'core');
+    assert.equal(packageData?.format, 'flowagent.package');
+    assert.ok(packageData?.memoryFiles.some((file) => file.path === 'memory/agents/core/MEMORY.md'));
+    assert.ok(packageData?.skillFiles.some((file) => file.path === 'skills/review/SKILL.md'));
+
+    const result = await importAgentPackageViaApi(settings, packageData!, {
+      targetAgentSlug: 'clone',
+    });
+    assert.equal(result?.agentSlug, 'clone');
+    assert.equal(await readFile(path.join(rootDir, 'memory/agents/clone/MEMORY.md'), 'utf8'), '# Core Memory\n');
   } finally {
     await server.close();
   }
