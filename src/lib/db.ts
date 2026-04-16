@@ -54,6 +54,7 @@ import {
   listTokenUsageForTopicInDatabase,
   upsertTokenUsageInDatabase,
 } from './db-usage';
+import { insertAuditLogInDatabase, listAuditLogsInDatabase } from './db-audit';
 import { getScalar, mapRows } from './db-row-helpers';
 import { toConversationSummary } from './db-row-mappers';
 import { createBaseSchema } from './db-schema';
@@ -79,6 +80,7 @@ import type {
   ConversationSummary,
   ConversationWorkspace,
   DataStats,
+  AuditLogRecord,
   GlobalMemoryDocument,
   KnowledgeDocumentRecord,
   KnowledgeDocumentSearchMetrics,
@@ -111,6 +113,7 @@ export type {
   ConversationSummary,
   ConversationWorkspace,
   DataStats,
+  AuditLogRecord,
   GlobalMemoryDocument,
   KnowledgeDocumentRecord,
   KnowledgeDocumentSearchMetrics,
@@ -410,6 +413,21 @@ export async function getTokenUsageSummary(options?: {
 }): Promise<TokenUsageSummary> {
   const database = await initDB();
   return getTokenUsageSummaryInDatabase(database, options);
+}
+
+export async function recordAuditLog(input: Omit<AuditLogRecord, 'id'> & { id?: string }) {
+  const database = await initDB();
+  insertAuditLogInDatabase(database, input);
+  await saveDB();
+}
+
+export async function listAuditLogs(options?: {
+  category?: AuditLogRecord['category'];
+  topicId?: string;
+  limit?: number;
+}): Promise<AuditLogRecord[]> {
+  const database = await initDB();
+  return listAuditLogsInDatabase(database, options);
 }
 
 export async function listGlobalMemoryDocuments(): Promise<GlobalMemoryDocument[]> {

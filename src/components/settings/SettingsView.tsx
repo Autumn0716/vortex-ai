@@ -56,6 +56,7 @@ import {
   exportWorkspaceData,
   getDataStats,
   importWorkspaceData,
+  recordAuditLog,
   type DataStats,
   type TokenUsageSummary,
 } from '../../lib/db';
@@ -99,6 +100,8 @@ import {
   type RuntimeCapabilityProfile,
 } from '../../lib/runtime-capabilities';
 import type { SessionContextTokenBreakdown } from '../../lib/session-context-budget';
+import { describeChangedFields } from '../../lib/audit-log-changes';
+import { AuditLogPanel } from './AuditLogPanel';
 import { UsagePanel } from './UsagePanel';
 
 const CATEGORIES = [
@@ -181,6 +184,13 @@ function memoryLayerLabel(layer: string) {
     return '温层';
   }
   return '冷层';
+}
+
+function summarizeChangedKeys(changedKeys: string[]) {
+  if (!changedKeys.length) {
+    return '未识别字段差异';
+  }
+  return changedKeys.slice(0, 6).join(', ');
 }
 
 const MCP_LIBRARY = [
@@ -787,11 +797,27 @@ export const SettingsView = ({
 
   const commit = async (nextConfig: AgentConfig) => {
     const normalized = normalizeAgentConfig(nextConfig);
+    const previousConfig = draftRef.current;
     setDraft(normalized);
     draftRef.current = normalized;
     applyThemePreferences(normalized);
     try {
       await saveAgentConfig(normalized);
+      const diff = describeChangedFields(
+        previousConfig as unknown as Record<string, unknown>,
+        normalized as unknown as Record<string, unknown>,
+      );
+      void recordAuditLog({
+        category: 'config',
+        action: 'config_saved',
+        target: 'config.json',
+        status: 'success',
+        summary: `Saved project config: ${summarizeChangedKeys(diff.changedKeys)}.`,
+        metadata: diff,
+        createdAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('Failed to record config audit log:', error);
+      });
       setConfigSaveStatus({ tone: 'success', message: `已写入 ${configWriteTarget}。` });
       onConfigSaved?.(normalized);
     } catch (error) {
@@ -1668,6 +1694,25 @@ export const SettingsView = ({
         preferredPath: activeMemoryFilePath,
       });
       showDesktopNotification('FlowAgent 记忆归档完成', formatLifecycleSyncStatus(lifecycleResult));
+      void recordAuditLog({
+        category: 'memory',
+        action: 'memory_lifecycle_synced',
+        agentId: activeMemoryAgent.id,
+        target: activeMemoryAgent.slug,
+        status: lifecycleResult.failures.length ? 'error' : 'success',
+        summary: `Synced memory lifecycle for ${activeMemoryAgent.name}.`,
+        details: formatLifecycleSyncStatus(lifecycleResult),
+        metadata: {
+          agentSlug: activeMemoryAgent.slug,
+          scannedCount: lifecycleResult.scannedCount,
+          warmUpdated: lifecycleResult.warmUpdated,
+          coldUpdated: lifecycleResult.coldUpdated,
+          failures: lifecycleResult.failures,
+        },
+        createdAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('Failed to record memory lifecycle audit log:', error);
+      });
       if (lifecycleResult.failures.length > 0) {
         console.warn('Memory lifecycle sync failures:', lifecycleResult.failures);
       }
@@ -1691,6 +1736,22 @@ export const SettingsView = ({
       await writeAgentMemoryFile(activeMemoryFilePath, memoryFileContent, draft.apiServer);
       await rescanAgentMemory(activeMemoryAgent.id, '已写入 Markdown 文件并刷新当前 agent 索引。');
       await loadMemoryFiles({ preferredPath: activeMemoryFilePath });
+      void recordAuditLog({
+        category: 'memory',
+        action: 'memory_file_saved',
+        agentId: activeMemoryAgent.id,
+        target: activeMemoryFilePath,
+        status: 'success',
+        summary: `Saved memory file for ${activeMemoryAgent.name}.`,
+        metadata: {
+          agentSlug: activeMemoryAgent.slug,
+          path: activeMemoryFilePath,
+          size: memoryFileContent.length,
+        },
+        createdAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('Failed to record memory save audit log:', error);
+      });
     } catch (error) {
       setMemoryFileStatus({
         tone: 'error',
@@ -1720,6 +1781,21 @@ export const SettingsView = ({
       await loadMemoryFiles({
         preferredPath: ensured.path,
       });
+      void recordAuditLog({
+        category: 'memory',
+        action: 'memory_daily_created',
+        agentId: activeMemoryAgent.id,
+        target: ensured.path,
+        status: 'success',
+        summary: `Created daily memory for ${activeMemoryAgent.name}.`,
+        metadata: {
+          agentSlug: activeMemoryAgent.slug,
+          path: ensured.path,
+        },
+        createdAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('Failed to record daily memory create audit log:', error);
+      });
     } catch (error) {
       setMemoryFileStatus({
         tone: 'error',
@@ -1737,10 +1813,26 @@ export const SettingsView = ({
 
     setMemoryFileLoading(true);
     try {
+      const removedPath = activeMemoryFile.path;
       await deleteAgentMemoryFile(activeMemoryFile.path, draft.apiServer);
       await rescanAgentMemory(activeMemoryAgent.id, '已删除日记文件并刷新索引。');
       await loadMemoryFiles({
         preferredPath: memoryFiles.find((file) => file.path !== activeMemoryFile.path)?.path ?? null,
+      });
+      void recordAuditLog({
+        category: 'memory',
+        action: 'memory_daily_deleted',
+        agentId: activeMemoryAgent.id,
+        target: removedPath,
+        status: 'success',
+        summary: `Deleted daily memory for ${activeMemoryAgent.name}.`,
+        metadata: {
+          agentSlug: activeMemoryAgent.slug,
+          path: removedPath,
+        },
+        createdAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('Failed to record daily memory delete audit log:', error);
       });
     } catch (error) {
       setMemoryFileStatus({
@@ -1764,11 +1856,22 @@ export const SettingsView = ({
 
     setNightlyArchiveLoading(true);
     try {
+      const previousNightlySettings = {
+        enabled: nightlyArchiveStatus?.settings.enabled ?? nightlyArchiveEnabled,
+        time: nightlyArchiveStatus?.settings.time ?? nightlyArchiveTime,
+        useLlmScoring: nightlyArchiveStatus?.settings.useLlmScoring ?? nightlyArchiveUseLlmScoring,
+      };
       const nextStatus = await saveNightlyArchiveSettings(draft.apiServer, {
         enabled: nightlyArchiveEnabled,
         time: nightlyArchiveTime,
         useLlmScoring: nightlyArchiveUseLlmScoring,
       });
+      const nextNightlySettings = {
+        enabled: nextStatus?.settings.enabled ?? nightlyArchiveEnabled,
+        time: nextStatus?.settings.time ?? nightlyArchiveTime,
+        useLlmScoring: nextStatus?.settings.useLlmScoring ?? nightlyArchiveUseLlmScoring,
+      };
+      const diff = describeChangedFields(previousNightlySettings, nextNightlySettings);
       setNightlyArchiveStatus(nextStatus);
       setNightlyArchiveEnabled(nextStatus?.settings.enabled ?? nightlyArchiveEnabled);
       setNightlyArchiveTime(nextStatus?.settings.time ?? nightlyArchiveTime);
@@ -1776,6 +1879,17 @@ export const SettingsView = ({
       setNightlyArchiveMessage({
         tone: 'success',
         message: '已保存夜间自动归档设置。',
+      });
+      void recordAuditLog({
+        category: 'config',
+        action: 'nightly_archive_saved',
+        target: '.flowagent/nightly-memory-archive-settings.json',
+        status: 'success',
+        summary: `Saved nightly archive settings: ${summarizeChangedKeys(diff.changedKeys)}.`,
+        metadata: diff,
+        createdAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('Failed to record nightly archive audit log:', error);
       });
       showDesktopNotification(
         'FlowAgent 夜间归档已更新',
@@ -1806,6 +1920,19 @@ export const SettingsView = ({
 
       await importWorkspaceData(payload.workspace);
       await saveAgentConfig(normalizeAgentConfig(payload.config));
+      void recordAuditLog({
+        category: 'config',
+        action: 'workspace_restored',
+        target: file.name,
+        status: 'success',
+        summary: `Restored workspace backup from ${file.name}.`,
+        metadata: {
+          fileName: file.name,
+        },
+        createdAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('Failed to record workspace restore audit log:', error);
+      });
       onConfigSaved?.(normalizeAgentConfig(payload.config));
       window.location.reload();
     } catch (error: any) {
@@ -3643,6 +3770,9 @@ export const SettingsView = ({
                       </div>
                     </div>
                     <UsagePanel summary={tokenUsageSummary ?? null} />
+                  </div>
+                  <div className="mt-3">
+                    <AuditLogPanel />
                   </div>
                   {runtimeCapabilities.mode === 'electron' ? (
                     <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">

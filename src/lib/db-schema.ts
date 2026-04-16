@@ -163,6 +163,23 @@ export function createBaseSchema(database: Database) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
+      action TEXT NOT NULL,
+      topic_id TEXT,
+      topic_title TEXT,
+      agent_id TEXT,
+      message_id TEXT,
+      target TEXT,
+      status TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      details TEXT,
+      metadata_json TEXT,
+      duration_ms INTEGER,
+      created_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_agent_lanes_conversation ON agent_lanes(conversation_id, position ASC);
     CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at ASC);
@@ -178,5 +195,8 @@ export function createBaseSchema(database: Database) {
     CREATE INDEX IF NOT EXISTS idx_token_usage_topic_created ON token_usage(topic_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_token_usage_model_created ON token_usage(model, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_token_usage_created ON token_usage(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_category_created ON audit_log(category, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_topic_created ON audit_log(topic_id, created_at DESC);
   `);
 }

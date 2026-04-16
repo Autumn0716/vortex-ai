@@ -140,6 +140,26 @@ export interface TokenUsageSummary {
   byTopic: TokenUsageBreakdownEntry[];
 }
 
+export type AuditLogCategory = 'tool' | 'memory' | 'config';
+export type AuditLogStatus = 'success' | 'error';
+
+export interface AuditLogRecord {
+  id: string;
+  category: AuditLogCategory;
+  action: string;
+  topicId?: string;
+  topicTitle?: string;
+  agentId?: string;
+  messageId?: string;
+  target?: string;
+  status: AuditLogStatus;
+  summary: string;
+  details?: string;
+  metadata?: Record<string, unknown>;
+  durationMs?: number;
+  createdAt: string;
+}
+
 export interface GlobalMemoryDocument {
   id: string;
   title: string;

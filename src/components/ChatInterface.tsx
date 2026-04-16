@@ -31,6 +31,7 @@ import {
   getTokenUsageSummary,
   listPromptSnippets,
   listTopicTokenUsage,
+  recordAuditLog,
   recordKnowledgeEvidenceFeedback,
   recordTokenUsage,
   savePromptSnippet,
@@ -87,6 +88,7 @@ import { applyThemePreferences } from '../lib/theme';
 import { syncProjectKnowledgeDocuments } from '../lib/project-knowledge';
 import { TimeoutError, withSoftTimeout } from '../lib/async-timeout';
 import { formatErrorDetails, wrapErrorWithContext } from '../lib/error-details';
+import { describeChangedFields } from '../lib/audit-log-changes';
 import {
   inspectOfficialModelMetadata as inspectOfficialModelMetadataViaApi,
   listStoredModelMetadata,
@@ -1583,7 +1585,32 @@ export const ChatInterface: React.FC<{
 
     setSessionSettingsSaving(true);
     try {
+      const previousSettings = {
+        displayName: workspace.topic.displayName ?? '',
+        systemPromptOverride: workspace.topic.systemPromptOverride ?? '',
+        providerIdOverride: workspace.topic.providerIdOverride ?? '',
+        modelOverride: workspace.topic.modelOverride ?? '',
+        enableMemory: workspace.topic.enableMemory,
+        enableSkills: workspace.topic.enableSkills,
+        enableTools: workspace.topic.enableTools,
+        enableAgentSharedShortTerm: workspace.topic.enableAgentSharedShortTerm,
+      };
+      const diff = describeChangedFields(previousSettings, sessionSettingsDraft as unknown as Record<string, unknown>);
       await updateTopicSessionSettings(workspace.topic.id, sessionSettingsDraft);
+      void recordAuditLog({
+        category: 'config',
+        action: 'topic_session_settings_updated',
+        topicId: workspace.topic.id,
+        topicTitle: workspace.topic.title,
+        agentId: workspace.agent.id,
+        target: workspace.topic.id,
+        status: 'success',
+        summary: `Updated session settings: ${diff.changedKeys.slice(0, 6).join(', ') || 'no visible changes'}.`,
+        metadata: diff,
+        createdAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('Failed to record session settings audit log:', error);
+      });
       await hydrateTopic(workspace.topic.id);
       setShellNotice(`Updated session settings for "${workspace.topic.title}".`);
       setShowSessionSettings(false);
@@ -1664,7 +1691,25 @@ export const ChatInterface: React.FC<{
 
     setModelFeaturesSaving(true);
     try {
+      const diff = describeChangedFields(
+        workspace.runtime.modelFeatures as unknown as Record<string, unknown>,
+        modelFeaturesDraft as unknown as Record<string, unknown>,
+      );
       await updateTopicModelFeatures(workspace.topic.id, modelFeaturesDraft);
+      void recordAuditLog({
+        category: 'config',
+        action: 'topic_model_features_updated',
+        topicId: workspace.topic.id,
+        topicTitle: workspace.topic.title,
+        agentId: workspace.agent.id,
+        target: workspace.runtime.model,
+        status: 'success',
+        summary: `Updated model features: ${diff.changedKeys.slice(0, 6).join(', ') || 'no visible changes'}.`,
+        metadata: diff,
+        createdAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('Failed to record model features audit log:', error);
+      });
       await hydrateTopic(workspace.topic.id);
       setShellNotice(`Updated model features for "${workspace.topic.title}".`);
       setShowModelFeaturesDialog(false);
@@ -1684,6 +1729,26 @@ export const ChatInterface: React.FC<{
     setConfig(nextConfig);
     try {
       await saveAgentConfig(nextConfig);
+      void recordAuditLog({
+        category: 'config',
+        action: 'active_model_changed',
+        target: `${providerId}::${model}`,
+        status: 'success',
+        summary: `Changed active model to ${model}.`,
+        metadata: describeChangedFields(
+          {
+            activeProviderId: config.activeProviderId,
+            activeModel: config.activeModel,
+          },
+          {
+            activeProviderId: providerId,
+            activeModel: model,
+          },
+        ),
+        createdAt: new Date().toISOString(),
+      }).catch((error) => {
+        console.warn('Failed to record active model audit log:', error);
+      });
     } catch (error) {
       setShellNotice(error instanceof Error ? error.message : '配置未能写入 config.json。');
     }
@@ -1762,6 +1827,21 @@ export const ChatInterface: React.FC<{
       title: draft.title,
       content: draft.content,
     });
+    void recordAuditLog({
+      category: 'memory',
+      action: draft.id ? 'memory_document_updated' : 'memory_document_created',
+      agentId: activeAgentId,
+      target: draft.title,
+      status: 'success',
+      summary: `${draft.id ? 'Updated' : 'Created'} memory document "${draft.title}".`,
+      metadata: {
+        title: draft.title,
+        size: draft.content.length,
+      },
+      createdAt: new Date().toISOString(),
+    }).catch((error) => {
+      console.warn('Failed to record memory document audit log:', error);
+    });
     setShellNotice(`Updated memory for ${selectedAgent?.name ?? 'the current agent'}.`);
     await refreshMemory(activeAgentId);
   };
@@ -1772,6 +1852,17 @@ export const ChatInterface: React.FC<{
     }
 
     await deleteAgentMemoryDocument(memoryId);
+    void recordAuditLog({
+      category: 'memory',
+      action: 'memory_document_deleted',
+      agentId: activeAgentId,
+      target: memoryId,
+      status: 'success',
+      summary: `Deleted memory document ${memoryId}.`,
+      createdAt: new Date().toISOString(),
+    }).catch((error) => {
+      console.warn('Failed to record memory delete audit log:', error);
+    });
     setShellNotice(`Removed an agent memory entry.`);
     await refreshMemory(activeAgentId);
   };
@@ -2146,6 +2237,27 @@ export const ChatInterface: React.FC<{
 
         if (event.type === 'tool_event') {
           finalAssistantTools = [...finalAssistantTools, event.tool];
+          void recordAuditLog({
+            category: 'tool',
+            action: 'tool_call',
+            topicId: workspaceSnapshot.topic.id,
+            topicTitle: workspaceSnapshot.topic.title,
+            agentId: workspaceSnapshot.agent.id,
+            messageId: assistantDraftId,
+            target: event.tool.name,
+            status: /failed|error/i.test(`${event.tool.status} ${event.tool.result ?? ''}`) ? 'error' : 'success',
+            summary: `Tool ${event.tool.name} ${event.tool.status}.`,
+            details: event.tool.result?.slice(0, 400),
+            metadata: {
+              toolName: event.tool.name,
+              toolStatus: event.tool.status,
+              requestMode: runtimeRequestMode,
+              model: runtimeModel,
+            },
+            createdAt: new Date().toISOString(),
+          }).catch((auditError) => {
+            console.warn('Failed to record tool audit log:', auditError);
+          });
           continue;
         }
 
