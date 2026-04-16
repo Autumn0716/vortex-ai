@@ -129,7 +129,20 @@ export interface DailySummaryStatus {
   running: boolean;
 }
 
-export type AutomationRunStatus = NightlyArchiveStatus | DailySummaryStatus;
+export interface WeeklyArchiveStatus {
+  enabled: boolean;
+  schedule: string;
+  state: {
+    lastSuccessfulRunAt: string | null;
+    lastAttemptedRunAt: string | null;
+    lastRunSummary: NightlyArchiveRunSummary | null;
+  };
+  nextRunAt: string | null;
+  catchUpDue: boolean;
+  running: boolean;
+}
+
+export type AutomationRunStatus = NightlyArchiveStatus | DailySummaryStatus | WeeklyArchiveStatus;
 
 export interface AutomationEntry {
   id: string;

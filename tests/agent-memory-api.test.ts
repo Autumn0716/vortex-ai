@@ -48,13 +48,21 @@ async function startServer(
   nightlyArchiveNow?: () => string | Date,
   logger?: Pick<Console, 'info' | 'warn' | 'error'>,
 ) {
-  const { app, nightlyArchiveReady, nightlyArchiveScheduler } = createFlowAgentApiServer({
+  const {
+    app,
+    nightlyArchiveReady,
+    nightlyArchiveScheduler,
+    dailySummaryReady,
+    dailySummaryScheduler,
+    weeklyArchiveReady,
+    weeklyArchiveScheduler,
+  } = createFlowAgentApiServer({
     rootDir,
     authToken,
     nightlyArchiveNow,
     logger: logger ?? silentLogger,
   });
-  await nightlyArchiveReady;
+  await Promise.all([nightlyArchiveReady, dailySummaryReady, weeklyArchiveReady]);
   const server = await new Promise<Server>((resolve, reject) => {
     const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
     instance.on('error', reject);
@@ -65,6 +73,8 @@ async function startServer(
     baseUrl: `http://127.0.0.1:${address.port}`,
     async close() {
       nightlyArchiveScheduler.stop();
+      dailySummaryScheduler.stop();
+      weeklyArchiveScheduler.stop();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
@@ -197,12 +207,45 @@ test('API server exposes readable and writable nightly archive settings', async 
 
     const automationSnapshot = await getAutomationSnapshot(settings);
     const nightlyAutomation = automationSnapshot?.automations.find((automation) => automation.id === 'nightly_archive');
+    const weeklyAutomation = automationSnapshot?.automations.find((automation) => automation.id === 'weekly_archive');
     assert.equal(nightlyAutomation?.schedule, 'cron 15 4 * * *');
+    assert.equal(weeklyAutomation?.schedule, '每周日 04:00');
 
     const automationRunStatus = await runAutomation(settings, 'nightly_archive');
     assert.equal(automationRunStatus?.state.lastRunSummary?.trigger, 'manual');
 
     await assert.rejects(() => runAutomation(settings, 'missing'), /Unknown automation: missing/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('API automation registry can run the weekly archive wrapper', async () => {
+  const rootDir = await createTempRoot();
+  await mkdir(path.join(rootDir, 'memory/agents/core/daily'), { recursive: true });
+  await writeFile(
+    path.join(rootDir, 'memory/agents/core/daily/2026-04-10.md'),
+    '- TODO weekly archive should reuse nightly lifecycle.',
+    'utf8',
+  );
+  const server = await startServer(rootDir, '', () => '2026-04-20T12:00:00.000Z');
+  const settings = {
+    enabled: true,
+    baseUrl: server.baseUrl,
+    authToken: '',
+  };
+
+  try {
+    const automationSnapshot = await getAutomationSnapshot(settings);
+    const weeklyAutomation = automationSnapshot?.automations.find((automation) => automation.id === 'weekly_archive');
+    assert.equal(weeklyAutomation?.schedule, '每周日 04:00');
+
+    const runStatus = await runAutomation(settings, 'weekly_archive');
+    assert.equal(runStatus?.state.lastRunSummary?.trigger, 'manual');
+    assert.equal(runStatus?.state.lastRunSummary?.processedAgents, 1);
+
+    const weeklyState = await readFile(path.join(rootDir, '.flowagent/weekly-archive-state.json'), 'utf8');
+    assert.match(weeklyState, /"promotedCount"/);
   } finally {
     await server.close();
   }

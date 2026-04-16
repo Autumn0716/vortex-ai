@@ -18,6 +18,7 @@ import {
   createProjectKnowledgeWatcher,
   readProjectKnowledgeSnapshot,
 } from './project-knowledge-store';
+import { createWeeklyArchiveScheduler } from './weekly-archive-automation';
 import { walkDirectory } from './lib/fs-utils';
 
 export interface FlowAgentApiServerOptions {
@@ -137,6 +138,13 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     logger,
   });
   const dailySummaryReady = dailySummaryScheduler.start();
+  const weeklyArchiveScheduler = createWeeklyArchiveScheduler({
+    rootDir,
+    now: options.nightlyArchiveNow,
+    logger,
+    runArchive: (trigger) => nightlyArchiveScheduler.runNow(trigger),
+  });
+  const weeklyArchiveReady = nightlyArchiveReady.then(() => weeklyArchiveScheduler.start());
   const projectKnowledgeWatcher = createProjectKnowledgeWatcher(rootDir);
   const projectKnowledgeReady = projectKnowledgeWatcher.ready;
   const app = express();
@@ -327,6 +335,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     try {
       const nightlyArchive = await nightlyArchiveScheduler.getStatus();
       const dailySummary = await dailySummaryScheduler.getStatus();
+      const weeklyArchive = await weeklyArchiveScheduler.getStatus();
       response.json({
         automations: [
           {
@@ -338,6 +347,17 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
             running: dailySummary.running,
             nextRunAt: dailySummary.nextRunAt,
             lastRunSummary: dailySummary.state.lastRunSummary,
+            capabilities: ['manual_run', 'scheduled_run', 'catch_up'],
+          },
+          {
+            id: 'weekly_archive',
+            title: '每周记忆归档',
+            description: '每周日自动执行温冷层归档、长期记忆晋升和重要性评分。',
+            enabled: weeklyArchive.enabled,
+            schedule: weeklyArchive.schedule,
+            running: weeklyArchive.running,
+            nextRunAt: weeklyArchive.nextRunAt,
+            lastRunSummary: weeklyArchive.state.lastRunSummary,
             capabilities: ['manual_run', 'scheduled_run', 'catch_up'],
           },
           {
@@ -367,6 +387,10 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     try {
       if (request.params.id === 'daily_summary') {
         response.json(await dailySummaryScheduler.runNow('manual'));
+        return;
+      }
+      if (request.params.id === 'weekly_archive') {
+        response.json(await weeklyArchiveScheduler.runNow('manual'));
         return;
       }
       if (request.params.id === 'nightly_archive') {
@@ -542,6 +566,8 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     nightlyArchiveReady,
     dailySummaryScheduler,
     dailySummaryReady,
+    weeklyArchiveScheduler,
+    weeklyArchiveReady,
     projectKnowledgeWatcher,
     projectKnowledgeReady,
   };
@@ -550,8 +576,8 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
 async function startServer() {
   const port = Number(process.env.FLOWAGENT_API_PORT ?? 3850);
   const host = process.env.FLOWAGENT_API_HOST ?? '127.0.0.1';
-  const { app, memoryRootDir, nightlyArchiveReady, dailySummaryReady, projectKnowledgeReady } = createFlowAgentApiServer();
-  await Promise.all([nightlyArchiveReady, dailySummaryReady, projectKnowledgeReady]);
+  const { app, memoryRootDir, nightlyArchiveReady, dailySummaryReady, weeklyArchiveReady, projectKnowledgeReady } = createFlowAgentApiServer();
+  await Promise.all([nightlyArchiveReady, dailySummaryReady, weeklyArchiveReady, projectKnowledgeReady]);
 
   app.listen(port, host, () => {
     console.log(`FlowAgent API server listening on http://${host}:${port}`);
