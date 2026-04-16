@@ -297,6 +297,53 @@ test('nightly scheduler continues when one agent fails and still processes the o
   assert.equal(await badStore.readText('memory/agents/bad/daily/2026-04-10.warm.md'), null);
 });
 
+test('nightly scheduler passes config memory lifecycle windows to lifecycle sync', async () => {
+  const rootDir = await createTempRoot();
+  const capturedPolicies: unknown[] = [];
+
+  await writeFile(
+    path.join(rootDir, 'config.json'),
+    JSON.stringify({
+      memory: {
+        hotRetentionDays: 7,
+        warmRetentionDays: 30,
+      },
+    }),
+    'utf8',
+  );
+  await writeNightlyArchiveSettings(rootDir, {
+    enabled: false,
+    time: '03:00',
+    useLlmScoring: false,
+  });
+
+  const scheduler = createNightlyMemoryArchiveScheduler({
+    rootDir,
+    now: () => '2026-04-20T12:00:00.000Z',
+    createFileStore: () => new InMemoryNightlyFileStore(),
+    listAgentSlugs: async () => ['core'],
+    runLifecycleSync: async (input) => {
+      capturedPolicies.push(input.lifecyclePolicy);
+      return {
+        scannedCount: 0,
+        warmUpdated: 0,
+        coldUpdated: 0,
+        skippedCount: 0,
+        failures: [],
+      };
+    },
+  });
+
+  await scheduler.runNow();
+
+  assert.deepEqual(capturedPolicies, [
+    {
+      hotRetentionDays: 7,
+      warmRetentionDays: 30,
+    },
+  ]);
+});
+
 test('nightly scheduler promotes reusable memory entries into MEMORY.md', async () => {
   const rootDir = await createTempRoot();
   await mkdir(path.join(rootDir, 'memory/agents/core/daily'), { recursive: true });

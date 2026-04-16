@@ -9,6 +9,11 @@ export type MemorySourceType =
   | 'promotion';
 export type MemoryTier = 'hot' | 'warm' | 'cold';
 
+export interface MemoryTierPolicy {
+  hotRetentionDays?: number;
+  warmRetentionDays?: number;
+}
+
 export interface MemoryContextDocument {
   id: string;
   title: string;
@@ -43,6 +48,8 @@ export interface MemoryContextSnapshot {
 }
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_HOT_RETENTION_DAYS = 2;
+const DEFAULT_WARM_RETENTION_DAYS = 15;
 const OPEN_TASK_PATTERN =
   /(todo|待办|阻塞|deadline|due|follow-up|follow up|未完成|待处理|下一步|next step)/i;
 
@@ -144,7 +151,7 @@ function isDeduplicatedDailyMemoryDocument(document: MemoryContextDocument) {
 
 export function selectEffectiveMemoryDocuments<T extends MemoryContextDocument>(
   documents: T[],
-  options: { now?: string; requireSourceDocument?: boolean } = {},
+  options: { now?: string; requireSourceDocument?: boolean; tierPolicy?: MemoryTierPolicy } = {},
 ): T[] {
   const now = options.now ?? new Date().toISOString();
   const requireSourceDocument = options.requireSourceDocument ?? false;
@@ -167,7 +174,7 @@ export function selectEffectiveMemoryDocuments<T extends MemoryContextDocument>(
       return;
     }
 
-    const tier = resolveMemoryTier(buildDailyTierTimestamp(eventDate), now);
+    const tier = resolveMemoryTier(buildDailyTierTimestamp(eventDate), now, options.tierPolicy);
     const eligible = dateDocuments.filter((document) =>
       Number.isFinite(getEffectiveDailySourcePriority(document.sourceType as EffectiveDailySourceType, tier)),
     );
@@ -281,14 +288,36 @@ export function summarizeMemoryLines(lines: string[], limit = 3) {
   return selected.join(' · ');
 }
 
-export function resolveMemoryTier(updatedAt: string, now = new Date().toISOString()): MemoryTier {
+function normalizeRetentionDays(value: unknown, fallback: number) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+export function normalizeMemoryTierPolicy(policy: MemoryTierPolicy = {}): Required<MemoryTierPolicy> {
+  const hotRetentionDays = normalizeRetentionDays(policy.hotRetentionDays, DEFAULT_HOT_RETENTION_DAYS);
+  const warmRetentionDays = Math.max(
+    hotRetentionDays,
+    normalizeRetentionDays(policy.warmRetentionDays, DEFAULT_WARM_RETENTION_DAYS),
+  );
+
+  return {
+    hotRetentionDays,
+    warmRetentionDays,
+  };
+}
+
+export function resolveMemoryTier(
+  updatedAt: string,
+  now = new Date().toISOString(),
+  policy?: MemoryTierPolicy,
+): MemoryTier {
+  const retention = normalizeMemoryTierPolicy(policy);
   const ageMs = Math.max(0, new Date(now).getTime() - new Date(updatedAt).getTime());
   const ageDays = ageMs / DAY_IN_MS;
 
-  if (ageDays <= 2) {
+  if (ageDays <= retention.hotRetentionDays) {
     return 'hot';
   }
-  if (ageDays <= 15) {
+  if (ageDays <= retention.warmRetentionDays) {
     return 'warm';
   }
   return 'cold';
@@ -472,7 +501,7 @@ export function extractOpenMemoryTasksFromLines(
 
 export function extractOpenMemoryTasks(
   documents: MemoryContextDocument[],
-  options: { now?: string; limit?: number } = {},
+  options: { now?: string; limit?: number; tierPolicy?: MemoryTierPolicy } = {},
 ): string[] {
   const now = options.now ?? new Date().toISOString();
   const limit = options.limit ?? 4;
@@ -480,7 +509,7 @@ export function extractOpenMemoryTasks(
 
   const candidates = documents
     .filter((document) => document.memoryScope !== 'global')
-    .filter((document) => resolveMemoryTier(document.updatedAt, now) !== 'cold')
+    .filter((document) => resolveMemoryTier(document.updatedAt, now, options.tierPolicy) !== 'cold')
     .sort(sortMemoryDocuments);
 
   const tasks: string[] = [];
@@ -499,14 +528,14 @@ export function extractOpenMemoryTasks(
 
 export function formatLayeredMemoryContext(
   documents: MemoryContextDocument[],
-  options: { now?: string; includeRecentMemorySnapshot?: boolean } = {},
+  options: { now?: string; includeRecentMemorySnapshot?: boolean; tierPolicy?: MemoryTierPolicy } = {},
 ): string {
   return buildLayeredMemoryContextSnapshot(documents, options).content;
 }
 
 export function buildLayeredMemoryContextSnapshot(
   documents: MemoryContextDocument[],
-  options: { now?: string; includeRecentMemorySnapshot?: boolean } = {},
+  options: { now?: string; includeRecentMemorySnapshot?: boolean; tierPolicy?: MemoryTierPolicy } = {},
 ): MemoryContextSnapshot {
   if (documents.length === 0) {
     return {
@@ -522,10 +551,18 @@ export function buildLayeredMemoryContextSnapshot(
     .filter((document) => document.sourceType !== 'correction' && document.sourceType !== 'reflection')
     .sort(sortMemoryDocuments);
   const tieredDocs = documents.filter((document) => document.memoryScope !== 'global');
-  const hotDocs = tieredDocs.filter((document) => resolveMemoryTier(document.updatedAt, now) === 'hot').sort(sortMemoryDocuments);
-  const warmDocs = tieredDocs.filter((document) => resolveMemoryTier(document.updatedAt, now) === 'warm').sort(sortMemoryDocuments);
-  const coldDocs = tieredDocs.filter((document) => resolveMemoryTier(document.updatedAt, now) === 'cold').sort(sortMemoryDocuments);
-  const openTasks = includeRecentMemorySnapshot ? extractOpenMemoryTasks(documents, { now }) : [];
+  const hotDocs = tieredDocs
+    .filter((document) => resolveMemoryTier(document.updatedAt, now, options.tierPolicy) === 'hot')
+    .sort(sortMemoryDocuments);
+  const warmDocs = tieredDocs
+    .filter((document) => resolveMemoryTier(document.updatedAt, now, options.tierPolicy) === 'warm')
+    .sort(sortMemoryDocuments);
+  const coldDocs = tieredDocs
+    .filter((document) => resolveMemoryTier(document.updatedAt, now, options.tierPolicy) === 'cold')
+    .sort(sortMemoryDocuments);
+  const openTasks = includeRecentMemorySnapshot
+    ? extractOpenMemoryTasks(documents, { now, tierPolicy: options.tierPolicy })
+    : [];
   const recentSnapshotDocs = includeRecentMemorySnapshot ? [...hotDocs.slice(0, 3), ...warmDocs.slice(0, 2)] : [];
 
   const sections: MemoryContextSectionSnapshot[] = [];

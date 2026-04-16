@@ -33,6 +33,8 @@
   },
   "memory": {
     "sessionSummaryMode": "deterministic",
+    "hotRetentionDays": 2,
+    "warmRetentionDays": 15,
     "promotionScoreThreshold": 4,
     "scoringWeights": {
       "compression": 0.8,

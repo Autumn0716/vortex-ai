@@ -8,6 +8,7 @@ import {
 } from '../src/lib/agent-memory-sync';
 import type { AgentConfig } from '../src/lib/agent/config';
 import type { MemoryImportanceAssessment } from '../src/lib/agent-memory-lifecycle';
+import type { MemoryTierPolicy } from '../src/lib/agent-memory-model';
 import { readProjectConfig } from './config-store';
 import { walkDirectory } from './lib/fs-utils';
 import { scoreMemoryImportanceWithModel } from './memory-importance-scorer';
@@ -60,6 +61,7 @@ export interface NightlyMemoryArchiveSchedulerOptions {
     agentSlug: string;
     fileStore: AgentMemoryFileStore;
     now: string;
+    lifecyclePolicy?: MemoryTierPolicy;
     scoreImportance?: (input: {
       date: string;
       tier: 'warm' | 'cold';
@@ -366,6 +368,7 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
       agentSlug: string;
       fileStore: AgentMemoryFileStore;
       now: string;
+      lifecyclePolicy?: MemoryTierPolicy;
       scoreImportance?: (input: {
         date: string;
         tier: 'warm' | 'cold';
@@ -377,6 +380,7 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
         agentSlug: input.agentSlug,
         fileStore: input.fileStore,
         now: input.now,
+        lifecyclePolicy: input.lifecyclePolicy,
         scoreImportance: input.scoreImportance,
       }));
 
@@ -427,7 +431,20 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
     let ruleFallbackCount = 0;
     let promotedCount = 0;
     const settings = await readNightlyArchiveSettings(rootDir);
-    const projectConfig = settings.useLlmScoring ? await readProjectConfig(rootDir) : null;
+    const projectConfig = await readProjectConfig(rootDir).catch((error) => {
+      logger.warn(
+        `Nightly archive could not read project config; using default memory lifecycle windows. ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    });
+    const lifecyclePolicy = projectConfig
+      ? {
+          hotRetentionDays: projectConfig.memory.hotRetentionDays,
+          warmRetentionDays: projectConfig.memory.warmRetentionDays,
+        }
+      : undefined;
 
     for (const agentSlug of agentSlugs) {
       try {
@@ -435,6 +452,7 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
           agentSlug,
           fileStore,
           now: runStartedAt,
+          lifecyclePolicy,
           scoreImportance:
             settings.useLlmScoring && projectConfig
               ? (input) =>

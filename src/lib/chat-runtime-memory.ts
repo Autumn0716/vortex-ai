@@ -19,6 +19,10 @@ export function buildAgentMemoryContextRequest(
       includeSessionMemory: configSnapshot.memory.enableSessionMemory,
       includeAgentSharedShortTerm:
         workspaceSnapshot.runtime.enableAgentSharedShortTerm || configSnapshot.memory.enableAgentSharedShortTerm,
+      tierPolicy: {
+        hotRetentionDays: configSnapshot.memory.hotRetentionDays,
+        warmRetentionDays: configSnapshot.memory.warmRetentionDays,
+      },
     },
   };
 }

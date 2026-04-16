@@ -51,6 +51,32 @@ test('resolveMemoryTier applies hot warm cold windows', () => {
   assert.equal(resolveMemoryTier('2026-03-01T12:00:00.000Z', now), 'cold');
 });
 
+test('resolveMemoryTier accepts configurable hot warm windows', () => {
+  const now = '2026-04-01T12:00:00.000Z';
+
+  assert.equal(
+    resolveMemoryTier('2026-03-28T12:00:00.000Z', now, {
+      hotRetentionDays: 5,
+      warmRetentionDays: 30,
+    }),
+    'hot',
+  );
+  assert.equal(
+    resolveMemoryTier('2026-03-10T12:00:00.000Z', now, {
+      hotRetentionDays: 5,
+      warmRetentionDays: 30,
+    }),
+    'warm',
+  );
+  assert.equal(
+    resolveMemoryTier('2026-02-20T12:00:00.000Z', now, {
+      hotRetentionDays: 5,
+      warmRetentionDays: 30,
+    }),
+    'cold',
+  );
+});
+
 test('shouldPromoteMemory catches explicit long-term memory cues', () => {
   assert.equal(shouldPromoteMemory('记住：我默认使用中文输出，并优先给出可执行步骤。', 'user'), true);
   assert.equal(shouldPromoteMemory('Thanks, that answers it.', 'user'), false);
@@ -399,6 +425,14 @@ test('resolveLifecycleTier maps dates into hot warm cold windows', () => {
   assert.equal(resolveLifecycleTier('2026-04-19', now), 'hot');
   assert.equal(resolveLifecycleTier('2026-04-10', now), 'warm');
   assert.equal(resolveLifecycleTier('2026-03-01', now), 'cold');
+});
+
+test('resolveLifecycleTier applies configurable memory lifecycle windows', () => {
+  const now = '2026-04-20T12:00:00.000Z';
+
+  assert.equal(resolveLifecycleTier('2026-04-15', now, { hotRetentionDays: 7, warmRetentionDays: 30 }), 'hot');
+  assert.equal(resolveLifecycleTier('2026-03-25', now, { hotRetentionDays: 7, warmRetentionDays: 30 }), 'warm');
+  assert.equal(resolveLifecycleTier('2026-03-01', now, { hotRetentionDays: 7, warmRetentionDays: 30 }), 'cold');
 });
 
 test('buildWarmMemorySurrogate includes summary key fragments open loops and keywords', () => {

@@ -65,6 +65,28 @@ test('normalizeAgentConfig preserves the recent memory snapshot toggle', () => {
   assert.equal(config.memory.scoringWeights.goldenLabel, 1.2);
 });
 
+test('normalizeAgentConfig preserves configurable memory lifecycle windows', () => {
+  const config = normalizeAgentConfig({
+    memory: {
+      hotRetentionDays: 5,
+      warmRetentionDays: 30,
+    },
+  } as Partial<AgentConfig>);
+
+  assert.equal(config.memory.hotRetentionDays, 5);
+  assert.equal(config.memory.warmRetentionDays, 30);
+
+  const clamped = normalizeAgentConfig({
+    memory: {
+      hotRetentionDays: 20,
+      warmRetentionDays: 10,
+    },
+  } as Partial<AgentConfig>);
+
+  assert.equal(clamped.memory.hotRetentionDays, 20);
+  assert.equal(clamped.memory.warmRetentionDays, 20);
+});
+
 test('normalizeAgentConfig preserves the session summary mode', () => {
   const config = normalizeAgentConfig({
     memory: {

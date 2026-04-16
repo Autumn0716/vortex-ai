@@ -10,6 +10,7 @@ import {
   scoreMemoryImportance,
   summarizeMemoryLines,
   resolveMemoryTier,
+  type MemoryTierPolicy,
 } from './agent-memory-model';
 
 export type MemoryLifecycleTier = 'hot' | 'warm' | 'cold';
@@ -168,9 +169,13 @@ function buildIndexLines(sourceLines: string[], date: string) {
   return sourceLines.slice(0, 4).map((line, index) => `${date}#${index + 1}: ${line.slice(0, 96)}`);
 }
 
-export function resolveLifecycleTier(date: string, now = new Date().toISOString()): MemoryLifecycleTier {
+export function resolveLifecycleTier(
+  date: string,
+  now = new Date().toISOString(),
+  policy?: MemoryTierPolicy,
+): MemoryLifecycleTier {
   const endOfDateIso = `${date}T23:59:59.999Z`;
-  return resolveMemoryTier(endOfDateIso, now);
+  return resolveMemoryTier(endOfDateIso, now, policy);
 }
 
 export function buildWarmMemorySurrogate(input: {

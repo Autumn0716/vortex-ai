@@ -18,6 +18,7 @@ import {
 import {
   scoreMemoryImportance,
   selectEffectiveMemoryDocuments,
+  type MemoryTierPolicy,
   type MemoryScope,
   type MemorySourceType,
 } from './agent-memory-model';
@@ -299,6 +300,7 @@ function buildDerivedDocuments(input: {
   reflectionsMarkdown: string | null;
   dailyFiles: Array<{ path: string; markdown: string }>;
   now: string;
+  lifecyclePolicy?: MemoryTierPolicy;
 }) {
   const documents: DerivedMemoryDocument[] = [];
   const today = input.now.slice(0, 10);
@@ -378,6 +380,7 @@ function buildDerivedDocuments(input: {
   return selectEffectiveMemoryDocuments(documents, {
     now: input.now,
     requireSourceDocument: true,
+    tierPolicy: input.lifecyclePolicy,
   });
 }
 
@@ -736,6 +739,7 @@ export async function syncAgentMemoryFromStore(
     fileStore: AgentMemoryFileStore;
     now?: string;
     embeddingConfig?: EmbeddingProviderConfig | null;
+    lifecyclePolicy?: MemoryTierPolicy;
   },
 ) {
   const now = input.now ?? new Date().toISOString();
@@ -763,6 +767,7 @@ export async function syncAgentMemoryFromStore(
     reflectionsMarkdown,
     dailyFiles,
     now,
+    lifecyclePolicy: input.lifecyclePolicy,
   });
   const upserted = upsertDerivedDocuments(database, input.agentId, documents);
   const deleted = deleteStaleDerivedDocuments(
@@ -788,6 +793,7 @@ export async function syncAgentMemoryLifecycleFromStore(input: {
   agentSlug: string;
   fileStore: AgentMemoryFileStore;
   now?: string;
+  lifecyclePolicy?: MemoryTierPolicy;
   scoreImportance?: (input: {
     date: string;
     tier: 'warm' | 'cold';
@@ -827,7 +833,7 @@ export async function syncAgentMemoryLifecycleFromStore(input: {
         continue;
       }
 
-      const tier = resolveLifecycleTier(date, now);
+      const tier = resolveLifecycleTier(date, now, input.lifecyclePolicy);
       const dailyPaths = buildAgentMemoryPaths(input.agentSlug, date);
 
       if (tier === 'warm') {

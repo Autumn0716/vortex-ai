@@ -713,9 +713,17 @@ export async function syncAgentMemoryLifecycleForAgent(
     throw new Error('The local API server is disabled.');
   }
 
+  const config = await getProjectConfig(settings).catch(() => null);
+
   return syncAgentMemoryLifecycleFromStore({
     agentSlug,
     fileStore,
     now,
+    lifecyclePolicy: config
+      ? {
+          hotRetentionDays: config.memory.hotRetentionDays,
+          warmRetentionDays: config.memory.warmRetentionDays,
+        }
+      : undefined,
   });
 }

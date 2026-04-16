@@ -35,6 +35,7 @@ import {
   buildPromotionFingerprint,
   scoreMemoryImportance,
   selectEffectiveMemoryDocuments,
+  type MemoryTierPolicy,
   shouldPromoteMemory,
   type MemoryScope,
   type MemorySourceType,
@@ -165,11 +166,18 @@ export async function syncCurrentAgentMemory(options?: {
 
   let result = null;
   try {
+    const config = await getAgentConfig().catch(() => null);
     result = await syncAgentMemoryFromStore(database, {
       agentId: agent.id,
       agentSlug: agent.slug,
       fileStore,
       now: options?.now,
+      lifecyclePolicy: config
+        ? {
+            hotRetentionDays: config.memory.hotRetentionDays,
+            warmRetentionDays: config.memory.warmRetentionDays,
+          }
+        : undefined,
     });
   } catch (error) {
     if (options?.strict) {
@@ -2096,6 +2104,7 @@ export async function searchMemories(
     topicId?: string;
     includeSessionMemory?: boolean;
     includeAgentSharedShortTerm?: boolean;
+    tierPolicy?: MemoryTierPolicy;
   },
 ): Promise<AgentMemorySearchResult[]> {
   const now = options?.now ?? new Date().toISOString();
@@ -2120,17 +2129,17 @@ export async function searchMemories(
       }
       return false;
     }),
-    { now },
+    { now, tierPolicy: options?.tierPolicy },
   );
 
   const normalizedQuery = options?.query?.trim();
   if (!normalizedQuery) {
-    return toMemorySearchResults(documents, 'preferred', now);
+    return toMemorySearchResults(documents, 'preferred', now, undefined, options?.tierPolicy);
   }
 
   const route = routeMemoryQuery(normalizedQuery, { now });
-  const preferredDocuments = selectMemoryDocumentsByLayers(documents, route.preferredLayers, now);
-  const preferredResults = toMemorySearchResults(preferredDocuments, 'preferred', now, normalizedQuery);
+  const preferredDocuments = selectMemoryDocumentsByLayers(documents, route.preferredLayers, now, options?.tierPolicy);
+  const preferredResults = toMemorySearchResults(preferredDocuments, 'preferred', now, normalizedQuery, options?.tierPolicy);
   const preferredGlobalDocuments = preferredDocuments.filter((document) => document.memoryScope === 'global');
 
   if (route.mode === 'explicit_cold') {
@@ -2141,12 +2150,19 @@ export async function searchMemories(
       normalizedQuery,
       now,
       options?.embeddingConfig,
+      options?.tierPolicy,
     );
-    const semanticColdResults = toMemorySearchResults(semanticColdDocuments, 'semantic_cold', now, normalizedQuery);
+    const semanticColdResults = toMemorySearchResults(
+      semanticColdDocuments,
+      'semantic_cold',
+      now,
+      normalizedQuery,
+      options?.tierPolicy,
+    );
 
     return semanticColdResults.length > 0
       ? mergeDistinctMemorySearchResults(
-          toMemorySearchResults(preferredGlobalDocuments, 'preferred', now, normalizedQuery),
+          toMemorySearchResults(preferredGlobalDocuments, 'preferred', now, normalizedQuery, options?.tierPolicy),
           semanticColdResults,
         )
       : preferredResults;
@@ -2163,17 +2179,24 @@ export async function searchMemories(
     normalizedQuery,
     now,
     options?.embeddingConfig,
+    options?.tierPolicy,
   );
-  const semanticColdResults = toMemorySearchResults(semanticColdDocuments, 'semantic_cold', now, normalizedQuery);
+  const semanticColdResults = toMemorySearchResults(
+    semanticColdDocuments,
+    'semantic_cold',
+    now,
+    normalizedQuery,
+    options?.tierPolicy,
+  );
 
   if (semanticColdResults.length > 0) {
     return mergeDistinctMemorySearchResults(preferredResults, semanticColdResults);
   }
 
-  const fallbackDocuments = selectMemoryDocumentsByLayers(documents, route.fallbackLayers, now);
+  const fallbackDocuments = selectMemoryDocumentsByLayers(documents, route.fallbackLayers, now, options?.tierPolicy);
   return mergeDistinctMemorySearchResults(
     preferredResults,
-    toMemorySearchResults(fallbackDocuments, 'fallback', now, normalizedQuery),
+    toMemorySearchResults(fallbackDocuments, 'fallback', now, normalizedQuery, options?.tierPolicy),
   );
 }
 
@@ -2187,6 +2210,7 @@ export async function getAgentMemoryContext(
     topicId?: string;
     includeSessionMemory?: boolean;
     includeAgentSharedShortTerm?: boolean;
+    tierPolicy?: MemoryTierPolicy;
   },
 ): Promise<string> {
   return (await getAgentMemoryContextSnapshot(agentId, options)).content;
@@ -2202,6 +2226,7 @@ export async function getAgentMemoryContextSnapshot(
     topicId?: string;
     includeSessionMemory?: boolean;
     includeAgentSharedShortTerm?: boolean;
+    tierPolicy?: MemoryTierPolicy;
   },
 ): Promise<ReturnType<typeof buildLayeredMemoryContextSnapshot>> {
   const now = options?.now ?? new Date().toISOString();
@@ -2210,6 +2235,7 @@ export async function getAgentMemoryContextSnapshot(
   return buildLayeredMemoryContextSnapshot(routedDocuments, {
     includeRecentMemorySnapshot: options?.includeRecentMemorySnapshot,
     now,
+    tierPolicy: options?.tierPolicy,
   });
 }
 

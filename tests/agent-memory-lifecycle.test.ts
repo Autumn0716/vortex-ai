@@ -47,7 +47,9 @@ async function startServer(rootDir: string) {
 }
 
 after(async () => {
-  await Promise.all(tempRoots.map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(
+    tempRoots.map((root) => rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })),
+  );
 });
 
 class InMemoryFileStore implements AgentMemoryFileStore {
@@ -131,6 +133,30 @@ test('syncAgentMemoryLifecycleFromStore creates warm and cold surrogates from so
   });
   assert.match((await fileStore.readText('memory/agents/core/daily/2026-04-10.warm.md')) ?? '', /tier: "warm"/);
   assert.match((await fileStore.readText('memory/agents/core/daily/2026-03-01.cold.md')) ?? '', /tier: "cold"/);
+});
+
+test('syncAgentMemoryLifecycleFromStore uses configurable lifecycle windows', async () => {
+  const fileStore = new InMemoryFileStore(
+    new Map([
+      ['memory/agents/core/daily/2026-04-14.md', '- TODO 仍处于自定义热层'],
+      ['memory/agents/core/daily/2026-03-25.md', '- TODO 仍处于自定义温层'],
+    ]),
+  );
+
+  const result = await syncAgentMemoryLifecycleFromStore({
+    agentSlug: 'core',
+    fileStore,
+    now: '2026-04-20T12:00:00.000Z',
+    lifecyclePolicy: {
+      hotRetentionDays: 7,
+      warmRetentionDays: 30,
+    },
+  });
+
+  assert.equal(result.warmUpdated, 1);
+  assert.equal(result.coldUpdated, 0);
+  assert.equal(await fileStore.readText('memory/agents/core/daily/2026-04-14.warm.md'), null);
+  assert.match((await fileStore.readText('memory/agents/core/daily/2026-03-25.warm.md')) ?? '', /tier: "warm"/);
 });
 
 test('syncAgentMemoryLifecycleFromStore falls back to rules when scoring callback fails', async () => {

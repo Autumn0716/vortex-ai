@@ -5,7 +5,7 @@ import { createEmbeddings, type EmbeddingProviderConfig } from './embedding-clie
 import { routeMemoryQuery, type MemoryRetrievalLayer } from './memory-lifecycle/query-router';
 import { cosineSimilarity } from './vector-search-model';
 import { mapRows } from './agent-workspace-queries';
-import { resolveMemoryTier } from './agent-memory-model';
+import { resolveMemoryTier, type MemoryTierPolicy } from './agent-memory-model';
 import type {
   AgentMemoryDocument,
   AgentMemorySearchResult,
@@ -16,21 +16,23 @@ const MAX_COLD_MEMORY_VECTOR_HITS = 3;
 export function getMemoryDocumentLayer(
   document: Pick<AgentMemoryDocument, 'memoryScope' | 'updatedAt'>,
   now: string,
+  tierPolicy?: MemoryTierPolicy,
 ): MemoryRetrievalLayer {
   if (document.memoryScope === 'global') {
     return 'global';
   }
 
-  return resolveMemoryTier(document.updatedAt, now);
+  return resolveMemoryTier(document.updatedAt, now, tierPolicy);
 }
 
 export function selectMemoryDocumentsByLayers(
   documents: AgentMemoryDocument[],
   layers: MemoryRetrievalLayer[],
   now: string,
+  tierPolicy?: MemoryTierPolicy,
 ) {
   const allowedLayers = new Set(layers);
-  return documents.filter((document) => allowedLayers.has(getMemoryDocumentLayer(document, now)));
+  return documents.filter((document) => allowedLayers.has(getMemoryDocumentLayer(document, now, tierPolicy)));
 }
 
 export function countNonGlobalMemoryDocuments(documents: AgentMemoryDocument[]) {
@@ -77,11 +79,12 @@ export function toMemorySearchResults(
   stage: AgentMemorySearchResult['retrievalStage'],
   now: string,
   query?: string,
+  tierPolicy?: MemoryTierPolicy,
 ): AgentMemorySearchResult[] {
   return documents
     .map((document) => ({
       ...document,
-      layer: getMemoryDocumentLayer(document, now),
+      layer: getMemoryDocumentLayer(document, now, tierPolicy),
       retrievalStage: stage,
       score: scoreMemorySearchResult(document, query),
     }))
@@ -104,8 +107,9 @@ export async function searchColdMemoryVectorDocuments(
   query: string,
   now: string,
   embeddingConfig?: EmbeddingProviderConfig | null,
+  tierPolicy?: MemoryTierPolicy,
 ) {
-  const coldDocuments = documents.filter((document) => getMemoryDocumentLayer(document, now) === 'cold');
+  const coldDocuments = documents.filter((document) => getMemoryDocumentLayer(document, now, tierPolicy) === 'cold');
   if (coldDocuments.length === 0) {
     return [];
   }

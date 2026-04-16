@@ -94,6 +94,8 @@ export interface MemorySettings {
   enableAgentLongTerm: boolean;
   includeGlobalMemory: boolean;
   includeRecentMemorySnapshot: boolean;
+  hotRetentionDays: number;
+  warmRetentionDays: number;
   promotionScoreThreshold: number;
   scoringWeights: {
     compression: number;
@@ -387,6 +389,8 @@ export const DEFAULT_CONFIG: AgentConfig = {
     enableAgentLongTerm: true,
     includeGlobalMemory: true,
     includeRecentMemorySnapshot: true,
+    hotRetentionDays: 2,
+    warmRetentionDays: 15,
     promotionScoreThreshold: 4,
     scoringWeights: {
       compression: 0.8,
@@ -700,6 +704,31 @@ function normalizeSearchWeights(value?: Partial<SearchWeights> | null): SearchWe
   };
 }
 
+function normalizeRetentionDays(value: unknown, fallback: number) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : fallback;
+}
+
+function normalizeMemorySettings(value?: Partial<MemorySettings>): MemorySettings {
+  const hotRetentionDays = normalizeRetentionDays(value?.hotRetentionDays, DEFAULT_CONFIG.memory.hotRetentionDays);
+  const warmRetentionDays = Math.max(
+    hotRetentionDays,
+    normalizeRetentionDays(value?.warmRetentionDays, DEFAULT_CONFIG.memory.warmRetentionDays),
+  );
+
+  return {
+    ...DEFAULT_CONFIG.memory,
+    ...(value ?? {}),
+    hotRetentionDays,
+    warmRetentionDays,
+    sessionSummaryMode: value?.sessionSummaryMode === 'llm' ? 'llm' : DEFAULT_CONFIG.memory.sessionSummaryMode,
+    scoringWeights: {
+      ...DEFAULT_CONFIG.memory.scoringWeights,
+      ...(value?.scoringWeights ?? {}),
+    },
+  };
+}
+
 function normalizeMcpServers(rawServers?: Partial<McpServerConfig>[]): McpServerConfig[] {
   if (!rawServers?.length) {
     return DEFAULT_MCP_SERVERS;
@@ -777,16 +806,7 @@ export function normalizeAgentConfig(value?: Partial<AgentConfig> | null): Agent
       weights: normalizeSearchWeights(value?.search?.weights),
       providers: normalizeSearchProviders(value?.search?.providers),
     },
-    memory: {
-      ...DEFAULT_CONFIG.memory,
-      ...(value?.memory ?? {}),
-      sessionSummaryMode:
-        value?.memory?.sessionSummaryMode === 'llm' ? 'llm' : DEFAULT_CONFIG.memory.sessionSummaryMode,
-      scoringWeights: {
-        ...DEFAULT_CONFIG.memory.scoringWeights,
-        ...(value?.memory?.scoringWeights ?? {}),
-      },
-    },
+    memory: normalizeMemorySettings(value?.memory),
     sandbox: {
       ...DEFAULT_CONFIG.sandbox,
       ...(value?.sandbox ?? {}),
