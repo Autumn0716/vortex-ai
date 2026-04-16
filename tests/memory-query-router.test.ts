@@ -124,6 +124,22 @@ test('routeMemoryQuery keeps exactly 15-day-old explicit dates on the default pa
   assert.equal(result.matchedTimeExpression, '2026-04-05');
 });
 
+test('routeMemoryQuery follows configurable explicit cold window', () => {
+  const defaultRoute = routeMemoryQuery('2026-03-25 那天的结论是什么？', {
+    now: '2026-04-20T12:00:00.000Z',
+    explicitColdAfterDays: 30,
+  });
+  const customColdRoute = routeMemoryQuery('2026-03-25 那天的结论是什么？', {
+    now: '2026-04-20T12:00:00.000Z',
+    explicitColdAfterDays: 20,
+  });
+
+  assert.equal(defaultRoute.mode, 'default');
+  assert.deepEqual(defaultRoute.preferredLayers, ['hot', 'warm', 'global']);
+  assert.equal(customColdRoute.mode, 'explicit_cold');
+  assert.deepEqual(customColdRoute.preferredLayers, ['cold', 'global']);
+});
+
 test('routeMemoryQuery keeps vague time references on the default path', () => {
   const result = routeMemoryQuery('之前那天说的那个方案是什么？', {
     now: '2026-04-20T12:00:00.000Z',

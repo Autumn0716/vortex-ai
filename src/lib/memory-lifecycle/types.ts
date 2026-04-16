@@ -48,4 +48,5 @@ export interface MemoryQueryRoute {
 
 export interface MemoryQueryRouterOptions {
   now?: string;
+  explicitColdAfterDays?: number;
 }

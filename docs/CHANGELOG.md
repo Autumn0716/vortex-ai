@@ -31,7 +31,7 @@
 - Added a local Express-based memory API server plus frontend file-store registration so FlowAgent can read and write `memory/agents/<agent-slug>/...` directly from the Settings UI.
 - Switched the Settings memory page from legacy global-memory document editing to raw Markdown file editing while preserving the existing theme shell.
 - Added warm/cold lifecycle surrogate sync so `daily/*.warm.md` and `daily/*.cold.md` can be generated deterministically while SQLite only indexes the effective representation for each day.
-- Added configurable memory lifecycle windows in project `config.json`, letting hot/warm retention days drive runtime memory routing, derived memory indexing, and nightly warm/cold archive sync instead of fixed hard-coded `2/15` day windows.
+- Added configurable memory lifecycle windows in project `config.json`, letting hot/warm retention days drive runtime memory routing, explicit-date cold routing, derived memory indexing, and nightly warm/cold archive sync instead of fixed hard-coded `2/15` day windows.
 - Added a manual `同步温冷层` control in Settings so users can regenerate lifecycle surrogates, refresh derived memory rows, and inspect `SOURCE / WARM / COLD` files without leaving the existing theme shell.
 - Added a first-pass query-aware memory router so explicit old-time questions now go straight to `cold + global`, while ordinary questions search `hot + warm + global` first and only fall back to cold memory when recent layers are thin.
 - Added a dedicated `agent_memory_embeddings` table plus cold-memory embedding sync so effective `cold.md` surrogates now produce rebuildable semantic vectors without reusing the knowledge-base document tables.

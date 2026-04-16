@@ -23,9 +23,13 @@ function buildUtcDate(year: number, month: number, day: number): Date | null {
   return date;
 }
 
-function isOlderThan15Days(referenceDate: Date, now: Date): boolean {
+function normalizeExplicitColdAfterDays(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 15;
+}
+
+function isOlderThanRetentionWindow(referenceDate: Date, now: Date, retentionDays: number): boolean {
   const ageDays = (startOfUtcDay(now).getTime() - startOfUtcDay(referenceDate).getTime()) / DAY_MS;
-  return ageDays > 15;
+  return ageDays > retentionDays;
 }
 
 function parseIsoDateExpression(query: string): { matchedTimeExpression: string; referenceDate: Date } | null {
@@ -159,9 +163,13 @@ export function routeMemoryQuery(
   options: MemoryQueryRouterOptions = {},
 ): MemoryQueryRoute {
   const now = options.now ? new Date(options.now) : new Date();
+  const explicitColdAfterDays = normalizeExplicitColdAfterDays(options.explicitColdAfterDays);
   const explicitReference = parseExplicitPastReference(query.trim(), now);
 
-  if (explicitReference && isOlderThan15Days(explicitReference.referenceDate, now)) {
+  if (
+    explicitReference &&
+    isOlderThanRetentionWindow(explicitReference.referenceDate, now, explicitColdAfterDays)
+  ) {
     return {
       mode: 'explicit_cold',
       preferredLayers: ['cold', 'global'],

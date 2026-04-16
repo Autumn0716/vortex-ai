@@ -2137,7 +2137,10 @@ export async function searchMemories(
     return toMemorySearchResults(documents, 'preferred', now, undefined, options?.tierPolicy);
   }
 
-  const route = routeMemoryQuery(normalizedQuery, { now });
+  const route = routeMemoryQuery(normalizedQuery, {
+    now,
+    explicitColdAfterDays: options?.tierPolicy?.warmRetentionDays,
+  });
   const preferredDocuments = selectMemoryDocumentsByLayers(documents, route.preferredLayers, now, options?.tierPolicy);
   const preferredResults = toMemorySearchResults(preferredDocuments, 'preferred', now, normalizedQuery, options?.tierPolicy);
   const preferredGlobalDocuments = preferredDocuments.filter((document) => document.memoryScope === 'global');
