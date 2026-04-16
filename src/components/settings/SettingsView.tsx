@@ -102,6 +102,7 @@ import {
 import type { SessionContextTokenBreakdown } from '../../lib/session-context-budget';
 import { describeChangedFields } from '../../lib/audit-log-changes';
 import { AuditLogPanel } from './AuditLogPanel';
+import { MemoryTimelinePanel } from './MemoryTimelinePanel';
 import { UsagePanel } from './UsagePanel';
 
 const CATEGORIES = [
@@ -3277,6 +3278,12 @@ export const SettingsView = ({
                 ) : null}
               </div>
             </SectionCard>
+
+            <MemoryTimelinePanel
+              agentId={activeMemoryAgent?.id}
+              agentName={activeMemoryAgent?.name}
+              documents={activeMemoryDocuments}
+            />
 
             <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
               <SectionCard
