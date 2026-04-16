@@ -12,7 +12,7 @@ import {
   readStoredModelMetadata,
   writeStoredModelMetadata,
 } from './model-metadata-store';
-import { createNightlyMemoryArchiveScheduler } from './nightly-memory-archive';
+import { createNightlyMemoryArchiveScheduler, formatNightlyArchiveSchedule } from './nightly-memory-archive';
 import {
   createProjectKnowledgeWatcher,
   readProjectKnowledgeSnapshot,
@@ -147,6 +147,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       nightlyArchive: {
         enabled: nightlyArchive.settings.enabled,
         time: nightlyArchive.settings.time,
+        cronExpression: nightlyArchive.settings.cronExpression,
         useLlmScoring: nightlyArchive.settings.useLlmScoring,
         running: nightlyArchive.running,
         nextRunAt: nightlyArchive.nextRunAt,
@@ -284,6 +285,10 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       const nextSettings = await nightlyArchiveScheduler.updateSettings({
         enabled: typeof request.body?.enabled === 'boolean' ? request.body.enabled : undefined,
         time: typeof request.body?.time === 'string' ? request.body.time : undefined,
+        cronExpression:
+          typeof request.body?.cronExpression === 'string' || request.body?.cronExpression === null
+            ? request.body.cronExpression
+            : undefined,
         useLlmScoring:
           typeof request.body?.useLlmScoring === 'boolean' ? request.body.useLlmScoring : undefined,
       });
@@ -321,7 +326,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
             title: '记忆归档',
             description: '同步温冷层、执行长期记忆晋升，并可选调用 LLM 重要性评分。',
             enabled: nightlyArchive.settings.enabled,
-            schedule: `每天 ${nightlyArchive.settings.time}`,
+            schedule: formatNightlyArchiveSchedule(nightlyArchive.settings),
             running: nightlyArchive.running,
             nextRunAt: nightlyArchive.nextRunAt,
             lastRunSummary: nightlyArchive.state.lastRunSummary,

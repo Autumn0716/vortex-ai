@@ -16,6 +16,7 @@ import { syncPromotedMemoryFromSurrogates, type MemoryPromotionSyncResult } from
 export interface NightlyArchiveSettings {
   enabled: boolean;
   time: string;
+  cronExpression: string | null;
   useLlmScoring: boolean;
 }
 
@@ -83,6 +84,7 @@ export interface NightlyMemoryArchiveSchedulerOptions {
 const DEFAULT_NIGHTLY_ARCHIVE_SETTINGS: NightlyArchiveSettings = {
   enabled: false,
   time: '03:00',
+  cronExpression: null,
   useLlmScoring: false,
 };
 
@@ -125,10 +127,37 @@ export function validateNightlyArchiveTime(value: string) {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
+export function validateNightlyArchiveCronExpression(value: string) {
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  const match = normalized.match(/^(\d{1,2}) (\d{1,2}) \* \* \*$/);
+  if (!match) {
+    throw new Error('Nightly archive cron must use "minute hour * * *".');
+  }
+
+  const minutes = Number(match[1]);
+  const hours = Number(match[2]);
+  if (!Number.isInteger(hours) || hours < 0 || hours > 23 || !Number.isInteger(minutes) || minutes < 0 || minutes > 59) {
+    throw new Error('Nightly archive cron time is out of range.');
+  }
+
+  return `${minutes} ${hours} * * *`;
+}
+
+export function normalizeNightlyArchiveCronExpression(value?: string | null) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  if (!value.trim()) {
+    return null;
+  }
+  return validateNightlyArchiveCronExpression(value);
+}
+
 export function normalizeNightlyArchiveSettings(value?: Partial<NightlyArchiveSettings> | null): NightlyArchiveSettings {
   return {
     enabled: value?.enabled ?? DEFAULT_NIGHTLY_ARCHIVE_SETTINGS.enabled,
     time: validateNightlyArchiveTime(value?.time ?? DEFAULT_NIGHTLY_ARCHIVE_SETTINGS.time),
+    cronExpression: normalizeNightlyArchiveCronExpression(value?.cronExpression),
     useLlmScoring: value?.useLlmScoring ?? DEFAULT_NIGHTLY_ARCHIVE_SETTINGS.useLlmScoring,
   };
 }
@@ -148,6 +177,18 @@ function parseTimeParts(scheduleTime: string) {
     hours: Number(hoursText),
     minutes: Number(minutesText),
   };
+}
+
+export function resolveNightlyArchiveScheduleTime(settings: Pick<NightlyArchiveSettings, 'time' | 'cronExpression'>) {
+  if (settings.cronExpression) {
+    const [minutesText, hoursText] = validateNightlyArchiveCronExpression(settings.cronExpression).split(' ');
+    return `${String(Number(hoursText)).padStart(2, '0')}:${String(Number(minutesText)).padStart(2, '0')}`;
+  }
+  return validateNightlyArchiveTime(settings.time);
+}
+
+export function formatNightlyArchiveSchedule(settings: Pick<NightlyArchiveSettings, 'time' | 'cronExpression'>) {
+  return settings.cronExpression ? `cron ${settings.cronExpression}` : `每天 ${settings.time}`;
 }
 
 function buildScheduledLocalDate(baseDate: Date, scheduleTime: string) {
@@ -352,14 +393,15 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
     const settings = await readNightlyArchiveSettings(rootDir);
     const state = await readNightlyArchiveState(rootDir);
     const currentNow = resolveNowDate();
+    const scheduleTime = resolveNightlyArchiveScheduleTime(settings);
     return {
       settings,
       state,
-      nextRunAt: settings.enabled ? resolveNextNightlyRunAt({ now: currentNow, scheduleTime: settings.time }) : null,
+      nextRunAt: settings.enabled ? resolveNextNightlyRunAt({ now: currentNow, scheduleTime }) : null,
       catchUpDue: settings.enabled
         ? shouldRunNightlyCatchup({
             now: currentNow,
-            scheduleTime: settings.time,
+            scheduleTime,
             lastAttemptedRunAt: state.lastAttemptedRunAt,
             lastSuccessfulRunAt: state.lastSuccessfulRunAt,
           })
@@ -463,7 +505,7 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
     }
 
     const currentNow = resolveNowDate();
-    const nextRunAt = new Date(resolveNextNightlyRunAt({ now: currentNow, scheduleTime: settings.time }));
+    const nextRunAt = new Date(resolveNextNightlyRunAt({ now: currentNow, scheduleTime: resolveNightlyArchiveScheduleTime(settings) }));
     const delay = Math.max(1000, nextRunAt.getTime() - currentNow.getTime());
     timer = setTimer(async () => {
       try {
@@ -487,10 +529,11 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
       started = true;
       const settings = await readNightlyArchiveSettings(rootDir);
       const state = await readNightlyArchiveState(rootDir);
+      const scheduleTime = resolveNightlyArchiveScheduleTime(settings);
 
       if (settings.enabled && shouldRunNightlyCatchup({
         now: resolveNowDate(),
-        scheduleTime: settings.time,
+        scheduleTime,
         lastAttemptedRunAt: state.lastAttemptedRunAt,
         lastSuccessfulRunAt: state.lastSuccessfulRunAt,
       })) {
@@ -522,7 +565,7 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
 
       if (next.enabled && shouldRunNightlyCatchup({
         now: resolveNowDate(),
-        scheduleTime: next.time,
+        scheduleTime: resolveNightlyArchiveScheduleTime(next),
         lastAttemptedRunAt: (await readNightlyArchiveState(rootDir)).lastAttemptedRunAt,
         lastSuccessfulRunAt: (await readNightlyArchiveState(rootDir)).lastSuccessfulRunAt,
       })) {

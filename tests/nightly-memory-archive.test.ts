@@ -9,7 +9,9 @@ import {
   readNightlyArchiveSettings,
   readNightlyArchiveState,
   resolveNextNightlyRunAt,
+  resolveNightlyArchiveScheduleTime,
   shouldRunNightlyCatchup,
+  validateNightlyArchiveCronExpression,
   validateNightlyArchiveTime,
   writeNightlyArchiveSettings,
   writeNightlyArchiveState,
@@ -68,6 +70,17 @@ test('validateNightlyArchiveTime accepts stable HH:MM values and rejects invalid
   assert.throws(() => validateNightlyArchiveTime('24:00'), /out of range/);
 });
 
+test('validateNightlyArchiveCronExpression accepts daily cron values and rejects unsupported schedules', () => {
+  assert.equal(validateNightlyArchiveCronExpression('30 4 * * *'), '30 4 * * *');
+  assert.equal(validateNightlyArchiveCronExpression('  5   23   *   *   *  '), '5 23 * * *');
+  assert.throws(() => validateNightlyArchiveCronExpression('*/15 * * * *'), /minute hour/);
+  assert.throws(() => validateNightlyArchiveCronExpression('60 4 * * *'), /out of range/);
+  assert.equal(
+    resolveNightlyArchiveScheduleTime({ time: '03:00', cronExpression: '30 4 * * *' }),
+    '04:30',
+  );
+});
+
 test('resolveNextNightlyRunAt and shouldRunNightlyCatchup use the configured local schedule', () => {
   const now = '2026-04-02T10:00:00.000Z';
   const nextRunAt = resolveNextNightlyRunAt({ now, scheduleTime: '03:00' });
@@ -107,6 +120,7 @@ test('readNightlyArchiveState and readNightlyArchiveSettings return defaults whe
   assert.deepEqual(await readNightlyArchiveSettings(rootDir), {
     enabled: false,
     time: '03:00',
+    cronExpression: null,
     useLlmScoring: false,
   });
 });
@@ -127,6 +141,7 @@ test('readNightlyArchiveState and readNightlyArchiveSettings warn and return def
     assert.deepEqual(await readNightlyArchiveSettings(rootDir), {
       enabled: false,
       time: '03:00',
+      cronExpression: null,
       useLlmScoring: false,
     });
     assert.deepEqual(await readNightlyArchiveState(rootDir), {
@@ -145,9 +160,31 @@ test('readNightlyArchiveState and readNightlyArchiveSettings warn and return def
   assert.match(warnings[1] ?? '', /nightly-memory-archive-state\.json/);
 });
 
+test('readNightlyArchiveSettings keeps older settings files compatible', async () => {
+  const rootDir = await createTempRoot();
+  await mkdir(path.join(rootDir, '.flowagent'), { recursive: true });
+  await writeFile(
+    path.join(rootDir, '.flowagent/nightly-memory-archive-settings.json'),
+    JSON.stringify({ enabled: true, time: '04:45', useLlmScoring: true }),
+    'utf8',
+  );
+
+  assert.deepEqual(await readNightlyArchiveSettings(rootDir), {
+    enabled: true,
+    time: '04:45',
+    cronExpression: null,
+    useLlmScoring: true,
+  });
+});
+
 test('writeNightlyArchiveSettings and writeNightlyArchiveState persist project-local .flowagent files', async () => {
   const rootDir = await createTempRoot();
-  const settings: NightlyArchiveSettings = { enabled: false, time: '04:15', useLlmScoring: true };
+  const settings: NightlyArchiveSettings = {
+    enabled: false,
+    time: '04:15',
+    cronExpression: '30 4 * * *',
+    useLlmScoring: true,
+  };
 
   await writeNightlyArchiveSettings(rootDir, settings);
   await writeNightlyArchiveState(rootDir, {
@@ -166,6 +203,10 @@ test('writeNightlyArchiveSettings and writeNightlyArchiveState persist project-l
   });
 
   assert.match(await readFile(path.join(rootDir, '.flowagent/nightly-memory-archive-settings.json'), 'utf8'), /"time": "04:15"/);
+  assert.match(
+    await readFile(path.join(rootDir, '.flowagent/nightly-memory-archive-settings.json'), 'utf8'),
+    /"cronExpression": "30 4 \* \* \*"/,
+  );
 });
 
 test('nightly scheduler startup catch-up generates warm and cold surrogates from file-backed agent directories', async () => {

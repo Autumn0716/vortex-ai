@@ -325,6 +325,13 @@ interface ModelDetailsDialogState {
   model: string;
 }
 
+function formatNightlyArchiveSchedule(settings?: NightlyArchiveStatus['settings'] | null) {
+  if (!settings) {
+    return '未读取';
+  }
+  return settings.cronExpression ? `cron ${settings.cronExpression}` : `每天 ${settings.time}`;
+}
+
 function formatNightlyArchiveRunSummary(status: NightlyArchiveStatus | null) {
   if (!status) {
     return '当前未读取到夜间归档状态。';
@@ -333,7 +340,7 @@ function formatNightlyArchiveRunSummary(status: NightlyArchiveStatus | null) {
   const lastRun = status.state.lastRunSummary;
   if (!lastRun) {
     return status.settings.enabled
-      ? `已启用，计划时间 ${status.settings.time}，${status.settings.useLlmScoring ? '使用 LLM 评分' : '使用规则评分'}，下一次执行 ${status.nextRunAt ?? '待计算'}。`
+      ? `已启用，计划 ${formatNightlyArchiveSchedule(status.settings)}，${status.settings.useLlmScoring ? '使用 LLM 评分' : '使用规则评分'}，下一次执行 ${status.nextRunAt ?? '待计算'}。`
       : '当前未启用夜间自动归档。';
   }
 
@@ -663,6 +670,7 @@ export const SettingsView = ({
   const [nightlyArchiveLoading, setNightlyArchiveLoading] = useState(false);
   const [nightlyArchiveEnabled, setNightlyArchiveEnabled] = useState(false);
   const [nightlyArchiveTime, setNightlyArchiveTime] = useState('03:00');
+  const [nightlyArchiveCronExpression, setNightlyArchiveCronExpression] = useState('');
   const [nightlyArchiveUseLlmScoring, setNightlyArchiveUseLlmScoring] = useState(false);
   const [nightlyArchiveMessage, setNightlyArchiveMessage] = useState<MemoryFileStatus | null>(null);
   const [automationSnapshot, setAutomationSnapshot] = useState<AutomationSnapshot | null>(null);
@@ -1134,6 +1142,7 @@ export const SettingsView = ({
       setNightlyArchiveStatus(null);
       setNightlyArchiveEnabled(false);
       setNightlyArchiveTime('03:00');
+      setNightlyArchiveCronExpression('');
       setNightlyArchiveUseLlmScoring(false);
       setNightlyArchiveMessage(null);
       if (activeCategory === 'api') {
@@ -1158,6 +1167,7 @@ export const SettingsView = ({
       setNightlyArchiveStatus(status);
       setNightlyArchiveEnabled(status?.settings.enabled ?? false);
       setNightlyArchiveTime(status?.settings.time ?? '03:00');
+      setNightlyArchiveCronExpression(status?.settings.cronExpression ?? '');
       setNightlyArchiveUseLlmScoring(status?.settings.useLlmScoring ?? false);
       setAutomationSnapshot(await getAutomationSnapshot(draft.apiServer));
       if (options.announce) {
@@ -1927,22 +1937,26 @@ export const SettingsView = ({
       const previousNightlySettings = {
         enabled: nightlyArchiveStatus?.settings.enabled ?? nightlyArchiveEnabled,
         time: nightlyArchiveStatus?.settings.time ?? nightlyArchiveTime,
+        cronExpression: nightlyArchiveStatus?.settings.cronExpression ?? '',
         useLlmScoring: nightlyArchiveStatus?.settings.useLlmScoring ?? nightlyArchiveUseLlmScoring,
       };
       const nextStatus = await saveNightlyArchiveSettings(draft.apiServer, {
         enabled: nightlyArchiveEnabled,
         time: nightlyArchiveTime,
+        cronExpression: nightlyArchiveCronExpression.trim() || null,
         useLlmScoring: nightlyArchiveUseLlmScoring,
       });
       const nextNightlySettings = {
         enabled: nextStatus?.settings.enabled ?? nightlyArchiveEnabled,
         time: nextStatus?.settings.time ?? nightlyArchiveTime,
+        cronExpression: nextStatus?.settings.cronExpression ?? '',
         useLlmScoring: nextStatus?.settings.useLlmScoring ?? nightlyArchiveUseLlmScoring,
       };
       const diff = describeChangedFields(previousNightlySettings, nextNightlySettings);
       setNightlyArchiveStatus(nextStatus);
       setNightlyArchiveEnabled(nextStatus?.settings.enabled ?? nightlyArchiveEnabled);
       setNightlyArchiveTime(nextStatus?.settings.time ?? nightlyArchiveTime);
+      setNightlyArchiveCronExpression(nextStatus?.settings.cronExpression ?? nightlyArchiveCronExpression);
       setNightlyArchiveUseLlmScoring(nextStatus?.settings.useLlmScoring ?? nightlyArchiveUseLlmScoring);
       setNightlyArchiveMessage({
         tone: 'success',
@@ -1961,7 +1975,7 @@ export const SettingsView = ({
       });
       showDesktopNotification(
         'FlowAgent 夜间归档已更新',
-        `${nextStatus?.settings.enabled ? '已启用' : '已关闭'} · ${nextStatus?.settings.time ?? nightlyArchiveTime}`,
+        `${nextStatus?.settings.enabled ? '已启用' : '已关闭'} · ${formatNightlyArchiveSchedule(nextStatus?.settings)}`,
       );
       await loadNightlyArchive();
     } catch (error) {
@@ -1981,6 +1995,7 @@ export const SettingsView = ({
       setNightlyArchiveStatus(nextStatus);
       setNightlyArchiveEnabled(nextStatus?.settings.enabled ?? nightlyArchiveEnabled);
       setNightlyArchiveTime(nextStatus?.settings.time ?? nightlyArchiveTime);
+      setNightlyArchiveCronExpression(nextStatus?.settings.cronExpression ?? nightlyArchiveCronExpression);
       setNightlyArchiveUseLlmScoring(nextStatus?.settings.useLlmScoring ?? nightlyArchiveUseLlmScoring);
       setNightlyArchiveMessage({
         tone: 'success',
@@ -2001,6 +2016,10 @@ export const SettingsView = ({
     try {
       const nextStatus = await runAutomation(draft.apiServer, automationId);
       setNightlyArchiveStatus(nextStatus);
+      setNightlyArchiveEnabled(nextStatus?.settings.enabled ?? nightlyArchiveEnabled);
+      setNightlyArchiveTime(nextStatus?.settings.time ?? nightlyArchiveTime);
+      setNightlyArchiveCronExpression(nextStatus?.settings.cronExpression ?? nightlyArchiveCronExpression);
+      setNightlyArchiveUseLlmScoring(nextStatus?.settings.useLlmScoring ?? nightlyArchiveUseLlmScoring);
       setAutomationSnapshot(await getAutomationSnapshot(draft.apiServer));
       setAutomationMessage({
         tone: 'success',
@@ -4191,17 +4210,30 @@ export const SettingsView = ({
                   checked={nightlyArchiveUseLlmScoring}
                   onChange={setNightlyArchiveUseLlmScoring}
                 />
-                <div className="grid gap-4 md:grid-cols-[220px_1fr]">
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                    <div className="mb-2 text-sm font-medium text-white/90">归档时间</div>
-                    <input
-                      type="time"
-                      value={nightlyArchiveTime}
-                      onChange={(event) => setNightlyArchiveTime(event.target.value)}
-                      disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
-                      className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-50"
-                    />
-                    <p className="mt-2 text-xs text-white/45">使用本机时间，默认每天凌晨 03:00。</p>
+                <div className="grid gap-4 md:grid-cols-[minmax(260px,360px)_1fr]">
+                  <div className="grid gap-3">
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <div className="mb-2 text-sm font-medium text-white/90">归档时间</div>
+                      <input
+                        type="time"
+                        value={nightlyArchiveTime}
+                        onChange={(event) => setNightlyArchiveTime(event.target.value)}
+                        disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
+                        className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                      <p className="mt-2 text-xs text-white/45">cron 为空时使用本机时间。</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                      <div className="mb-2 text-sm font-medium text-white/90">Cron 表达式</div>
+                      <input
+                        value={nightlyArchiveCronExpression}
+                        onChange={(event) => setNightlyArchiveCronExpression(event.target.value)}
+                        disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
+                        placeholder="30 4 * * *"
+                        className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                      <p className="mt-2 text-xs text-white/45">可选。当前支持日级格式：minute hour * * *。</p>
+                    </div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/75">
                     <div className="font-medium text-white/90">当前状态</div>
@@ -4209,6 +4241,7 @@ export const SettingsView = ({
                       {formatNightlyArchiveRunSummary(nightlyArchiveStatus)}
                     </div>
                     <div className="mt-4 grid gap-2 text-xs text-white/50">
+                      <div>计划：{formatNightlyArchiveSchedule(nightlyArchiveStatus?.settings)}</div>
                       <div>下一次执行：{nightlyArchiveStatus?.nextRunAt ?? '未计划'}</div>
                       <div>最近成功：{nightlyArchiveStatus?.state.lastSuccessfulRunAt ?? '暂无'}</div>
                       <div>最近尝试：{nightlyArchiveStatus?.state.lastAttemptedRunAt ?? '暂无'}</div>

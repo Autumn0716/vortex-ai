@@ -55,6 +55,7 @@ export interface ApiHealthResponse {
   nightlyArchive?: {
     enabled: boolean;
     time: string;
+    cronExpression: string | null;
     useLlmScoring: boolean;
     running: boolean;
     nextRunAt: string | null;
@@ -90,6 +91,7 @@ export interface NightlyArchiveStatus {
   settings: {
     enabled: boolean;
     time: string;
+    cronExpression: string | null;
     useLlmScoring: boolean;
   };
   state: {
@@ -281,7 +283,7 @@ export async function getNightlyArchiveStatus(settings: ApiServerSettings): Prom
 
 export async function saveNightlyArchiveSettings(
   settings: ApiServerSettings,
-  value: { enabled?: boolean; time?: string; useLlmScoring?: boolean },
+  value: { enabled?: boolean; time?: string; cronExpression?: string | null; useLlmScoring?: boolean },
 ): Promise<NightlyArchiveStatus | null> {
   if (!settings.enabled) {
     throw new Error('The local API server is disabled.');
