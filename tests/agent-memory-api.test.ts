@@ -15,6 +15,7 @@ import {
   listAgentMemoryFiles,
   readAgentMemoryFile,
   registerConfiguredAgentMemoryFileStore,
+  runNightlyArchiveNow,
   saveNightlyArchiveSettings,
   saveStoredModelMetadata,
   writeAgentMemoryFile,
@@ -181,6 +182,10 @@ test('API server exposes readable and writable nightly archive settings', async 
     assert.equal(health?.nightlyArchive?.time, '04:30');
     assert.equal(health?.nightlyArchive?.useLlmScoring, true);
     assert.equal(health?.nightlyArchive?.lastRunSummary?.promotedCount ?? 0, 0);
+
+    const runStatus = await runNightlyArchiveNow(settings);
+    assert.equal(runStatus?.state.lastRunSummary?.trigger, 'manual');
+    assert.equal(runStatus?.state.lastRunSummary?.processedAgents, 0);
   } finally {
     await server.close();
   }

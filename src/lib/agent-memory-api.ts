@@ -277,6 +277,16 @@ export async function saveNightlyArchiveSettings(
   });
 }
 
+export async function runNightlyArchiveNow(settings: ApiServerSettings): Promise<NightlyArchiveStatus | null> {
+  if (!settings.enabled) {
+    throw new Error('The local API server is disabled.');
+  }
+
+  return requestApi<NightlyArchiveStatus>(settings, '/api/nightly-archive/run', {
+    method: 'POST',
+  });
+}
+
 export async function getProjectConfig(settings: ApiServerSettings): Promise<AgentConfig | null> {
   if (!settings.enabled) {
     return null;

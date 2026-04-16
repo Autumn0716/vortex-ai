@@ -68,7 +68,7 @@ function applyCors(app: Express) {
   app.use((request: Request, response: Response, next: NextFunction) => {
     response.setHeader('Access-Control-Allow-Origin', '*');
     response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    response.setHeader('Access-Control-Allow-Methods', 'GET, PUT, DELETE, OPTIONS');
+    response.setHeader('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE, OPTIONS');
 
     if (request.method === 'OPTIONS') {
       response.status(204).end();
@@ -294,6 +294,19 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
         400,
         'NIGHTLY_ARCHIVE_UPDATE_FAILED',
         error instanceof Error ? error.message : 'Failed to update nightly archive settings.',
+      );
+    }
+  });
+
+  app.post('/api/nightly-archive/run', async (_request, response) => {
+    try {
+      response.json(await nightlyArchiveScheduler.runNow('manual'));
+    } catch (error) {
+      sendApiError(
+        response,
+        500,
+        'NIGHTLY_ARCHIVE_RUN_FAILED',
+        error instanceof Error ? error.message : 'Failed to run nightly archive.',
       );
     }
   });

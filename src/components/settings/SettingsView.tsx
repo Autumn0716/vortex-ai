@@ -84,6 +84,7 @@ import {
   listAgentMemoryFiles,
   readAgentMemoryFile,
   resolveApiServerBaseUrl,
+  runNightlyArchiveNow,
   saveNightlyArchiveSettings,
   saveStoredModelMetadata,
   syncAgentMemoryLifecycleForAgent,
@@ -1959,6 +1960,28 @@ export const SettingsView = ({
       setNightlyArchiveMessage({
         tone: 'error',
         message: error instanceof Error ? error.message : '保存夜间归档设置失败。',
+      });
+    } finally {
+      setNightlyArchiveLoading(false);
+    }
+  };
+
+  const handleNightlyArchiveRunNow = async () => {
+    setNightlyArchiveLoading(true);
+    try {
+      const nextStatus = await runNightlyArchiveNow(draft.apiServer);
+      setNightlyArchiveStatus(nextStatus);
+      setNightlyArchiveEnabled(nextStatus?.settings.enabled ?? nightlyArchiveEnabled);
+      setNightlyArchiveTime(nextStatus?.settings.time ?? nightlyArchiveTime);
+      setNightlyArchiveUseLlmScoring(nextStatus?.settings.useLlmScoring ?? nightlyArchiveUseLlmScoring);
+      setNightlyArchiveMessage({
+        tone: 'success',
+        message: '已手动触发一次记忆归档自动化。',
+      });
+    } catch (error) {
+      setNightlyArchiveMessage({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '手动触发夜间归档失败。',
       });
     } finally {
       setNightlyArchiveLoading(false);
@@ -4103,7 +4126,17 @@ export const SettingsView = ({
                 >
                   {nightlyArchiveMessage?.message ?? '夜间归档设置会保存到项目内 `.flowagent/` 状态文件。'}
                 </div>
-                <div className="flex justify-end">
+                <div className="flex flex-wrap justify-end gap-2">
+                  <button
+                    onClick={() => {
+                      handleNightlyArchiveRunNow().catch(console.error);
+                    }}
+                    disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RotateCcw size={14} />
+                    立即运行一次
+                  </button>
                   <button
                     onClick={() => {
                       handleNightlyArchiveSave().catch(console.error);
