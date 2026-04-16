@@ -17,6 +17,7 @@
     "desktop:build": "npm run build -- --mode electron && npm run build:host && electron-builder --mac dir",
     "build": "vite build",
     "preview": "vite preview",
+    "hooks:install": "node scripts/install-flowagent-git-hooks.mjs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },

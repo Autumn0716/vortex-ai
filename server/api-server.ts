@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { createCodeReviewAutomation } from './code-review-automation';
 import { readProjectConfig, writeProjectConfig } from './config-store';
 import { createDailySummaryScheduler } from './daily-summary-automation';
 import { inspectOfficialModelMetadata, MODEL_INSPECTOR_RESOLVER_VERSION } from './model-inspector';
@@ -145,6 +146,11 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     runArchive: (trigger) => nightlyArchiveScheduler.runNow(trigger),
   });
   const weeklyArchiveReady = nightlyArchiveReady.then(() => weeklyArchiveScheduler.start());
+  const codeReviewAutomation = createCodeReviewAutomation({
+    rootDir,
+    now: options.nightlyArchiveNow,
+    logger,
+  });
   const projectKnowledgeWatcher = createProjectKnowledgeWatcher(rootDir);
   const projectKnowledgeReady = projectKnowledgeWatcher.ready;
   const app = express();
@@ -336,6 +342,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       const nightlyArchive = await nightlyArchiveScheduler.getStatus();
       const dailySummary = await dailySummaryScheduler.getStatus();
       const weeklyArchive = await weeklyArchiveScheduler.getStatus();
+      const codeReview = await codeReviewAutomation.getStatus();
       response.json({
         automations: [
           {
@@ -348,6 +355,17 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
             nextRunAt: dailySummary.nextRunAt,
             lastRunSummary: dailySummary.state.lastRunSummary,
             capabilities: ['manual_run', 'scheduled_run', 'catch_up'],
+          },
+          {
+            id: 'code_review',
+            title: 'Git Push Code Review',
+            description: 'git pre-push hook 触发的轻量代码审查自动化，记录变更文件和风险提示。',
+            enabled: codeReview.enabled,
+            schedule: codeReview.schedule,
+            running: codeReview.running,
+            nextRunAt: codeReview.nextRunAt,
+            lastRunSummary: codeReview.state.lastRunSummary,
+            capabilities: ['manual_run', 'git_pre_push'],
           },
           {
             id: 'weekly_archive',
@@ -391,6 +409,10 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       }
       if (request.params.id === 'weekly_archive') {
         response.json(await weeklyArchiveScheduler.runNow('manual'));
+        return;
+      }
+      if (request.params.id === 'code_review') {
+        response.json(await codeReviewAutomation.runNow('manual'));
         return;
       }
       if (request.params.id === 'nightly_archive') {
@@ -568,6 +590,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     dailySummaryReady,
     weeklyArchiveScheduler,
     weeklyArchiveReady,
+    codeReviewAutomation,
     projectKnowledgeWatcher,
     projectKnowledgeReady,
   };

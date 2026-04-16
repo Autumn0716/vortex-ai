@@ -26,6 +26,7 @@
 - Added optional daily cron scheduling for the nightly memory archive, persisted as `cronExpression` while preserving older fixed-time settings and exposing the effective schedule through the automation registry.
 - Added a `daily_summary` automation that runs at 08:00, appends a replaceable auto-summary block to yesterday's `daily/YYYY-MM-DD.md` files, and can be triggered through the shared automation registry.
 - Added a `weekly_archive` automation that runs every Sunday at 04:00 and reuses the existing nightly memory archive pipeline for warm/cold sync, promotion, and scoring.
+- Added a first-pass `code_review` automation plus installable git `pre-push` hook scripts so pushes can notify the local API server to record changed files and lightweight review notes without blocking the push.
 - Added a local Express-based memory API server plus frontend file-store registration so FlowAgent can read and write `memory/agents/<agent-slug>/...` directly from the Settings UI.
 - Switched the Settings memory page from legacy global-memory document editing to raw Markdown file editing while preserving the existing theme shell.
 - Added warm/cold lifecycle surrogate sync so `daily/*.warm.md` and `daily/*.cold.md` can be generated deterministically while SQLite only indexes the effective representation for each day.

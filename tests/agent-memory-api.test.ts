@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import type { Server } from 'node:http';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
+import { promisify } from 'node:util';
 
 import { createFlowAgentApiServer, resolveAllowedPath } from '../server/api-server';
 import {
@@ -25,6 +27,7 @@ import {
 import { getAgentMemoryFileStore, setAgentMemoryFileStore } from '../src/lib/agent-memory-sync';
 
 const tempRoots: string[] = [];
+const execFileAsync = promisify(execFile);
 const silentLogger = {
   info() {},
   warn() {},
@@ -208,13 +211,37 @@ test('API server exposes readable and writable nightly archive settings', async 
     const automationSnapshot = await getAutomationSnapshot(settings);
     const nightlyAutomation = automationSnapshot?.automations.find((automation) => automation.id === 'nightly_archive');
     const weeklyAutomation = automationSnapshot?.automations.find((automation) => automation.id === 'weekly_archive');
+    const codeReviewAutomation = automationSnapshot?.automations.find((automation) => automation.id === 'code_review');
     assert.equal(nightlyAutomation?.schedule, 'cron 15 4 * * *');
     assert.equal(weeklyAutomation?.schedule, '每周日 04:00');
+    assert.equal(codeReviewAutomation?.schedule, 'git pre-push / 手动');
 
     const automationRunStatus = await runAutomation(settings, 'nightly_archive');
     assert.equal(automationRunStatus?.state.lastRunSummary?.trigger, 'manual');
 
     await assert.rejects(() => runAutomation(settings, 'missing'), /Unknown automation: missing/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('API automation registry can run the code review automation', async () => {
+  const rootDir = await createTempRoot();
+  await execFileAsync('git', ['init'], { cwd: rootDir });
+  const server = await startServer(rootDir, '', () => '2026-04-16T10:00:00.000Z');
+  const settings = {
+    enabled: true,
+    baseUrl: server.baseUrl,
+    authToken: '',
+  };
+
+  try {
+    const runStatus = await runAutomation(settings, 'code_review');
+    assert.equal(runStatus?.state.lastRunSummary?.trigger, 'manual');
+    assert.equal(runStatus?.state.lastRunSummary?.failedAgents, 0);
+
+    const codeReviewState = await readFile(path.join(rootDir, '.flowagent/code-review-state.json'), 'utf8');
+    assert.match(codeReviewState, /"reviewNotes"/);
   } finally {
     await server.close();
   }

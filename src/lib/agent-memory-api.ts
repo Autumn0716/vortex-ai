@@ -142,7 +142,32 @@ export interface WeeklyArchiveStatus {
   running: boolean;
 }
 
-export type AutomationRunStatus = NightlyArchiveStatus | DailySummaryStatus | WeeklyArchiveStatus;
+export interface CodeReviewRunSummary {
+  processedAgents: number;
+  successfulAgents: number;
+  failedAgents: number;
+  failures: Array<{ agentSlug: string; message: string }>;
+  changedFiles: string[];
+  reviewNotes: string[];
+  trigger: 'catchup' | 'scheduled' | 'manual';
+  startedAt: string;
+  completedAt: string;
+}
+
+export interface CodeReviewStatus {
+  enabled: boolean;
+  schedule: string;
+  state: {
+    lastSuccessfulRunAt: string | null;
+    lastAttemptedRunAt: string | null;
+    lastRunSummary: CodeReviewRunSummary | null;
+  };
+  nextRunAt: string | null;
+  catchUpDue: boolean;
+  running: boolean;
+}
+
+export type AutomationRunStatus = NightlyArchiveStatus | DailySummaryStatus | WeeklyArchiveStatus | CodeReviewStatus;
 
 export interface AutomationEntry {
   id: string;
@@ -152,7 +177,7 @@ export interface AutomationEntry {
   schedule: string;
   running: boolean;
   nextRunAt: string | null;
-  lastRunSummary: NightlyArchiveRunSummary | DailySummaryRunSummary | null;
+  lastRunSummary: NightlyArchiveRunSummary | DailySummaryRunSummary | CodeReviewRunSummary | null;
   capabilities: string[];
 }
 
