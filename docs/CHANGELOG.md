@@ -18,6 +18,7 @@
 - Added recent memory snapshot injection with `Recent memory snapshot` and `Open loops` sections so runtime prompts now receive recent daily/session summaries plus unresolved work items.
 - Added a memory setting toggle for recent snapshot injection and recorded the incremental completion status in `todo-list.md`.
 - Added an agent-scoped Markdown memory sync layer so `MEMORY.md` and `daily/*.md` can populate derived `agent_memory_documents` rows.
+- Added agent-scoped `corrections.md` and `reflections.md` bootstrap memory files so user corrections and agent failure lessons can be edited in Settings, indexed from Markdown, injected into runtime prompts, and inspected separately in Prompt Inspector.
 - Added a local Express-based memory API server plus frontend file-store registration so FlowAgent can read and write `memory/agents/<agent-slug>/...` directly from the Settings UI.
 - Switched the Settings memory page from legacy global-memory document editing to raw Markdown file editing while preserving the existing theme shell.
 - Added warm/cold lifecycle surrogate sync so `daily/*.warm.md` and `daily/*.cold.md` can be generated deterministically while SQLite only indexes the effective representation for each day.
