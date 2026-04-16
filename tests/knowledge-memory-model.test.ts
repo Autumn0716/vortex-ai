@@ -5,6 +5,7 @@ import {
   normalizeKnowledgeTags,
 } from '../src/lib/knowledge-document-model';
 import {
+  buildLayeredMemoryContextSnapshot,
   buildConversationMemoryEntry,
   extractMemoryContentLines,
   extractMemoryKeywords,
@@ -116,6 +117,45 @@ test('buildConversationMemoryEntry records explicit task states and longer tool 
   assert.match(entry, /Turn: assistant_response/);
   assert.match(entry, /Tools: npm_test\[failed\]: The regression command failed because the mocked workspace/);
   assert.match(entry, /Task State: blocked, completed, tool_failed, tool_running/);
+});
+
+test('buildLayeredMemoryContextSnapshot keeps section text aligned with formatted context', () => {
+  const documents: MemoryContextDocument[] = [
+    {
+      id: 'global_1',
+      title: 'Behavior Rule',
+      content: 'Be concise and avoid filler.',
+      memoryScope: 'global',
+      sourceType: 'promotion',
+      importanceScore: 5,
+      updatedAt: '2026-04-01T09:00:00.000Z',
+    },
+    {
+      id: 'daily_1',
+      title: 'Recent Task',
+      content: 'Need to verify prompt inspector memory breakdown next.',
+      memoryScope: 'daily',
+      sourceType: 'conversation_log',
+      importanceScore: 3,
+      eventDate: '2026-04-01',
+      updatedAt: '2026-04-01T10:00:00.000Z',
+    },
+  ];
+
+  const snapshot = buildLayeredMemoryContextSnapshot(documents, {
+    now: '2026-04-01T12:00:00.000Z',
+    includeRecentMemorySnapshot: true,
+  });
+
+  assert.equal(
+    snapshot.content,
+    formatLayeredMemoryContext(documents, {
+      now: '2026-04-01T12:00:00.000Z',
+      includeRecentMemorySnapshot: true,
+    }),
+  );
+  assert.equal(snapshot.sections[0]?.key, 'global');
+  assert.equal(snapshot.sections[0]?.entries[0]?.memoryId, 'global_1');
 });
 
 test('buildPromotionFingerprint is stable for semantically identical whitespace', () => {

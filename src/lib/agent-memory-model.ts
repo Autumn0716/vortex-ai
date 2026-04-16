@@ -18,6 +18,28 @@ export interface MemoryContextDocument {
   updatedAt: string;
 }
 
+export interface MemoryContextSectionEntry {
+  key: string;
+  label: string;
+  content: string;
+  memoryId?: string;
+  memoryScope?: MemoryScope;
+  sourceType?: MemorySourceType;
+  eventDate?: string | null;
+}
+
+export interface MemoryContextSectionSnapshot {
+  key: string;
+  label: string;
+  content: string;
+  entries: MemoryContextSectionEntry[];
+}
+
+export interface MemoryContextSnapshot {
+  content: string;
+  sections: MemoryContextSectionSnapshot[];
+}
+
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const OPEN_TASK_PATTERN =
   /(todo|待办|阻塞|deadline|due|follow-up|follow up|未完成|待处理|下一步|next step)/i;
@@ -470,8 +492,18 @@ export function formatLayeredMemoryContext(
   documents: MemoryContextDocument[],
   options: { now?: string; includeRecentMemorySnapshot?: boolean } = {},
 ): string {
+  return buildLayeredMemoryContextSnapshot(documents, options).content;
+}
+
+export function buildLayeredMemoryContextSnapshot(
+  documents: MemoryContextDocument[],
+  options: { now?: string; includeRecentMemorySnapshot?: boolean } = {},
+): MemoryContextSnapshot {
   if (documents.length === 0) {
-    return '';
+    return {
+      content: '',
+      sections: [],
+    };
   }
 
   const now = options.now ?? new Date().toISOString();
@@ -486,26 +518,60 @@ export function formatLayeredMemoryContext(
   const openTasks = includeRecentMemorySnapshot ? extractOpenMemoryTasks(documents, { now }) : [];
   const recentSnapshotDocs = includeRecentMemorySnapshot ? [...hotDocs.slice(0, 3), ...warmDocs.slice(0, 2)] : [];
 
-  const sections = [
-    globalDocs.length > 0
-      ? `Long-term memory:\n${globalDocs.slice(0, 6).map((document) => renderMemoryLine(document, 240)).join('\n')}`
-      : '',
-    recentSnapshotDocs.length > 0
-      ? `Recent memory snapshot:\n${recentSnapshotDocs
-          .map((document) => renderMemoryLine(document, document.memoryScope === 'daily' ? 220 : 180))
-          .join('\n')}`
-      : '',
-    openTasks.length > 0 ? `Open loops:\n${openTasks.map((task) => `- ${task}`).join('\n')}` : '',
-    hotDocs.length > 0
-      ? `Hot memory:\n${hotDocs.slice(0, 4).map((document) => renderMemoryLine(document, 320)).join('\n')}`
-      : '',
-    warmDocs.length > 0
-      ? `Warm memory:\n${warmDocs.slice(0, 3).map((document) => renderMemoryLine(document, 180)).join('\n')}`
-      : '',
-    coldDocs.length > 0
-      ? `Cold memory:\n${coldDocs.slice(0, 2).map((document) => renderMemoryLine(document, 120)).join('\n')}`
-      : '',
-  ].filter(Boolean);
+  const sections: MemoryContextSectionSnapshot[] = [];
 
-  return sections.join('\n\n');
+  const pushDocumentSection = (
+    key: string,
+    label: string,
+    sectionDocuments: MemoryContextDocument[],
+    maxLength: number,
+  ) => {
+    if (!sectionDocuments.length) {
+      return;
+    }
+    const entries = sectionDocuments.map((document) => ({
+      key: `${key}:${document.id}`,
+      label: document.title,
+      content: renderMemoryLine(document, maxLength),
+      memoryId: document.id,
+      memoryScope: document.memoryScope,
+      sourceType: document.sourceType,
+      eventDate: document.eventDate,
+    }));
+    sections.push({
+      key,
+      label,
+      content: `${label}:\n${entries.map((entry) => entry.content).join('\n')}`,
+      entries,
+    });
+  };
+
+  pushDocumentSection('global', 'Long-term memory', globalDocs.slice(0, 6), 240);
+  pushDocumentSection(
+    'recent_snapshot',
+    'Recent memory snapshot',
+    recentSnapshotDocs,
+    220,
+  );
+  if (openTasks.length > 0) {
+    const entries = openTasks.map((task, index) => ({
+      key: `open_loop:${index}`,
+      label: task.split(':')[0] || `Open loop ${index + 1}`,
+      content: `- ${task}`,
+    }));
+    sections.push({
+      key: 'open_loops',
+      label: 'Open loops',
+      content: `Open loops:\n${entries.map((entry) => entry.content).join('\n')}`,
+      entries,
+    });
+  }
+  pushDocumentSection('hot', 'Hot memory', hotDocs.slice(0, 4), 320);
+  pushDocumentSection('warm', 'Warm memory', warmDocs.slice(0, 3), 180);
+  pushDocumentSection('cold', 'Cold memory', coldDocs.slice(0, 2), 120);
+
+  return {
+    content: sections.map((section) => section.content).join('\n\n'),
+    sections,
+  };
 }

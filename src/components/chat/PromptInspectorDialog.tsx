@@ -6,6 +6,14 @@ export interface PromptInspectorSection {
   label: string;
   tokens: number;
   content: string;
+  items?: Array<{
+    key: string;
+    label: string;
+    content: string;
+    tokens: number;
+    share: number;
+    meta?: string;
+  }>;
 }
 
 export interface PromptInspectorSnapshot {
@@ -175,6 +183,36 @@ export function PromptInspectorDialog(props: {
                       <ChevronRight size={12} />
                     </div>
                   </div>
+                  {section.items?.length ? (
+                    <div className="mt-3 space-y-2">
+                      {section.items.map((item) => (
+                        <div
+                          key={item.key}
+                          className="rounded-[18px] border border-white/8 bg-white/[0.03] px-3 py-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-[12px] font-medium text-white/88">{item.label}</div>
+                              {item.meta ? (
+                                <div className="mt-1 text-[10px] uppercase tracking-[0.14em] text-white/36">
+                                  {item.meta}
+                                </div>
+                              ) : null}
+                            </div>
+                            <div className="text-right text-[11px] text-white/55">
+                              <div>{item.tokens.toLocaleString()} tokens</div>
+                              <div className="mt-0.5 text-[10px] text-white/36">
+                                {item.share.toFixed(item.share >= 10 ? 0 : 1)}%
+                              </div>
+                            </div>
+                          </div>
+                          <div className="mt-2 line-clamp-3 whitespace-pre-wrap break-words text-[11px] leading-5 text-white/60">
+                            {item.content}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="mt-3 max-h-[260px] overflow-y-auto whitespace-pre-wrap break-words rounded-[18px] border border-white/8 bg-black/20 px-3 py-3 text-[12px] leading-6 text-white/76 custom-scrollbar">
                     {section.content.trim() || 'No content'}
                   </div>

@@ -29,10 +29,10 @@ import {
 } from './agent-workspace-bootstrap';
 import { ensureAgentWorkspaceSchema } from './agent-workspace-schema';
 import {
+  buildLayeredMemoryContextSnapshot,
   buildConversationMemoryEntry,
   buildMemoryPromotionTitle,
   buildPromotionFingerprint,
-  formatLayeredMemoryContext,
   scoreMemoryImportance,
   selectEffectiveMemoryDocuments,
   shouldPromoteMemory,
@@ -2188,10 +2188,25 @@ export async function getAgentMemoryContext(
     includeAgentSharedShortTerm?: boolean;
   },
 ): Promise<string> {
+  return (await getAgentMemoryContextSnapshot(agentId, options)).content;
+}
+
+export async function getAgentMemoryContextSnapshot(
+  agentId: string,
+  options?: {
+    includeRecentMemorySnapshot?: boolean;
+    now?: string;
+    query?: string;
+    embeddingConfig?: EmbeddingProviderConfig | null;
+    topicId?: string;
+    includeSessionMemory?: boolean;
+    includeAgentSharedShortTerm?: boolean;
+  },
+): Promise<ReturnType<typeof buildLayeredMemoryContextSnapshot>> {
   const now = options?.now ?? new Date().toISOString();
   const routedDocuments = await searchMemories(agentId, options);
 
-  return formatLayeredMemoryContext(routedDocuments, {
+  return buildLayeredMemoryContextSnapshot(routedDocuments, {
     includeRecentMemorySnapshot: options?.includeRecentMemorySnapshot,
     now,
   });

@@ -24,6 +24,7 @@ import { AgentLaneColumn } from './chat/AgentLaneColumn';
 import { ChatComposer, type ComposerAppendRequest } from './chat/ChatComposer';
 import {
   PromptInspectorDialog,
+  type PromptInspectorSection,
   type PromptInspectorSnapshot,
 } from './chat/PromptInspectorDialog';
 import {
@@ -51,7 +52,7 @@ import {
   deleteTopicMessage,
   deleteAgentMemoryDocument,
   ensureAgentWorkspaceBootstrap,
-  getAgentMemoryContext,
+  getAgentMemoryContextSnapshot,
   getOrCreateActiveTopic,
   getSearchCapabilities,
   getTopicWorkspace,
@@ -429,6 +430,7 @@ function buildPromptInspectorSnapshot(input: {
   contextWindow?: number;
   systemPrompt: string;
   memoryContext: string;
+  memorySectionItems?: PromptInspectorSection['items'];
   sessionSummary?: string;
   skillContext: string;
   runtimeSystemPrompt: string;
@@ -458,6 +460,7 @@ function buildPromptInspectorSnapshot(input: {
       label: 'Memory Context',
       content: input.memoryContext,
       tokens: estimateTokenCount(input.memoryContext),
+      items: input.memorySectionItems,
     },
     {
       key: 'summary',
@@ -515,6 +518,39 @@ function buildPromptInspectorSnapshot(input: {
       input.contextWindow && input.contextWindow > 0 ? Math.min(100, (totalTokens / input.contextWindow) * 100) : null,
     sections,
   };
+}
+
+function buildPromptInspectorMemoryItems(
+  memorySnapshot: Awaited<ReturnType<typeof getAgentMemoryContextSnapshot>>,
+): PromptInspectorSection['items'] {
+  const memorySection = memorySnapshot.sections.find((section) => section.key === 'global');
+  const recentSection = memorySnapshot.sections.find((section) => section.key === 'recent_snapshot');
+  const hotSection = memorySnapshot.sections.find((section) => section.key === 'hot');
+  const warmSection = memorySnapshot.sections.find((section) => section.key === 'warm');
+  const coldSection = memorySnapshot.sections.find((section) => section.key === 'cold');
+  const sourceSections = [memorySection, recentSection, hotSection, warmSection, coldSection].filter(Boolean);
+  const rawItems =
+    sourceSections.flatMap((section) =>
+      section!.entries.map((entry) => {
+        const tokens = estimateTokenCount(entry.content);
+        return {
+          key: `${section!.key}:${entry.key}`,
+          label: entry.label,
+          content: entry.content,
+          tokens,
+          share: 0,
+          meta: [section!.label, entry.memoryScope, entry.sourceType, entry.eventDate].filter(Boolean).join(' · '),
+        };
+      }),
+    ) ?? [];
+  const total = rawItems.reduce((sum, item) => sum + item.tokens, 0);
+
+  return rawItems
+    .map((item) => ({
+      ...item,
+      share: total > 0 ? (item.tokens / total) * 100 : 0,
+    }))
+    .sort((left, right) => right.tokens - left.tokens || left.label.localeCompare(right.label));
 }
 
 interface OfficialModelResourceLink {
@@ -985,6 +1021,7 @@ export const ChatInterface: React.FC<{
       contextWindow: activeModelMetadata?.contextWindow,
       systemPrompt: config.systemPrompt,
       memoryContext: '',
+      memorySectionItems: [],
       sessionSummary: workspace.sessionSummary?.content,
       skillContext: '',
       runtimeSystemPrompt: workspace.runtime.systemPrompt,
@@ -2119,9 +2156,11 @@ export const ChatInterface: React.FC<{
       );
 
       const memoryContextRequest = buildAgentMemoryContextRequest(workspaceSnapshot, configSnapshot, userContent);
-      const memoryContext = memoryContextRequest
-        ? (await getAgentMemoryContext(memoryContextRequest.agentId, memoryContextRequest.options)).slice(0, 4000)
-        : '';
+      const memoryContextSnapshot = memoryContextRequest
+        ? await getAgentMemoryContextSnapshot(memoryContextRequest.agentId, memoryContextRequest.options)
+        : null;
+      const memoryContext = memoryContextSnapshot?.content.slice(0, 4000) ?? '';
+      const memorySectionItems = memoryContextSnapshot ? buildPromptInspectorMemoryItems(memoryContextSnapshot) : [];
       if (workspaceSnapshot.runtime.enableSkills && configSnapshot.apiServer.enabled) {
         await syncAgentSkillDocuments(workspaceSnapshot.agent.id, configSnapshot.apiServer).catch((error) => {
           console.warn('Agent skill sync failed before send:', error);
@@ -2227,6 +2266,7 @@ export const ChatInterface: React.FC<{
           contextWindow: runtimeModelMetadata?.contextWindow,
           systemPrompt: configSnapshot.systemPrompt,
           memoryContext,
+          memorySectionItems,
           sessionSummary,
           skillContext,
           runtimeSystemPrompt: workspaceSnapshot.runtime.systemPrompt,
@@ -3496,6 +3536,8 @@ export const ChatInterface: React.FC<{
             onClose={() => setShowSettings(false)}
             onConfigSaved={(nextConfig) => setConfig(nextConfig)}
             runtimeCapabilities={runtimeCapabilities}
+            onOpenPromptInspector={() => setShowPromptInspector(true)}
+            promptInspectorAvailable={Boolean(activePromptInspectorSnapshot)}
             onMemoryFilesChanged={(agentId) => {
               void handleMemoryFilesChanged(agentId);
             }}

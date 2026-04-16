@@ -273,6 +273,8 @@ interface SettingsViewProps {
   onClose: () => void;
   onConfigSaved?: (config: AgentConfig) => void;
   onMemoryFilesChanged?: (agentId: string) => void | Promise<void>;
+  onOpenPromptInspector?: () => void;
+  promptInspectorAvailable?: boolean;
 }
 
 interface ProviderModelFetchResult {
@@ -598,6 +600,8 @@ export const SettingsView = ({
   onClose,
   onConfigSaved,
   onMemoryFilesChanged,
+  onOpenPromptInspector,
+  promptInspectorAvailable = false,
 }: SettingsViewProps) => {
   const [draft, setDraft] = useState<AgentConfig>(() => normalizeAgentConfig(config));
   const draftRef = useRef<AgentConfig>(normalizeAgentConfig(config));
@@ -3777,6 +3781,25 @@ export const SettingsView = ({
                       </div>
                     </div>
                   ) : null}
+                  <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
+                          Prompt Inspector
+                        </div>
+                        <div className="mt-1 text-xs text-white/45">
+                          不在聊天页直接展开 prompt，只通过独立面板查看最近一次请求快照。
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => onOpenPromptInspector?.()}
+                        disabled={!promptInspectorAvailable}
+                        className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/78 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        打开面板
+                      </button>
+                    </div>
+                  </div>
                   {modelInvocationStats ? (
                     <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
                       <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
