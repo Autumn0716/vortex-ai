@@ -311,6 +311,51 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     }
   });
 
+  app.get('/api/automations', async (_request, response) => {
+    try {
+      const nightlyArchive = await nightlyArchiveScheduler.getStatus();
+      response.json({
+        automations: [
+          {
+            id: 'nightly_archive',
+            title: '记忆归档',
+            description: '同步温冷层、执行长期记忆晋升，并可选调用 LLM 重要性评分。',
+            enabled: nightlyArchive.settings.enabled,
+            schedule: `每天 ${nightlyArchive.settings.time}`,
+            running: nightlyArchive.running,
+            nextRunAt: nightlyArchive.nextRunAt,
+            lastRunSummary: nightlyArchive.state.lastRunSummary,
+            capabilities: ['manual_run', 'scheduled_run', 'catch_up'],
+          },
+        ],
+      });
+    } catch (error) {
+      sendApiError(
+        response,
+        500,
+        'AUTOMATION_STATUS_FAILED',
+        error instanceof Error ? error.message : 'Failed to read automation status.',
+      );
+    }
+  });
+
+  app.post('/api/automations/:id/run', async (request, response) => {
+    try {
+      if (request.params.id !== 'nightly_archive') {
+        sendApiError(response, 404, 'AUTOMATION_NOT_FOUND', `Unknown automation: ${request.params.id}`);
+        return;
+      }
+      response.json(await nightlyArchiveScheduler.runNow('manual'));
+    } catch (error) {
+      sendApiError(
+        response,
+        500,
+        'AUTOMATION_RUN_FAILED',
+        error instanceof Error ? error.message : 'Failed to run automation.',
+      );
+    }
+  });
+
   app.get('/api/project-knowledge/status', async (_request, response) => {
     try {
       response.json(await projectKnowledgeWatcher.getStatus());

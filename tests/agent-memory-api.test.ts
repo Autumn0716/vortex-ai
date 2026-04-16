@@ -9,6 +9,7 @@ import { after, test } from 'node:test';
 import { createFlowAgentApiServer, resolveAllowedPath } from '../server/api-server';
 import {
   getApiServerHealth,
+  getAutomationSnapshot,
   getNightlyArchiveStatus,
   inspectOfficialModelMetadata,
   listStoredModelMetadata,
@@ -16,6 +17,7 @@ import {
   readAgentMemoryFile,
   registerConfiguredAgentMemoryFileStore,
   runNightlyArchiveNow,
+  runAutomation,
   saveNightlyArchiveSettings,
   saveStoredModelMetadata,
   writeAgentMemoryFile,
@@ -186,6 +188,15 @@ test('API server exposes readable and writable nightly archive settings', async 
     const runStatus = await runNightlyArchiveNow(settings);
     assert.equal(runStatus?.state.lastRunSummary?.trigger, 'manual');
     assert.equal(runStatus?.state.lastRunSummary?.processedAgents, 0);
+
+    const automationSnapshot = await getAutomationSnapshot(settings);
+    assert.equal(automationSnapshot?.automations[0]?.id, 'nightly_archive');
+    assert.equal(automationSnapshot?.automations[0]?.schedule, '每天 04:30');
+
+    const automationRunStatus = await runAutomation(settings, 'nightly_archive');
+    assert.equal(automationRunStatus?.state.lastRunSummary?.trigger, 'manual');
+
+    await assert.rejects(() => runAutomation(settings, 'missing'), /Unknown automation: missing/);
   } finally {
     await server.close();
   }

@@ -79,17 +79,20 @@ import {
   ensureAgentMemoryFile,
   getApiServerHealth,
   getNightlyArchiveStatus,
+  getAutomationSnapshot,
   inspectOfficialModelMetadata,
   listStoredModelMetadata,
   listAgentMemoryFiles,
   readAgentMemoryFile,
   resolveApiServerBaseUrl,
+  runAutomation,
   runNightlyArchiveNow,
   saveNightlyArchiveSettings,
   saveStoredModelMetadata,
   syncAgentMemoryLifecycleForAgent,
   writeAgentMemoryFile,
   type AgentMemoryFileEntry,
+  type AutomationSnapshot,
   type NightlyArchiveStatus,
   type OfficialModelMetadataResponse,
 } from '../../lib/agent-memory-api';
@@ -662,6 +665,9 @@ export const SettingsView = ({
   const [nightlyArchiveTime, setNightlyArchiveTime] = useState('03:00');
   const [nightlyArchiveUseLlmScoring, setNightlyArchiveUseLlmScoring] = useState(false);
   const [nightlyArchiveMessage, setNightlyArchiveMessage] = useState<MemoryFileStatus | null>(null);
+  const [automationSnapshot, setAutomationSnapshot] = useState<AutomationSnapshot | null>(null);
+  const [automationLoadingId, setAutomationLoadingId] = useState<string | null>(null);
+  const [automationMessage, setAutomationMessage] = useState<MemoryFileStatus | null>(null);
   const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<FlowAgentRuntimeDiagnostics | null>(null);
   const [runtimeDiagnosticsLoading, setRuntimeDiagnosticsLoading] = useState(false);
   const [runtimeDiagnosticsError, setRuntimeDiagnosticsError] = useState('');
@@ -1153,6 +1159,7 @@ export const SettingsView = ({
       setNightlyArchiveEnabled(status?.settings.enabled ?? false);
       setNightlyArchiveTime(status?.settings.time ?? '03:00');
       setNightlyArchiveUseLlmScoring(status?.settings.useLlmScoring ?? false);
+      setAutomationSnapshot(await getAutomationSnapshot(draft.apiServer));
       if (options.announce) {
         setNightlyArchiveMessage({ tone: 'neutral', message: options.announce });
       }
@@ -1161,6 +1168,7 @@ export const SettingsView = ({
         return;
       }
       setNightlyArchiveStatus(null);
+      setAutomationSnapshot(null);
       setApiServerSummary('');
       setNightlyArchiveMessage({
         tone: 'error',
@@ -1985,6 +1993,26 @@ export const SettingsView = ({
       });
     } finally {
       setNightlyArchiveLoading(false);
+    }
+  };
+
+  const handleAutomationRun = async (automationId: string) => {
+    setAutomationLoadingId(automationId);
+    try {
+      const nextStatus = await runAutomation(draft.apiServer, automationId);
+      setNightlyArchiveStatus(nextStatus);
+      setAutomationSnapshot(await getAutomationSnapshot(draft.apiServer));
+      setAutomationMessage({
+        tone: 'success',
+        message: `已运行自动化：${automationId}`,
+      });
+    } catch (error) {
+      setAutomationMessage({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '运行自动化失败。',
+      });
+    } finally {
+      setAutomationLoadingId(null);
     }
   };
 
@@ -4058,6 +4086,80 @@ export const SettingsView = ({
                       ? apiServerSummary || '正在连接本地 API Server。'
                       : '当前未启用，夜间归档和文件真源编辑都不会生效。'}
                   </div>
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard
+              title="自动化触发器"
+              description="统一查看和手动运行后台自动化。当前先接入记忆归档，后续扩展 cron、git hook 和 agent 操作。"
+              action={
+                <button
+                  onClick={() => loadNightlyArchive({ announce: '已刷新自动化状态。' })}
+                  disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={nightlyArchiveLoading ? 'animate-spin' : undefined} />
+                  刷新
+                </button>
+              }
+            >
+              <div className="space-y-3">
+                {(automationSnapshot?.automations ?? []).map((automation) => (
+                  <div key={automation.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-white/90">{automation.title}</div>
+                        <div className="mt-1 text-xs text-white/45">{automation.description}</div>
+                        <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-white/50">
+                          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
+                            {automation.enabled ? '已启用' : '未启用'}
+                          </span>
+                          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
+                            {automation.schedule}
+                          </span>
+                          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
+                            next: {automation.nextRunAt ?? '未计划'}
+                          </span>
+                          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
+                            {automation.capabilities.join(' · ')}
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          handleAutomationRun(automation.id).catch(console.error);
+                        }}
+                        disabled={!draft.apiServer.enabled || Boolean(automationLoadingId)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100 hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <RotateCcw size={13} />
+                        {automationLoadingId === automation.id ? '运行中...' : '运行'}
+                      </button>
+                    </div>
+                    <div className="mt-3 text-xs text-white/45">
+                      最近结果：
+                      {automation.lastRunSummary
+                        ? `处理 ${automation.lastRunSummary.processedAgents} 个 agent，失败 ${automation.lastRunSummary.failedAgents}，触发 ${automation.lastRunSummary.trigger}`
+                        : '暂无'}
+                    </div>
+                  </div>
+                ))}
+                {!automationSnapshot?.automations.length ? (
+                  <div className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-white/45">
+                    {draft.apiServer.enabled ? '当前没有已注册的自动化。' : '启用本地 API Server 后可查看自动化。'}
+                  </div>
+                ) : null}
+                <div
+                  className={`text-xs ${
+                    automationMessage?.tone === 'error'
+                      ? 'text-red-200'
+                      : automationMessage?.tone === 'success'
+                        ? 'text-emerald-200'
+                        : 'text-white/45'
+                  }`}
+                >
+                  {automationMessage?.message ?? '自动化 registry 当前由本地 API Server 提供。'}
                 </div>
               </div>
             </SectionCard>

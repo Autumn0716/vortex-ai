@@ -102,6 +102,22 @@ export interface NightlyArchiveStatus {
   running: boolean;
 }
 
+export interface AutomationEntry {
+  id: string;
+  title: string;
+  description: string;
+  enabled: boolean;
+  schedule: string;
+  running: boolean;
+  nextRunAt: string | null;
+  lastRunSummary: NightlyArchiveRunSummary | null;
+  capabilities: string[];
+}
+
+export interface AutomationSnapshot {
+  automations: AutomationEntry[];
+}
+
 export interface AgentMemoryFileEntry {
   path: string;
   kind: Exclude<AgentMemoryFileKind, 'unknown'>;
@@ -283,6 +299,27 @@ export async function runNightlyArchiveNow(settings: ApiServerSettings): Promise
   }
 
   return requestApi<NightlyArchiveStatus>(settings, '/api/nightly-archive/run', {
+    method: 'POST',
+  });
+}
+
+export async function getAutomationSnapshot(settings: ApiServerSettings): Promise<AutomationSnapshot | null> {
+  if (!settings.enabled) {
+    return null;
+  }
+
+  return requestApi<AutomationSnapshot>(settings, '/api/automations', {}, { allowNotFound: true });
+}
+
+export async function runAutomation(
+  settings: ApiServerSettings,
+  automationId: string,
+): Promise<NightlyArchiveStatus | null> {
+  if (!settings.enabled) {
+    throw new Error('The local API server is disabled.');
+  }
+
+  return requestApi<NightlyArchiveStatus>(settings, `/api/automations/${encodeURIComponent(automationId)}/run`, {
     method: 'POST',
   });
 }
