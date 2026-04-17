@@ -16,6 +16,7 @@ import {
   resolveLifecycleTier,
 } from './agent-memory-lifecycle';
 import {
+  normalizeMemoryTierPolicy,
   scoreMemoryImportance,
   selectEffectiveMemoryDocuments,
   type MemoryTierPolicy,
@@ -731,6 +732,80 @@ function normalizeLifecycleMarkdown(markdown: string) {
   });
 }
 
+function sourceMatchesProtectedTopic(sourceMarkdown: string, policy?: MemoryTierPolicy) {
+  const protectedTopics = normalizeMemoryTierPolicy(policy).protectedTopics;
+  if (protectedTopics.length === 0) {
+    return false;
+  }
+
+  const normalizedSource = sourceMarkdown.toLowerCase();
+  return protectedTopics.some((topic) => normalizedSource.includes(topic.toLowerCase()));
+}
+
+function getDailyDateAgeDays(date: string, now: string) {
+  const endOfDate = new Date(`${date}T23:59:59.999Z`).getTime();
+  return Math.max(0, (new Date(now).getTime() - endOfDate) / (24 * 60 * 60 * 1000));
+}
+
+async function pruneColdSurrogates(input: {
+  agentSlug: string;
+  fileStore: AgentMemoryFileStore;
+  now: string;
+  dailyDir: string;
+  lifecyclePolicy?: MemoryTierPolicy;
+  failures: Array<{ path: string; message: string }>;
+}) {
+  const policy = normalizeMemoryTierPolicy(input.lifecyclePolicy);
+  if (policy.coldRetentionDays <= 0 && policy.coldMaxFiles <= 0) {
+    return;
+  }
+
+  const paths = (await input.fileStore.listPaths(input.dailyDir)).sort();
+  const candidates: Array<{ path: string; date: string; ageDays: number }> = [];
+
+  for (const path of paths) {
+    if (detectMemoryFileKind(path) !== 'daily_cold') {
+      continue;
+    }
+
+    const date = resolveDailyMemoryDate(path);
+    if (!date) {
+      continue;
+    }
+
+    const dailyPaths = buildAgentMemoryPaths(input.agentSlug, date);
+    const sourceMarkdown = (await input.fileStore.readText(dailyPaths.dailyFile)) ?? '';
+    if (!sourceMarkdown.trim() || sourceMatchesProtectedTopic(sourceMarkdown, input.lifecyclePolicy)) {
+      continue;
+    }
+
+    candidates.push({
+      path,
+      date,
+      ageDays: getDailyDateAgeDays(date, input.now),
+    });
+  }
+
+  if (policy.coldRetentionDays > 0) {
+    const maxAgeDays = policy.warmRetentionDays + policy.coldRetentionDays;
+    for (const candidate of candidates) {
+      if (candidate.ageDays > maxAgeDays) {
+        await deleteWithFailureCapture(input.fileStore, candidate.path, input.failures);
+      }
+    }
+  }
+
+  if (policy.coldMaxFiles > 0) {
+    const remaining = candidates
+      .filter((candidate) => !(policy.coldRetentionDays > 0 && candidate.ageDays > policy.warmRetentionDays + policy.coldRetentionDays))
+      .sort((left, right) => right.date.localeCompare(left.date));
+    const overflow = remaining.slice(policy.coldMaxFiles);
+    for (const candidate of overflow) {
+      await deleteWithFailureCapture(input.fileStore, candidate.path, input.failures);
+    }
+  }
+}
+
 export async function syncAgentMemoryFromStore(
   database: Database,
   input: {
@@ -833,8 +908,15 @@ export async function syncAgentMemoryLifecycleFromStore(input: {
         continue;
       }
 
-      const tier = resolveLifecycleTier(date, now, input.lifecyclePolicy);
       const dailyPaths = buildAgentMemoryPaths(input.agentSlug, date);
+      if (sourceMatchesProtectedTopic(sourceMarkdown, input.lifecyclePolicy)) {
+        await deleteWithFailureCapture(input.fileStore, dailyPaths.warmFile, failures);
+        await deleteWithFailureCapture(input.fileStore, dailyPaths.coldFile, failures);
+        skippedCount += 1;
+        continue;
+      }
+
+      const tier = resolveLifecycleTier(date, now, input.lifecyclePolicy);
 
       if (tier === 'warm') {
         let assessment = buildRuleBasedMemoryAssessment({
@@ -927,6 +1009,15 @@ export async function syncAgentMemoryLifecycleFromStore(input: {
 
     await deleteWithFailureCapture(input.fileStore, path, failures);
   }
+
+  await pruneColdSurrogates({
+    agentSlug: input.agentSlug,
+    fileStore: input.fileStore,
+    now,
+    dailyDir,
+    lifecyclePolicy: input.lifecyclePolicy,
+    failures,
+  });
 
   const result: AgentMemoryLifecycleResult = {
     scannedCount: sourcePaths.length,

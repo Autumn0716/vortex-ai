@@ -96,6 +96,9 @@ export interface MemorySettings {
   includeRecentMemorySnapshot: boolean;
   hotRetentionDays: number;
   warmRetentionDays: number;
+  coldRetentionDays: number;
+  coldMaxFiles: number;
+  protectedTopics: string[];
   promotionScoreThreshold: number;
   scoringWeights: {
     compression: number;
@@ -391,6 +394,9 @@ export const DEFAULT_CONFIG: AgentConfig = {
     includeRecentMemorySnapshot: true,
     hotRetentionDays: 2,
     warmRetentionDays: 15,
+    coldRetentionDays: 0,
+    coldMaxFiles: 0,
+    protectedTopics: [],
     promotionScoreThreshold: 4,
     scoringWeights: {
       compression: 0.8,
@@ -709,18 +715,33 @@ function normalizeRetentionDays(value: unknown, fallback: number) {
   return Number.isFinite(numeric) && numeric >= 0 ? numeric : fallback;
 }
 
+function normalizeProtectedTopics(value: unknown) {
+  if (!Array.isArray(value)) {
+    return DEFAULT_CONFIG.memory.protectedTopics;
+  }
+
+  return Array.from(
+    new Set(value.map((item) => String(item).trim()).filter(Boolean)),
+  );
+}
+
 function normalizeMemorySettings(value?: Partial<MemorySettings>): MemorySettings {
   const hotRetentionDays = normalizeRetentionDays(value?.hotRetentionDays, DEFAULT_CONFIG.memory.hotRetentionDays);
   const warmRetentionDays = Math.max(
     hotRetentionDays,
     normalizeRetentionDays(value?.warmRetentionDays, DEFAULT_CONFIG.memory.warmRetentionDays),
   );
+  const coldRetentionDays = normalizeRetentionDays(value?.coldRetentionDays, DEFAULT_CONFIG.memory.coldRetentionDays);
+  const coldMaxFiles = normalizeRetentionDays(value?.coldMaxFiles, DEFAULT_CONFIG.memory.coldMaxFiles);
 
   return {
     ...DEFAULT_CONFIG.memory,
     ...(value ?? {}),
     hotRetentionDays,
     warmRetentionDays,
+    coldRetentionDays,
+    coldMaxFiles,
+    protectedTopics: normalizeProtectedTopics(value?.protectedTopics),
     sessionSummaryMode: value?.sessionSummaryMode === 'llm' ? 'llm' : DEFAULT_CONFIG.memory.sessionSummaryMode,
     scoringWeights: {
       ...DEFAULT_CONFIG.memory.scoringWeights,

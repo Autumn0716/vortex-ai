@@ -176,6 +176,9 @@ export async function syncCurrentAgentMemory(options?: {
         ? {
             hotRetentionDays: config.memory.hotRetentionDays,
             warmRetentionDays: config.memory.warmRetentionDays,
+            coldRetentionDays: config.memory.coldRetentionDays,
+            coldMaxFiles: config.memory.coldMaxFiles,
+            protectedTopics: config.memory.protectedTopics,
           }
         : undefined,
     });

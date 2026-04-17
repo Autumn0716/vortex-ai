@@ -12,6 +12,9 @@ export type MemoryTier = 'hot' | 'warm' | 'cold';
 export interface MemoryTierPolicy {
   hotRetentionDays?: number;
   warmRetentionDays?: number;
+  coldRetentionDays?: number;
+  coldMaxFiles?: number;
+  protectedTopics?: string[];
 }
 
 export interface MemoryContextDocument {
@@ -298,10 +301,17 @@ export function normalizeMemoryTierPolicy(policy: MemoryTierPolicy = {}): Requir
     hotRetentionDays,
     normalizeRetentionDays(policy.warmRetentionDays, DEFAULT_WARM_RETENTION_DAYS),
   );
+  const coldRetentionDays = normalizeRetentionDays(policy.coldRetentionDays, 0);
+  const coldMaxFiles = normalizeRetentionDays(policy.coldMaxFiles, 0);
 
   return {
     hotRetentionDays,
     warmRetentionDays,
+    coldRetentionDays,
+    coldMaxFiles,
+    protectedTopics: Array.isArray(policy.protectedTopics)
+      ? policy.protectedTopics.map((topic) => topic.trim()).filter(Boolean)
+      : [],
   };
 }
 

@@ -723,6 +723,9 @@ export async function syncAgentMemoryLifecycleForAgent(
       ? {
           hotRetentionDays: config.memory.hotRetentionDays,
           warmRetentionDays: config.memory.warmRetentionDays,
+          coldRetentionDays: config.memory.coldRetentionDays,
+          coldMaxFiles: config.memory.coldMaxFiles,
+          protectedTopics: config.memory.protectedTopics,
         }
       : undefined,
   });

@@ -159,6 +159,63 @@ test('syncAgentMemoryLifecycleFromStore uses configurable lifecycle windows', as
   assert.match((await fileStore.readText('memory/agents/core/daily/2026-03-25.warm.md')) ?? '', /tier: "warm"/);
 });
 
+test('syncAgentMemoryLifecycleFromStore skips surrogates for protected topics', async () => {
+  const fileStore = new InMemoryFileStore(
+    new Map([
+      ['memory/agents/core/daily/2026-03-01.md', '- 用户核心身份：长期项目负责人'],
+      ['memory/agents/core/daily/2026-03-01.warm.md', 'stale warm'],
+      ['memory/agents/core/daily/2026-03-01.cold.md', 'stale cold'],
+    ]),
+  );
+
+  const result = await syncAgentMemoryLifecycleFromStore({
+    agentSlug: 'core',
+    fileStore,
+    now: '2026-04-20T12:00:00.000Z',
+    lifecyclePolicy: {
+      protectedTopics: ['核心身份'],
+    },
+  });
+
+  assert.equal(result.warmUpdated, 0);
+  assert.equal(result.coldUpdated, 0);
+  assert.equal(result.skippedCount, 1);
+  assert.equal(await fileStore.readText('memory/agents/core/daily/2026-03-01.warm.md'), null);
+  assert.equal(await fileStore.readText('memory/agents/core/daily/2026-03-01.cold.md'), null);
+});
+
+test('syncAgentMemoryLifecycleFromStore prunes cold surrogates by retention days and max files', async () => {
+  const fileStore = new InMemoryFileStore(
+    new Map([
+      ['memory/agents/core/daily/2026-04-01.md', '- recent cold source'],
+      ['memory/agents/core/daily/2026-04-01.cold.md', 'recent cold'],
+      ['memory/agents/core/daily/2026-03-20.md', '- overflow cold source'],
+      ['memory/agents/core/daily/2026-03-20.cold.md', 'overflow cold'],
+      ['memory/agents/core/daily/2026-02-01.md', '- expired cold source'],
+      ['memory/agents/core/daily/2026-02-01.cold.md', 'expired cold'],
+      ['memory/agents/core/daily/2026-01-01.md', '- 核心身份 protected old source'],
+      ['memory/agents/core/daily/2026-01-01.cold.md', 'protected cold'],
+    ]),
+  );
+
+  await syncAgentMemoryLifecycleFromStore({
+    agentSlug: 'core',
+    fileStore,
+    now: '2026-04-20T12:00:00.000Z',
+    lifecyclePolicy: {
+      warmRetentionDays: 15,
+      coldRetentionDays: 45,
+      coldMaxFiles: 1,
+      protectedTopics: ['核心身份'],
+    },
+  });
+
+  assert.match((await fileStore.readText('memory/agents/core/daily/2026-04-01.cold.md')) ?? '', /tier: "cold"/);
+  assert.equal(await fileStore.readText('memory/agents/core/daily/2026-03-20.cold.md'), null);
+  assert.equal(await fileStore.readText('memory/agents/core/daily/2026-02-01.cold.md'), null);
+  assert.equal(await fileStore.readText('memory/agents/core/daily/2026-01-01.cold.md'), null);
+});
+
 test('syncAgentMemoryLifecycleFromStore falls back to rules when scoring callback fails', async () => {
   const fileStore = new InMemoryFileStore(
     new Map([['memory/agents/core/daily/2026-04-10.md', '- TODO 完成温层摘要']]),

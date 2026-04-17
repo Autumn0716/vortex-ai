@@ -22,6 +22,9 @@ export function buildAgentMemoryContextRequest(
       tierPolicy: {
         hotRetentionDays: configSnapshot.memory.hotRetentionDays,
         warmRetentionDays: configSnapshot.memory.warmRetentionDays,
+        coldRetentionDays: configSnapshot.memory.coldRetentionDays,
+        coldMaxFiles: configSnapshot.memory.coldMaxFiles,
+        protectedTopics: configSnapshot.memory.protectedTopics,
       },
     },
   };

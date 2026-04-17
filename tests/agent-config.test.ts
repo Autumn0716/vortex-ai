@@ -75,6 +75,9 @@ test('normalizeAgentConfig preserves configurable memory lifecycle windows', () 
 
   assert.equal(config.memory.hotRetentionDays, 5);
   assert.equal(config.memory.warmRetentionDays, 30);
+  assert.equal(config.memory.coldRetentionDays, 0);
+  assert.equal(config.memory.coldMaxFiles, 0);
+  assert.deepEqual(config.memory.protectedTopics, []);
 
   const clamped = normalizeAgentConfig({
     memory: {
@@ -85,6 +88,20 @@ test('normalizeAgentConfig preserves configurable memory lifecycle windows', () 
 
   assert.equal(clamped.memory.hotRetentionDays, 20);
   assert.equal(clamped.memory.warmRetentionDays, 20);
+});
+
+test('normalizeAgentConfig preserves cold pruning and protected memory topics', () => {
+  const config = normalizeAgentConfig({
+    memory: {
+      coldRetentionDays: 90,
+      coldMaxFiles: 120,
+      protectedTopics: ['身份', '身份', 'project-state', '  '],
+    },
+  } as Partial<AgentConfig>);
+
+  assert.equal(config.memory.coldRetentionDays, 90);
+  assert.equal(config.memory.coldMaxFiles, 120);
+  assert.deepEqual(config.memory.protectedTopics, ['身份', 'project-state']);
 });
 
 test('normalizeAgentConfig preserves the session summary mode', () => {

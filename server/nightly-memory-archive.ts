@@ -443,6 +443,9 @@ export function createNightlyMemoryArchiveScheduler(options: NightlyMemoryArchiv
       ? {
           hotRetentionDays: projectConfig.memory.hotRetentionDays,
           warmRetentionDays: projectConfig.memory.warmRetentionDays,
+          coldRetentionDays: projectConfig.memory.coldRetentionDays,
+          coldMaxFiles: projectConfig.memory.coldMaxFiles,
+          protectedTopics: projectConfig.memory.protectedTopics,
         }
       : undefined;
 

@@ -3174,6 +3174,111 @@ export const SettingsView = ({
             </div>
 
             <SectionCard
+              title="记忆生命周期"
+              description="控制 daily 记忆进入 hot / warm / cold 的时间窗口。冷层裁剪只删除派生摘要，不删除 daily 源文件。"
+            >
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="mb-2 text-sm font-medium text-white/90">热层天数</div>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.memory.hotRetentionDays}
+                    onChange={(event) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        memory: {
+                          ...current.memory,
+                          hotRetentionDays: Number(event.target.value),
+                        },
+                      }))
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                  />
+                  <p className="mt-2 text-xs text-white/45">默认 2 天，保留原始 daily。</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="mb-2 text-sm font-medium text-white/90">温层天数</div>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.memory.warmRetentionDays}
+                    onChange={(event) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        memory: {
+                          ...current.memory,
+                          warmRetentionDays: Number(event.target.value),
+                        },
+                      }))
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                  />
+                  <p className="mt-2 text-xs text-white/45">低于热层时会自动按热层对齐。</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="mb-2 text-sm font-medium text-white/90">冷层保留天数</div>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.memory.coldRetentionDays}
+                    onChange={(event) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        memory: {
+                          ...current.memory,
+                          coldRetentionDays: Number(event.target.value),
+                        },
+                      }))
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                  />
+                  <p className="mt-2 text-xs text-white/45">0 表示不按年龄裁剪。</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="mb-2 text-sm font-medium text-white/90">冷层最大文件</div>
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.memory.coldMaxFiles}
+                    onChange={(event) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        memory: {
+                          ...current.memory,
+                          coldMaxFiles: Number(event.target.value),
+                        },
+                      }))
+                    }
+                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                  />
+                  <p className="mt-2 text-xs text-white/45">0 表示不限制数量。</p>
+                </div>
+                <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.04] p-4">
+                  <div className="mb-2 text-sm font-medium text-white/90">永久保留关键词</div>
+                  <textarea
+                    value={draft.memory.protectedTopics.join('\n')}
+                    onChange={(event) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        memory: {
+                          ...current.memory,
+                          protectedTopics: event.target.value
+                            .split(/\r?\n/)
+                            .map((topic) => topic.trim())
+                            .filter(Boolean),
+                        },
+                      }))
+                    }
+                    className="min-h-[92px] w-full resize-none rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                    placeholder={'核心身份\n长期偏好'}
+                  />
+                  <p className="mt-2 text-xs text-white/45">每行一个；命中则不压缩。</p>
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard
               title="记忆晋升评分"
               description="调整夜间归档把 warm/cold 记忆提升为长期记忆时的加权标准。保持原主题，不改运行模型，只改评分汇总。"
             >

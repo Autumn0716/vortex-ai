@@ -340,6 +340,9 @@ test('nightly scheduler passes config memory lifecycle windows to lifecycle sync
     {
       hotRetentionDays: 7,
       warmRetentionDays: 30,
+      coldRetentionDays: 0,
+      coldMaxFiles: 0,
+      protectedTopics: [],
     },
   ]);
 });

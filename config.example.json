@@ -35,6 +35,9 @@
     "sessionSummaryMode": "deterministic",
     "hotRetentionDays": 2,
     "warmRetentionDays": 15,
+    "coldRetentionDays": 0,
+    "coldMaxFiles": 0,
+    "protectedTopics": [],
     "promotionScoreThreshold": 4,
     "scoringWeights": {
       "compression": 0.8,
