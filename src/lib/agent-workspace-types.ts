@@ -154,7 +154,7 @@ export interface TopicTaskGraphNode extends CompiledTaskGraphNode {
   topicId: string;
   agentId: string;
   branchTopicId?: string;
-  status: 'pending' | 'ready' | 'completed' | 'failed';
+  status: 'pending' | 'ready' | 'running' | 'completed' | 'failed';
   createdAt: string;
   updatedAt: string;
 }
@@ -169,7 +169,7 @@ export interface TopicTaskGraph {
   compilerProviderId?: string;
   compilerModel?: string;
   compilerStrategy: TaskGraphCompilerStrategy;
-  status: 'draft' | 'ready' | 'review_ready' | 'failed';
+  status: 'draft' | 'ready' | 'running' | 'review_ready' | 'failed';
   reviewerBranchTopicId?: string;
   createdAt: string;
   updatedAt: string;

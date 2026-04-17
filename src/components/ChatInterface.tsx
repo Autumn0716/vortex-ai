@@ -1588,8 +1588,25 @@ export const ChatInterface: React.FC<{
         });
         await activateTopic(workspace.topic.id);
         setShellNotice(
-          `Compiled task graph and created ${result.branchTopics?.length ?? 0} worker branches.`,
+          `Compiled task graph and started ${result.branchTopics?.length ?? 0} worker branches in background.`,
         );
+        void import('../lib/workflow-background-runner')
+          .then(({ runWorkflowWorkerBranchesWithCurrentModel }) =>
+            runWorkflowWorkerBranchesWithCurrentModel({
+              parentTopicId: workspace.topic.id,
+              graphId: result.graph.id,
+              maxWorkers: result.branchTopics?.length ?? 4,
+            }),
+          )
+          .then((runResult) => {
+            setShellNotice(
+              `Background workflow finished: ${runResult.executed.length} completed, ${runResult.failed.length} failed.`,
+            );
+          })
+          .catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            setShellNotice(`Background workflow failed: ${message}`);
+          });
       } else {
         const branchTopic = await createBranchTopicFromTopic({
           sourceTopicId: workspace.topic.id,

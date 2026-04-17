@@ -1,6 +1,6 @@
 import localforage from 'localforage';
 import { getAgentConfig } from './agent/config';
-import type { Database, StoredToolRun } from './db';
+import type { Database, SqlValue, StoredToolRun } from './db';
 import { buildEmbeddingConfigFromDocuments, initDB, parseEmbeddingJson, saveDB } from './db';
 import {
   buildAgentWorkspacePath,
@@ -921,6 +921,209 @@ export async function retryWorkflowBranchTask(options: { branchTopicId: string; 
   };
 }
 
+export interface WorkflowWorkerExecutionInput {
+  graph: {
+    id: string;
+    title: string;
+    goal: string;
+  };
+  node: TopicTaskGraphNode;
+  parentTopic: TopicSummary;
+  branchTopic: TopicSummary;
+  branchWorkspace: TopicWorkspace;
+}
+
+export interface WorkflowWorkerExecutionResult {
+  content: string;
+  handoffNote?: string;
+}
+
+export async function runReadyWorkflowWorkerBranches(options: {
+  parentTopicId?: string;
+  graphId?: string;
+  maxWorkers?: number;
+  executeWorker: (input: WorkflowWorkerExecutionInput) => Promise<WorkflowWorkerExecutionResult>;
+}) {
+  const database = await ensureAgentSchema();
+  const params: SqlValue[] = [];
+  const filters = [
+    "n.node_type = 'worker'",
+    "n.status = 'ready'",
+    'n.branch_topic_id IS NOT NULL',
+    "g.status IN ('ready', 'running')",
+  ];
+
+  if (options.parentTopicId) {
+    filters.push('g.topic_id = ?');
+    params.push(options.parentTopicId);
+  }
+  if (options.graphId) {
+    filters.push('g.id = ?');
+    params.push(options.graphId);
+  }
+
+  const limit = Math.max(1, options.maxWorkers ?? 4);
+  params.push(limit);
+
+  const rows = mapRows<
+    TopicTaskGraphNodeRow & {
+      graph_title: string;
+      graph_goal: string;
+    }
+  >(
+    database.exec(
+      `
+        SELECT
+          n.id,
+          n.graph_id,
+          n.topic_id,
+          n.agent_id,
+          n.node_key,
+          n.node_type,
+          n.title,
+          n.objective,
+          n.acceptance_criteria,
+          n.depends_on_json,
+          n.branch_topic_id,
+          n.status,
+          n.created_at,
+          n.updated_at,
+          g.title AS graph_title,
+          g.goal AS graph_goal
+        FROM topic_task_nodes n
+        JOIN topic_task_graphs g ON g.id = n.graph_id
+        WHERE ${filters.join(' AND ')}
+        ORDER BY n.updated_at ASC, n.sort_order ASC
+        LIMIT ?
+      `,
+      params,
+    ),
+  );
+
+  const executed: TopicTaskGraphNode[] = [];
+  const failed: Array<{ node: TopicTaskGraphNode; message: string }> = [];
+
+  for (const row of rows) {
+    const node = toTopicTaskGraphNode(row);
+    if (!node.branchTopicId) {
+      continue;
+    }
+
+    const branchWorkspace = await getTopicWorkspace(node.branchTopicId);
+    const parentWorkspace = await getTopicWorkspace(row.topic_id);
+    if (!branchWorkspace || !parentWorkspace) {
+      failed.push({ node, message: 'Workflow branch or parent topic is missing.' });
+      continue;
+    }
+
+    const startedAt = nowIso();
+    const startDatabase = await ensureAgentSchema();
+    startDatabase.run(
+      `
+        UPDATE topic_task_nodes
+        SET status = 'running', updated_at = ?
+        WHERE id = ? AND status = 'ready'
+      `,
+      [startedAt, row.id],
+    );
+    startDatabase.run(
+      `
+        UPDATE topic_task_graphs
+        SET status = CASE WHEN status = 'ready' THEN 'running' ELSE status END,
+            updated_at = ?
+        WHERE id = ?
+      `,
+      [startedAt, row.graph_id],
+    );
+    await saveDB();
+
+    await addTopicMessages([
+      {
+        topicId: branchWorkspace.topic.id,
+        agentId: branchWorkspace.agent.id,
+        role: 'system',
+        authorName: 'Workflow Runner',
+        content: `Background worker started: ${node.title}\nObjective: ${node.objective}`,
+        createdAt: startedAt,
+      },
+    ]);
+
+    try {
+      const result = await options.executeWorker({
+        graph: {
+          id: row.graph_id,
+          title: row.graph_title,
+          goal: row.graph_goal,
+        },
+        node,
+        parentTopic: parentWorkspace.topic,
+        branchTopic: branchWorkspace.topic,
+        branchWorkspace,
+      });
+      const content = result.content.trim();
+      if (!content) {
+        throw new Error('Worker execution returned empty content.');
+      }
+
+      await addTopicMessages([
+        {
+          topicId: branchWorkspace.topic.id,
+          agentId: branchWorkspace.agent.id,
+          role: 'assistant',
+          authorName: `${branchWorkspace.runtime.displayName} · Worker`,
+          content,
+          createdAt: nowIso(),
+        },
+      ]);
+
+      const handoffResult = await handoffBranchTopicToParent({
+        branchTopicId: branchWorkspace.topic.id,
+        note: result.handoffNote ?? `Background worker completed: ${node.title}`,
+        includeRecentMessages: 4,
+      });
+      executed.push(...handoffResult.completedTaskNodes);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const failedAt = nowIso();
+      const failedDatabase = await ensureAgentSchema();
+      failedDatabase.run(
+        `
+          UPDATE topic_task_nodes
+          SET status = 'failed', updated_at = ?
+          WHERE id = ?
+        `,
+        [failedAt, row.id],
+      );
+      failedDatabase.run(
+        `
+          UPDATE topic_task_graphs
+          SET status = 'failed', updated_at = ?
+          WHERE id = ?
+        `,
+        [failedAt, row.graph_id],
+      );
+      await saveDB();
+      await addTopicMessages([
+        {
+          topicId: branchWorkspace.topic.id,
+          agentId: branchWorkspace.agent.id,
+          role: 'system',
+          authorName: 'Workflow Runner',
+          content: `Background worker failed: ${message}`,
+          createdAt: failedAt,
+        },
+      ]);
+      failed.push({ node, message });
+    }
+  }
+
+  return {
+    attemptedCount: rows.length,
+    executed,
+    failed,
+  };
+}
+
 export async function updateTopicTitle(topicId: string, title: string): Promise<void> {
   const database = await ensureAgentSchema();
   const normalizedTitle = title.trim() || DEFAULT_TOPIC_TITLE;
@@ -1404,7 +1607,7 @@ async function markWorkflowGraphsReviewReady(completedNodes: TopicTaskGraphNode[
         [graphId],
       ),
     )[0];
-    if (!graph || graph.status !== 'ready' || graph.reviewer_branch_topic_id) {
+    if (!graph || (graph.status !== 'ready' && graph.status !== 'running') || graph.reviewer_branch_topic_id) {
       continue;
     }
 
@@ -1444,7 +1647,7 @@ async function markWorkflowGraphsReviewReady(completedNodes: TopicTaskGraphNode[
         SET
           status = 'review_ready',
           updated_at = ?
-        WHERE id = ? AND status = 'ready'
+        WHERE id = ? AND status IN ('ready', 'running')
       `,
       [completedAt, graphId],
     );

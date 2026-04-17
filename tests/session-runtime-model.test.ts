@@ -16,6 +16,7 @@ import {
   handoffBranchTopicToParent,
   listTopics,
   retryWorkflowBranchTask,
+  runReadyWorkflowWorkerBranches,
   saveAgent,
   saveAgentMemoryDocument,
   updateTopicModelFeatures,
@@ -761,4 +762,56 @@ test('workflow writes a review-ready rollup after all worker branches hand off',
   });
   assert.equal(retryHandoff.reviewReadyWorkflows.length, 1);
   assert.notEqual(retryHandoff.reviewReadyWorkflows[0]?.reviewerBranchTopic?.id, reviewerBranchTopic.id);
+});
+
+test('runReadyWorkflowWorkerBranches executes ready workers and hands off results', async () => {
+  localforageState.clear();
+  const agentId = createAgentId('agent_workflow_background');
+  await saveAgent({
+    id: agentId,
+    name: 'Workflow Background Agent',
+    description: 'Agent used to verify background worker execution',
+    systemPrompt: 'Template prompt.',
+    accentColor: 'from-sky-500/20 to-cyan-500/20',
+    workspaceRelpath: `agents/${agentId}`,
+  });
+
+  const parentTopic = await createTopic({ agentId, title: 'Workflow Background Parent' });
+  const graphResult = await compileTaskGraphFromTopic({
+    sourceTopicId: parentTopic.id,
+    title: 'Workflow Background Test',
+    goal: '实现后台 worker 执行；生成父会话 handoff',
+  });
+
+  const runResult = await runReadyWorkflowWorkerBranches({
+    parentTopicId: parentTopic.id,
+    graphId: graphResult.graph.id,
+    executeWorker: async ({ node }) => ({
+      content: `Background output for ${node.title}.`,
+      handoffNote: `Auto handoff for ${node.title}.`,
+    }),
+  });
+
+  assert.equal(runResult.failed.length, 0);
+  assert.equal(runResult.executed.length, graphResult.branchTopics.length);
+  assert.equal(runResult.executed.every((node) => node.status === 'completed'), true);
+
+  const parentWorkspace = await getTopicWorkspace(parentTopic.id);
+  assert.ok(parentWorkspace);
+  assert.ok(
+    parentWorkspace.messages.some(
+      (message) =>
+        message.role === 'assistant' &&
+        /Branch handoff from: Workflow Background Test/.test(message.content) &&
+        /Auto handoff/.test(message.content),
+    ),
+  );
+
+  const branchWorkspace = await getTopicWorkspace(graphResult.branchTopics[0]!.id);
+  assert.ok(branchWorkspace);
+  assert.ok(
+    branchWorkspace.messages.some(
+      (message) => message.role === 'assistant' && /Background output/.test(message.content),
+    ),
+  );
 });
