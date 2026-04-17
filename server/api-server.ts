@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { exportAgentPackage, importAgentPackage } from './agent-package-store';
+import { createAgentTaskAutomation } from './agent-task-automation';
 import { createCodeReviewAutomation } from './code-review-automation';
 import { readProjectConfig, writeProjectConfig } from './config-store';
 import { createDailySummaryScheduler } from './daily-summary-automation';
@@ -152,11 +153,16 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     now: options.nightlyArchiveNow,
     logger,
   });
+  const agentTaskAutomation = createAgentTaskAutomation({
+    rootDir,
+    now: options.nightlyArchiveNow,
+    logger,
+  });
   const projectKnowledgeWatcher = createProjectKnowledgeWatcher(rootDir);
   const projectKnowledgeReady = projectKnowledgeWatcher.ready;
   const app = express();
 
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '25mb' }));
   applyCors(app);
   applyAuth(app, authToken);
   applyRequestLogging(app, logger);
@@ -379,8 +385,20 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       const dailySummary = await dailySummaryScheduler.getStatus();
       const weeklyArchive = await weeklyArchiveScheduler.getStatus();
       const codeReview = await codeReviewAutomation.getStatus();
+      const agentTask = await agentTaskAutomation.getStatus();
       response.json({
         automations: [
+          {
+            id: 'agent_task',
+            title: 'Agent 任务触发',
+            description: '把任意 agent 操作写入对应 daily 记忆，作为可审计的任务队列入口。',
+            enabled: agentTask.enabled,
+            schedule: agentTask.schedule,
+            running: agentTask.running,
+            nextRunAt: agentTask.nextRunAt,
+            lastRunSummary: agentTask.state.lastRunSummary,
+            capabilities: ['manual_run', 'agent_operation', 'task_queue'],
+          },
           {
             id: 'daily_summary',
             title: '昨日会话摘要',
@@ -449,6 +467,15 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       }
       if (request.params.id === 'code_review') {
         response.json(await codeReviewAutomation.runNow('manual'));
+        return;
+      }
+      if (request.params.id === 'agent_task') {
+        response.json(
+          await agentTaskAutomation.runNow('manual', {
+            agentSlug: typeof request.body?.agentSlug === 'string' ? request.body.agentSlug : undefined,
+            instruction: typeof request.body?.instruction === 'string' ? request.body.instruction : undefined,
+          }),
+        );
         return;
       }
       if (request.params.id === 'nightly_archive') {

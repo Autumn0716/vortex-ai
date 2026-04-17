@@ -6,6 +6,7 @@ import {
   getSourceTypeWeight,
   readDocumentSourceTypeMap,
 } from './db-knowledge-documents';
+import { readDocumentQualityScoreMap } from './db-document-quality';
 import { mapRows } from './db-row-helpers';
 import { readGraphCandidates, readVectorCandidates } from './db-search-candidates';
 import type {
@@ -208,13 +209,17 @@ export function shapeRetrievedDocumentResults(
   candidates: DocumentSearchCandidate[],
   options?: KnowledgeDocumentSearchOptions,
   retrievalStages?: Map<string, 'primary' | 'corrective' | 'hybrid'>,
+  qualityScores?: Map<string, number>,
 ): RetrievedDocumentResult[] {
   const graphWeight = options?.searchWeights?.graphWeight ?? 0.12;
 
   return rerankHybridDocuments(hybridScoreDocuments(candidates, options?.searchWeights), query)
     .map((row) => ({
       ...row,
-      hybridScore: (row.hybridScore + (row.graphScore ?? 0) * graphWeight) * getSourceTypeWeight(row.sourceType, options),
+      hybridScore:
+        (row.hybridScore + (row.graphScore ?? 0) * graphWeight) *
+        getSourceTypeWeight(row.sourceType, options) *
+        (0.7 + ((qualityScores?.get(row.id) ?? 70) / 100) * 0.6),
     }))
     .sort((left, right) => right.hybridScore - left.hybridScore)
     .slice(0, options?.maxResults ?? 5)
@@ -234,4 +239,8 @@ export function shapeRetrievedDocumentResults(
         retrievalStage: retrievalStages?.get(row.id) ?? 'primary',
       };
     });
+}
+
+export function readQualityScoresForSearch(database: Database) {
+  return readDocumentQualityScoreMap(database);
 }

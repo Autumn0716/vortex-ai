@@ -22,12 +22,15 @@
 - Improved Memory Timeline with text search, finer event labels, expandable metadata, and snapshot-backed undo for future memory file saves or daily-file deletes.
 - Added code-aware project knowledge indexing for `src/**/*.ts|tsx|py|go`, producing compact code-summary documents with imports, symbols, source paths, and previews for local RAG.
 - Added first-pass FlowAgent package export/import APIs for bundling project config, agent Markdown memory files, and shared Markdown skills into a `.flowagent` JSON package.
+- Added Settings UI controls for exporting/importing `.flowagent` agent packages, including target-agent slug rewriting and optional project config import.
 - Added a manual automation trigger for the nightly memory archive via `POST /api/nightly-archive/run` and a matching Settings action to run the archive job immediately.
 - Added a first-pass automation registry with `GET /api/automations` and `POST /api/automations/:id/run`, plus a Settings card that lists and runs registered background jobs.
 - Added optional daily cron scheduling for the nightly memory archive, persisted as `cronExpression` while preserving older fixed-time settings and exposing the effective schedule through the automation registry.
 - Added a `daily_summary` automation that runs at 08:00, appends a replaceable auto-summary block to yesterday's `daily/YYYY-MM-DD.md` files, and can be triggered through the shared automation registry.
 - Added a `weekly_archive` automation that runs every Sunday at 04:00 and reuses the existing nightly memory archive pipeline for warm/cold sync, promotion, and scoring.
 - Added a first-pass `code_review` automation plus installable git `pre-push` hook scripts so pushes can notify the local API server to record changed files and lightweight review notes without blocking the push.
+- Added a parameterized `agent_task` automation that queues arbitrary agent operations into the selected agent's daily Markdown log through the shared automation registry.
+- Added deterministic knowledge document quality scoring with freshness, feedback, completeness, and search-hit signals; quality scores now appear in Settings and influence RAG ranking.
 - Added a local Express-based memory API server plus frontend file-store registration so FlowAgent can read and write `memory/agents/<agent-slug>/...` directly from the Settings UI.
 - Switched the Settings memory page from legacy global-memory document editing to raw Markdown file editing while preserving the existing theme shell.
 - Added warm/cold lifecycle surrogate sync so `daily/*.warm.md` and `daily/*.cold.md` can be generated deterministically while SQLite only indexes the effective representation for each day.

@@ -11,6 +11,7 @@ import {
   getDocumentMetadataRecord,
   parseKnowledgeTags,
 } from './db-knowledge-documents';
+import { upsertDocumentQualityScore } from './db-document-quality';
 import { getScalar, mapRows } from './db-row-helpers';
 import { clearDocumentSearchCache } from './db-search-cache';
 import type { Database } from './db-core';
@@ -110,6 +111,7 @@ export async function upsertKnowledgeDocumentInDatabase(
     syncedAt: record.syncedAt,
   });
   indexDocumentChunks(database, { id: record.id, title: record.title, content: record.content });
+  upsertDocumentQualityScore(database, record.id);
 
   if (!options?.skipEmbeddings) {
     if (options?.embeddingConfig) {
@@ -177,6 +179,7 @@ export function deleteDocumentInDatabase(database: Database, id: string) {
   clearDocumentGraph(database, id);
   deleteDocumentChunkEmbeddings(database, id);
   database.run('DELETE FROM document_metadata WHERE document_id = ?', [id]);
+  database.run('DELETE FROM document_quality_score WHERE document_id = ?', [id]);
   database.run('DELETE FROM documents WHERE id = ?', [id]);
   clearDocumentSearchCache(database);
 }

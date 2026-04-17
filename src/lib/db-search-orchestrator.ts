@@ -7,6 +7,7 @@ import {
 import {
   collectDocumentCandidates,
   mergeDocumentSearchCandidate,
+  readQualityScoresForSearch,
   shapeRetrievedDocumentResults,
 } from './db-search-pipeline';
 import type {
@@ -85,9 +86,16 @@ export async function searchDocumentsInDatabaseWithMetrics(
     const retrievalStages = new Map<string, 'primary' | 'corrective' | 'hybrid'>(
       primaryCandidates.map((candidate) => [candidate.id, 'primary']),
     );
+    const qualityScores = readQualityScoresForSearch(database);
 
     const rerankStartedAt = Date.now();
-    const primaryResults = shapeRetrievedDocumentResults(normalizedQuery, primaryCandidates, options, retrievalStages);
+    const primaryResults = shapeRetrievedDocumentResults(
+      normalizedQuery,
+      primaryCandidates,
+      options,
+      retrievalStages,
+      qualityScores,
+    );
     metrics.rerankDurationMs += Date.now() - rerankStartedAt;
     const correctivePlan = planCorrectiveKnowledgeQueries(normalizedQuery, primaryResults, options);
     metrics.correctiveQueryCount = correctivePlan.queries.length;
@@ -133,6 +141,7 @@ export async function searchDocumentsInDatabaseWithMetrics(
           [...merged.values()],
           options,
           retrievalStages,
+          qualityScores,
         );
         metrics.rerankDurationMs += Date.now() - correctiveRerankStartedAt;
       }

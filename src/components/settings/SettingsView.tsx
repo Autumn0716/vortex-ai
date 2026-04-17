@@ -56,8 +56,11 @@ import {
   exportWorkspaceData,
   getDataStats,
   importWorkspaceData,
+  listDocumentQualityScores,
   recordAuditLog,
+  refreshDocumentQualityScores,
   type DataStats,
+  type DocumentQualityScoreRecord,
   type TokenUsageAggregate,
   type TokenUsageSummary,
 } from '../../lib/db';
@@ -77,9 +80,11 @@ import {
   createAgentMemoryApiFileStore,
   deleteAgentMemoryFile,
   ensureAgentMemoryFile,
+  exportAgentPackage,
   getApiServerHealth,
   getNightlyArchiveStatus,
   getAutomationSnapshot,
+  importAgentPackage,
   inspectOfficialModelMetadata,
   listStoredModelMetadata,
   listAgentMemoryFiles,
@@ -94,6 +99,7 @@ import {
   type AgentMemoryFileEntry,
   type AutomationRunStatus,
   type AutomationSnapshot,
+  type FlowAgentPackage,
   type NightlyArchiveStatus,
   type OfficialModelMetadataResponse,
 } from '../../lib/agent-memory-api';
@@ -681,11 +687,25 @@ export const SettingsView = ({
   const [automationSnapshot, setAutomationSnapshot] = useState<AutomationSnapshot | null>(null);
   const [automationLoadingId, setAutomationLoadingId] = useState<string | null>(null);
   const [automationMessage, setAutomationMessage] = useState<MemoryFileStatus | null>(null);
+  const initialAgentSlug = agents.find((agent) => agent.id === activeAgentId)?.slug ?? agents[0]?.slug ?? 'flowagent-core';
+  const [agentTaskDraft, setAgentTaskDraft] = useState({
+    agentSlug: initialAgentSlug,
+    instruction: '',
+  });
+  const [agentPackageDraft, setAgentPackageDraft] = useState({
+    agentSlug: initialAgentSlug,
+    targetAgentSlug: '',
+    importConfig: false,
+  });
+  const [agentPackageStatus, setAgentPackageStatus] = useState<MemoryFileStatus | null>(null);
+  const [documentQualityScores, setDocumentQualityScores] = useState<DocumentQualityScoreRecord[]>([]);
+  const [documentQualityLoading, setDocumentQualityLoading] = useState(false);
   const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<FlowAgentRuntimeDiagnostics | null>(null);
   const [runtimeDiagnosticsLoading, setRuntimeDiagnosticsLoading] = useState(false);
   const [runtimeDiagnosticsError, setRuntimeDiagnosticsError] = useState('');
   const backupRestoreInputRef = useRef<HTMLInputElement>(null);
   const externalImportInputRef = useRef<HTMLInputElement>(null);
+  const agentPackageImportInputRef = useRef<HTMLInputElement>(null);
   const memoryFilesRequestIdRef = useRef(0);
   const nightlyArchiveRequestIdRef = useRef(0);
 
@@ -802,6 +822,12 @@ export const SettingsView = ({
   useEffect(() => {
     if (activeCategory === 'data') {
       loadStats().catch(console.error);
+    }
+  }, [activeCategory]);
+
+  useEffect(() => {
+    if (activeCategory === 'docs') {
+      loadDocumentQualityScores().catch(console.error);
     }
   }, [activeCategory]);
 
@@ -2019,7 +2045,14 @@ export const SettingsView = ({
   const handleAutomationRun = async (automationId: string) => {
     setAutomationLoadingId(automationId);
     try {
-      const nextStatus = await runAutomation(draft.apiServer, automationId);
+      const payload =
+        automationId === 'agent_task'
+          ? {
+              agentSlug: agentTaskDraft.agentSlug.trim(),
+              instruction: agentTaskDraft.instruction.trim(),
+            }
+          : undefined;
+      const nextStatus = await runAutomation(draft.apiServer, automationId, payload);
       if (isNightlyArchiveStatus(nextStatus)) {
         setNightlyArchiveStatus(nextStatus);
         setNightlyArchiveEnabled(nextStatus.settings.enabled);
@@ -2032,6 +2065,9 @@ export const SettingsView = ({
         tone: 'success',
         message: `已运行自动化：${automationId}`,
       });
+      if (automationId === 'agent_task') {
+        setAgentTaskDraft((current) => ({ ...current, instruction: '' }));
+      }
     } catch (error) {
       setAutomationMessage({
         tone: 'error',
@@ -2111,6 +2147,74 @@ export const SettingsView = ({
   const handleMarkdownExport = async () => {
     const payload = await exportWorkspaceData();
     downloadText(buildMarkdownExport(payload), `flowagent-export-${Date.now()}.md`);
+  };
+
+  const handleAgentPackageExport = async () => {
+    try {
+      const agentSlug = agentPackageDraft.agentSlug.trim();
+      const packageData = await exportAgentPackage(draft.apiServer, agentSlug);
+      if (!packageData) {
+        throw new Error('本地 API Server 未启用或无法导出 agent package。');
+      }
+      downloadJson(packageData, `${packageData.agentSlug}-${Date.now()}.flowagent`);
+      setAgentPackageStatus({
+        tone: 'success',
+        message: `已导出 ${packageData.agentSlug}：${packageData.memoryFiles.length} 个记忆文件，${packageData.skillFiles.length} 个 skill 文件。`,
+      });
+    } catch (error) {
+      setAgentPackageStatus({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '导出 agent package 失败。',
+      });
+    }
+  };
+
+  const handleAgentPackageImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const packageData = JSON.parse(await readFileAsText(file)) as FlowAgentPackage;
+      const result = await importAgentPackage(draft.apiServer, packageData, {
+        targetAgentSlug: agentPackageDraft.targetAgentSlug.trim() || undefined,
+        importConfig: agentPackageDraft.importConfig,
+      });
+      if (!result) {
+        throw new Error('本地 API Server 未启用或无法导入 agent package。');
+      }
+      setAgentPackageStatus({
+        tone: 'success',
+        message: `已导入 ${result.agentSlug}：${result.memoryFileCount} 个记忆文件，${result.skillFileCount} 个 skill 文件。`,
+      });
+      await onMemoryFilesChanged?.(agents.find((agent) => agent.slug === result.agentSlug)?.id ?? activeMemoryAgentId);
+    } catch (error) {
+      setAgentPackageStatus({
+        tone: 'error',
+        message: error instanceof Error ? error.message : '导入 agent package 失败。',
+      });
+    } finally {
+      event.target.value = '';
+    }
+  };
+
+  const loadDocumentQualityScores = async () => {
+    setDocumentQualityLoading(true);
+    try {
+      setDocumentQualityScores(await listDocumentQualityScores());
+    } finally {
+      setDocumentQualityLoading(false);
+    }
+  };
+
+  const handleRefreshDocumentQualityScores = async () => {
+    setDocumentQualityLoading(true);
+    try {
+      setDocumentQualityScores(await refreshDocumentQualityScores());
+    } finally {
+      setDocumentQualityLoading(false);
+    }
   };
 
   const renderSettingsContent = () => {
@@ -2603,6 +2707,81 @@ export const SettingsView = ({
                 </div>
               </SectionCard>
             </div>
+
+            <SectionCard
+              title="Agent 配置包"
+              description="打包 config.json、指定 agent 的 Markdown 记忆和共享 skills 为 .flowagent 文件。"
+              action={
+                <button
+                  onClick={handleAgentPackageExport}
+                  disabled={!draft.apiServer.enabled || !agentPackageDraft.agentSlug.trim()}
+                  className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download size={15} />
+                  导出 .flowagent
+                </button>
+              }
+            >
+              <div className="grid gap-3 lg:grid-cols-[180px_1fr_auto]">
+                <select
+                  value={agentPackageDraft.agentSlug}
+                  onChange={(event) =>
+                    setAgentPackageDraft((current) => ({ ...current, agentSlug: event.target.value }))
+                  }
+                  className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                >
+                  {agents.length > 0 ? (
+                    agents.map((agent) => (
+                      <option key={agent.id} value={agent.slug} className="bg-[#111111]">
+                        {agent.name}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="flowagent-core" className="bg-[#111111]">
+                      flowagent-core
+                    </option>
+                  )}
+                </select>
+                <input
+                  value={agentPackageDraft.targetAgentSlug}
+                  onChange={(event) =>
+                    setAgentPackageDraft((current) => ({ ...current, targetAgentSlug: event.target.value }))
+                  }
+                  placeholder="导入目标 agent slug，可留空沿用包内 slug"
+                  className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-emerald-500/50"
+                />
+                <button
+                  onClick={() => agentPackageImportInputRef.current?.click()}
+                  disabled={!draft.apiServer.enabled}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <HardDriveUpload size={15} />
+                  导入
+                </button>
+              </div>
+              <label className="mt-3 flex items-center gap-2 text-xs text-white/50">
+                <input
+                  type="checkbox"
+                  checked={agentPackageDraft.importConfig}
+                  onChange={(event) =>
+                    setAgentPackageDraft((current) => ({ ...current, importConfig: event.target.checked }))
+                  }
+                  className="h-4 w-4 rounded border-white/10 bg-black/20"
+                />
+                导入时覆盖本地 config.json
+              </label>
+              <div
+                className={`mt-3 text-xs ${
+                  agentPackageStatus?.tone === 'error'
+                    ? 'text-red-200'
+                    : agentPackageStatus?.tone === 'success'
+                      ? 'text-emerald-200'
+                      : 'text-white/45'
+                }`}
+              >
+                {agentPackageStatus?.message ?? '需要启用本地 API Server；package 文件以 Markdown 真源为主。'}
+              </div>
+            </SectionCard>
 
             <SectionCard title="存储说明" description="当前版本使用浏览器端 localForage + sql.js 持久化。">
               <div className="grid gap-3 md:grid-cols-2">
@@ -4257,11 +4436,46 @@ export const SettingsView = ({
                           </span>
                         </div>
                       </div>
+                      {automation.id === 'agent_task' ? (
+                        <div className="grid min-w-[280px] flex-1 gap-2 sm:grid-cols-[140px_1fr]">
+                          <select
+                            value={agentTaskDraft.agentSlug}
+                            onChange={(event) =>
+                              setAgentTaskDraft((current) => ({ ...current, agentSlug: event.target.value }))
+                            }
+                            className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500/50"
+                          >
+                            {agents.length > 0 ? (
+                              agents.map((agent) => (
+                                <option key={agent.id} value={agent.slug} className="bg-[#111111]">
+                                  {agent.name}
+                                </option>
+                              ))
+                            ) : (
+                              <option value="flowagent-core" className="bg-[#111111]">
+                                flowagent-core
+                              </option>
+                            )}
+                          </select>
+                          <input
+                            value={agentTaskDraft.instruction}
+                            onChange={(event) =>
+                              setAgentTaskDraft((current) => ({ ...current, instruction: event.target.value }))
+                            }
+                            placeholder="输入要触发的 agent 操作"
+                            className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white outline-none placeholder:text-white/30 focus:border-emerald-500/50"
+                          />
+                        </div>
+                      ) : null}
                       <button
                         onClick={() => {
                           handleAutomationRun(automation.id).catch(console.error);
                         }}
-                        disabled={!draft.apiServer.enabled || Boolean(automationLoadingId)}
+                        disabled={
+                          !draft.apiServer.enabled ||
+                          Boolean(automationLoadingId) ||
+                          (automation.id === 'agent_task' && !agentTaskDraft.instruction.trim())
+                        }
                         className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100 hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <RotateCcw size={13} />
@@ -4501,6 +4715,73 @@ export const SettingsView = ({
                 ))}
               </div>
             </SectionCard>
+            <SectionCard
+              title="知识库质量评分"
+              description="按新鲜度、反馈、完整性和检索命中给文档打分；低分文档会降低 RAG 排序权重。"
+              className="md:col-span-2"
+              action={
+                <button
+                  onClick={() => handleRefreshDocumentQualityScores().catch(console.error)}
+                  disabled={documentQualityLoading}
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={documentQualityLoading ? 'animate-spin' : undefined} />
+                  重算
+                </button>
+              }
+            >
+              <div className="grid gap-2">
+                {documentQualityScores.slice(0, 8).map((score) => (
+                  <div
+                    key={score.documentId}
+                    className="grid gap-3 rounded-2xl border border-white/10 bg-black/20 p-3 md:grid-cols-[1fr_auto]"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-white/90">{score.title ?? score.documentId}</div>
+                      <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-white/45">
+                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
+                          {score.sourceType ?? 'user_upload'}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
+                          引用 {score.citationCount}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
+                          有用 {score.helpfulCount} / 没用 {score.notHelpfulCount}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
+                          issues {score.issueCount}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div
+                        className={`text-lg font-semibold ${
+                          score.score < 45
+                            ? 'text-red-200'
+                            : score.score < 70
+                              ? 'text-amber-200'
+                              : 'text-emerald-200'
+                        }`}
+                      >
+                        {Math.round(score.score)}
+                      </div>
+                      <div className="mt-1 text-[10px] uppercase tracking-[0.14em] text-white/35">
+                        {score.recommendation === 'archive_or_rewrite'
+                          ? '建议归档/重写'
+                          : score.recommendation === 'review'
+                            ? '建议复查'
+                            : '保留'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {!documentQualityScores.length ? (
+                  <div className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-white/45">
+                    当前没有可评分的知识文档。
+                  </div>
+                ) : null}
+              </div>
+            </SectionCard>
             <SectionCard title="文档预览长度" description="控制搜索结果卡片的摘要长度。">
               <input
                 type="number"
@@ -4694,6 +4975,13 @@ export const SettingsView = ({
         multiple
         className="hidden"
         onChange={importExternalData}
+      />
+      <input
+        ref={agentPackageImportInputRef}
+        type="file"
+        accept=".flowagent,application/json"
+        className="hidden"
+        onChange={handleAgentPackageImport}
       />
 
       <div className="flex h-[86vh] min-h-[640px] w-full max-w-[1460px] overflow-hidden rounded-[32px] border border-white/10 bg-[#1E1E1E] shadow-2xl">

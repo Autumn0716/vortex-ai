@@ -56,6 +56,11 @@ import {
   upsertTokenUsageInDatabase,
 } from './db-usage';
 import { insertAuditLogInDatabase, listAuditLogsInDatabase } from './db-audit';
+import {
+  listDocumentQualityScoresInDatabase,
+  refreshDocumentQualityScoresInDatabase,
+  upsertDocumentQualityScore,
+} from './db-document-quality';
 import { getScalar, mapRows } from './db-row-helpers';
 import { toConversationSummary } from './db-row-mappers';
 import { createBaseSchema } from './db-schema';
@@ -95,6 +100,7 @@ import type {
   TokenUsageAggregate,
   TokenUsageRecord,
   TokenUsageSummary,
+  DocumentQualityScoreRecord,
 } from './db-types';
 
 export { Database };
@@ -131,6 +137,7 @@ export type {
   TokenUsageAggregate,
   TokenUsageRecord,
   TokenUsageSummary,
+  DocumentQualityScoreRecord,
 } from './db-types';
 
 let sqlite3Module: SQLiteModule | null = null;
@@ -226,7 +233,24 @@ export function upsertKnowledgeEvidenceFeedbackInDatabase(
 export async function recordKnowledgeEvidenceFeedback(input: KnowledgeEvidenceFeedbackInput) {
   const database = await initDB();
   upsertKnowledgeEvidenceFeedbackInDatabase(database, input);
+  upsertDocumentQualityScore(database, input.documentId);
+  clearDocumentSearchCache(database);
   await saveDB();
+}
+
+export async function listDocumentQualityScores(): Promise<DocumentQualityScoreRecord[]> {
+  const database = await initDB();
+  const scores = listDocumentQualityScoresInDatabase(database);
+  await saveDB();
+  return scores;
+}
+
+export async function refreshDocumentQualityScores(): Promise<DocumentQualityScoreRecord[]> {
+  const database = await initDB();
+  const scores = refreshDocumentQualityScoresInDatabase(database);
+  clearDocumentSearchCache(database);
+  await saveDB();
+  return scores;
 }
 
 async function getEmbeddingConfig() {

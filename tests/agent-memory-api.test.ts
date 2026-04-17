@@ -214,14 +214,41 @@ test('API server exposes readable and writable nightly archive settings', async 
     const nightlyAutomation = automationSnapshot?.automations.find((automation) => automation.id === 'nightly_archive');
     const weeklyAutomation = automationSnapshot?.automations.find((automation) => automation.id === 'weekly_archive');
     const codeReviewAutomation = automationSnapshot?.automations.find((automation) => automation.id === 'code_review');
+    const agentTaskAutomation = automationSnapshot?.automations.find((automation) => automation.id === 'agent_task');
     assert.equal(nightlyAutomation?.schedule, 'cron 15 4 * * *');
     assert.equal(weeklyAutomation?.schedule, '每周日 04:00');
     assert.equal(codeReviewAutomation?.schedule, 'git pre-push / 手动');
+    assert.equal(agentTaskAutomation?.schedule, '参数化手动触发');
 
     const automationRunStatus = await runAutomation(settings, 'nightly_archive');
     assert.equal(automationRunStatus?.state.lastRunSummary?.trigger, 'manual');
 
     await assert.rejects(() => runAutomation(settings, 'missing'), /Unknown automation: missing/);
+  } finally {
+    await server.close();
+  }
+});
+
+test('API automation registry can queue a parameterized agent task', async () => {
+  const rootDir = await createTempRoot();
+  const server = await startServer(rootDir, '', () => '2026-04-17T08:30:00.000Z');
+  const settings = {
+    enabled: true,
+    baseUrl: server.baseUrl,
+    authToken: '',
+  };
+
+  try {
+    const runStatus = await runAutomation(settings, 'agent_task', {
+      agentSlug: 'core',
+      instruction: '总结项目状态并准备下一步计划。',
+    });
+    assert.equal(runStatus?.state.lastRunSummary?.trigger, 'manual');
+    assert.equal(runStatus?.state.lastRunSummary?.failedAgents, 0);
+
+    const daily = await readFile(path.join(rootDir, 'memory/agents/core/daily/2026-04-17.md'), 'utf8');
+    assert.match(daily, /Task State: queued/);
+    assert.match(daily, /总结项目状态/);
   } finally {
     await server.close();
   }

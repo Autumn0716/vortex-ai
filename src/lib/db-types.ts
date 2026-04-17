@@ -179,6 +179,23 @@ export interface KnowledgeDocumentRecord {
   updatedAt?: string;
 }
 
+export interface DocumentQualityScoreRecord {
+  documentId: string;
+  title?: string;
+  sourceType?: string;
+  score: number;
+  freshnessScore: number;
+  feedbackScore: number;
+  completenessScore: number;
+  citationScore: number;
+  citationCount: number;
+  helpfulCount: number;
+  notHelpfulCount: number;
+  issueCount: number;
+  recommendation: 'keep' | 'review' | 'archive_or_rewrite';
+  updatedAt: string;
+}
+
 export interface KnowledgeDocumentSupportMetadata {
   supportScore?: number;
   supportLabel?: 'low' | 'medium' | 'high' | 'unknown';

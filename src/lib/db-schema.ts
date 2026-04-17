@@ -44,6 +44,21 @@ export function createBaseSchema(database: Database) {
       UNIQUE(message_id, document_id)
     );
 
+    CREATE TABLE IF NOT EXISTS document_quality_score (
+      document_id TEXT PRIMARY KEY,
+      score REAL NOT NULL,
+      freshness_score REAL NOT NULL,
+      feedback_score REAL NOT NULL,
+      completeness_score REAL NOT NULL,
+      citation_score REAL NOT NULL,
+      citation_count INTEGER NOT NULL,
+      helpful_count INTEGER NOT NULL,
+      not_helpful_count INTEGER NOT NULL,
+      issue_count INTEGER NOT NULL,
+      recommendation TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS document_metadata (
       document_id TEXT PRIMARY KEY,
       source_type TEXT NOT NULL,
@@ -188,6 +203,7 @@ export function createBaseSchema(database: Database) {
     CREATE INDEX IF NOT EXISTS idx_document_chunks_document ON document_chunks(document_id, chunk_index ASC);
     CREATE INDEX IF NOT EXISTS idx_document_metadata_source ON document_metadata(source_type, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_knowledge_evidence_feedback_doc ON knowledge_evidence_feedback(document_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_document_quality_score_score ON document_quality_score(score DESC, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_document_graph_nodes_entity ON document_graph_nodes(normalized_entity, weight DESC);
     CREATE INDEX IF NOT EXISTS idx_document_graph_nodes_doc ON document_graph_nodes(document_id, weight DESC);
     CREATE INDEX IF NOT EXISTS idx_document_graph_edges_doc ON document_graph_edges(document_id, weight DESC);

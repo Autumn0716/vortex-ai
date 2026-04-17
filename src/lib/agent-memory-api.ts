@@ -189,7 +189,38 @@ export interface CodeReviewStatus {
   running: boolean;
 }
 
-export type AutomationRunStatus = NightlyArchiveStatus | DailySummaryStatus | WeeklyArchiveStatus | CodeReviewStatus;
+export interface AgentTaskRunSummary {
+  processedAgents: number;
+  successfulAgents: number;
+  failedAgents: number;
+  failures: Array<{ agentSlug: string; message: string }>;
+  taskId: string;
+  agentSlug: string;
+  instruction: string;
+  trigger: 'catchup' | 'scheduled' | 'manual';
+  startedAt: string;
+  completedAt: string;
+}
+
+export interface AgentTaskStatus {
+  enabled: boolean;
+  schedule: string;
+  state: {
+    lastSuccessfulRunAt: string | null;
+    lastAttemptedRunAt: string | null;
+    lastRunSummary: AgentTaskRunSummary | null;
+  };
+  nextRunAt: string | null;
+  catchUpDue: boolean;
+  running: boolean;
+}
+
+export type AutomationRunStatus =
+  | NightlyArchiveStatus
+  | DailySummaryStatus
+  | WeeklyArchiveStatus
+  | CodeReviewStatus
+  | AgentTaskStatus;
 
 export interface AutomationEntry {
   id: string;
@@ -199,7 +230,12 @@ export interface AutomationEntry {
   schedule: string;
   running: boolean;
   nextRunAt: string | null;
-  lastRunSummary: NightlyArchiveRunSummary | DailySummaryRunSummary | CodeReviewRunSummary | null;
+  lastRunSummary:
+    | NightlyArchiveRunSummary
+    | DailySummaryRunSummary
+    | CodeReviewRunSummary
+    | AgentTaskRunSummary
+    | null;
   capabilities: string[];
 }
 
@@ -403,6 +439,7 @@ export async function getAutomationSnapshot(settings: ApiServerSettings): Promis
 export async function runAutomation(
   settings: ApiServerSettings,
   automationId: string,
+  payload?: Record<string, unknown>,
 ): Promise<AutomationRunStatus | null> {
   if (!settings.enabled) {
     throw new Error('The local API server is disabled.');
@@ -410,6 +447,7 @@ export async function runAutomation(
 
   return requestApi<AutomationRunStatus>(settings, `/api/automations/${encodeURIComponent(automationId)}/run`, {
     method: 'POST',
+    body: payload ? JSON.stringify(payload) : undefined,
   });
 }
 
