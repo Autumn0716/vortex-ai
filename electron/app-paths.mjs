@@ -11,7 +11,7 @@ function hasProjectMarkers(rootDir) {
 }
 
 export function resolveElectronProjectRoot(app, sourceRoot) {
-  const override = process.env.FLOWAGENT_DESKTOP_DATA_ROOT?.trim();
+  const override = process.env.VORTEX_DESKTOP_DATA_ROOT?.trim();
   if (override) {
     return path.resolve(override);
   }
@@ -36,7 +36,7 @@ export function resolveElectronBootstrapFileSource(app, sourceRoot, filename, op
   const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
   const explicit =
-    filename === 'config.json' ? env.FLOWAGENT_DESKTOP_IMPORT_CONFIG?.trim() : '';
+    filename === 'config.json' ? env.VORTEX_DESKTOP_IMPORT_CONFIG?.trim() : '';
   const candidates = [
     explicit ? path.resolve(explicit) : null,
     path.join(cwd, filename),
@@ -57,10 +57,10 @@ export function resolveElectronConfigImportSource(app, sourceRoot, options = {})
 }
 
 export function resolveElectronRendererEntry(app, sourceRoot) {
-  if (process.env.FLOWAGENT_RENDERER_URL?.trim()) {
+  if (process.env.VORTEX_RENDERER_URL?.trim()) {
     return {
       type: 'url',
-      value: process.env.FLOWAGENT_RENDERER_URL.trim(),
+      value: process.env.VORTEX_RENDERER_URL.trim(),
     };
   }
 

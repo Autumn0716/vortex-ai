@@ -43,7 +43,7 @@ export interface AgentTaskRunRequest {
   instruction?: string;
 }
 
-const FLOWAGENT_DIRNAME = '.flowagent';
+const VORTEX_DIRNAME = '.vortex';
 const STATE_FILENAME = 'agent-task-state.json';
 
 const DEFAULT_AGENT_TASK_STATE: AgentTaskState = {
@@ -54,15 +54,15 @@ const DEFAULT_AGENT_TASK_STATE: AgentTaskState = {
 };
 
 function getStatePath(rootDir: string) {
-  return path.join(rootDir, FLOWAGENT_DIRNAME, STATE_FILENAME);
+  return path.join(rootDir, VORTEX_DIRNAME, STATE_FILENAME);
 }
 
 async function ensureStateDir(rootDir: string) {
-  await fs.mkdir(path.join(rootDir, FLOWAGENT_DIRNAME), { recursive: true });
+  await fs.mkdir(path.join(rootDir, VORTEX_DIRNAME), { recursive: true });
 }
 
 function normalizeAgentSlug(input?: string) {
-  const normalized = (input ?? '').trim() || 'flowagent-core';
+  const normalized = (input ?? '').trim() || 'vortex-core';
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(normalized)) {
     throw new Error('Agent slug must use letters, numbers, underscores, or hyphens.');
   }

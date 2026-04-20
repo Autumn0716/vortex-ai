@@ -19,7 +19,7 @@ test.after(async () => {
 });
 
 async function createTempRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'flowagent-model-metadata-store-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'vortex-model-metadata-store-'));
   tempRoots.push(root);
   return root;
 }

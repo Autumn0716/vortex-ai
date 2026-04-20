@@ -60,7 +60,7 @@ function exportLogsAsCsv(logs: AuditLogRecord[]) {
     ]),
   ];
   downloadFile(
-    `flowagent-audit-${new Date().toISOString().slice(0, 10)}.csv`,
+    `vortex-audit-${new Date().toISOString().slice(0, 10)}.csv`,
     lines.map((line) => line.map(escapeCsv).join(',')).join('\n'),
     'text/csv;charset=utf-8',
   );
@@ -68,7 +68,7 @@ function exportLogsAsCsv(logs: AuditLogRecord[]) {
 
 function exportLogsAsJson(logs: AuditLogRecord[]) {
   downloadFile(
-    `flowagent-audit-${new Date().toISOString().slice(0, 10)}.json`,
+    `vortex-audit-${new Date().toISOString().slice(0, 10)}.json`,
     JSON.stringify(logs, null, 2),
     'application/json;charset=utf-8',
   );

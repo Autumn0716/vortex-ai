@@ -1,6 +1,6 @@
 # Claude Code Harness Engineering 参考书
 
-面向：FlowAgent / LangGraph 架构优化  
+面向：Vortex / LangGraph 架构优化
 日期：2026-04-03
 
 ## 1. 这份参考书是干什么的
@@ -11,7 +11,7 @@
 
 - 取其精华，去其糟粕
 - 不做表面模仿，做运行时结构对齐
-- 让 FlowAgent 的 agent/runtime/memory/tool/skills/session 形成更稳定的 Harness
+- 让 Vortex 的 agent/runtime/memory/tool/skills/session 形成更稳定的 Harness
 
 这里的 `Harness Engineering`，可以简单理解为：
 
@@ -418,7 +418,7 @@ branch / subagent 必须是轻上下文继承，不是全文复制。
 4. 不应把本地桌面版和网页版混成一套权限模型  
 这会让安全边界变形。
 
-## 5. FlowAgent 对照 Claude Code 的结构映射
+## 5. Vortex 对照 Claude Code 的结构映射
 
 ### 4.1 会话层
 
@@ -428,7 +428,7 @@ Claude Code 风格：
 - 子任务可分支
 - 结果可回流
 
-FlowAgent 当前状态：
+Vortex 当前状态：
 
 - 已有 `Topic`
 - 已有 `Quick Topic`
@@ -448,7 +448,7 @@ Claude Code 风格可借鉴点：
 - 历史对话不能无限增长
 - 重要结果应该沉淀成可复用状态
 
-FlowAgent 当前状态：
+Vortex 当前状态：
 
 - `MEMORY.md`
 - `daily/*.md`
@@ -471,7 +471,7 @@ Claude Code 风格：
 - 技能是领域能力包
 - 需要时检索注入
 
-FlowAgent 当前状态：
+Vortex 当前状态：
 
 - 已支持共享 `skills/**/SKILL.md`
 - 已支持 agent 私有 `skills/**/SKILL.md`
@@ -490,7 +490,7 @@ Claude Code 风格：
 - 明确权限
 - 稳定 schema
 
-FlowAgent 当前状态：
+Vortex 当前状态：
 
 - 本地知识库工具
 - 搜索工具
@@ -510,7 +510,7 @@ FlowAgent 当前状态：
 
 Claude Code 风格系统通常默认是本地宿主型 agent。
 
-FlowAgent 的产品方向更复杂：
+Vortex 的产品方向更复杂：
 
 - Web 版：纯沙盒
 - Electron 版：沙盒 + 宿主权限
@@ -664,7 +664,7 @@ branch 现在已经有了第一版。
 
 ## 8. 一个适合我们自己的结论
 
-我们不应该把 FlowAgent 做成“Claude Code 的网页翻版”。
+我们不应该把 Vortex 做成“Claude Code 的网页翻版”。
 
 更合理的目标是：
 
@@ -674,7 +674,7 @@ branch 现在已经有了第一版。
 
 - Claude Code 给我们的是 Harness 思路
 - LangGraph 给我们的是状态与控制骨架
-- FlowAgent 自己真正的特色在：
+- Vortex 自己真正的特色在：
   - layered memory
   - local/host dual mode
   - file-backed memory truth

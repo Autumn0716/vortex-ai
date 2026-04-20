@@ -1,11 +1,11 @@
 {
-  "name": "react-example",
+  "name": "vortex-ai",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "main": "electron/main.mjs",
   "description": "Local-first agent workspace with Electron desktop shell",
-  "author": "FlowAgent",
+  "author": "Vortex",
   "scripts": {
     "dev": "node scripts/dev-all.mjs",
     "dev:all": "node scripts/dev-all.mjs",
@@ -17,7 +17,7 @@
     "desktop:build": "npm run build -- --mode electron && npm run build:host && electron-builder --mac dir",
     "build": "vite build",
     "preview": "vite preview",
-    "hooks:install": "node scripts/install-flowagent-git-hooks.mjs",
+    "hooks:install": "node scripts/install-vortex-git-hooks.mjs",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"
   },
@@ -62,8 +62,8 @@
     "vite": "^6.2.0"
   },
   "build": {
-    "appId": "ai.flowagent.desktop",
-    "productName": "FlowAgent",
+    "appId": "ai.vortex.desktop",
+    "productName": "Vortex",
     "asar": true,
     "asarUnpack": [
       "dist-host/**/*"

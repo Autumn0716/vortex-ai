@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   DESKTOP_RUNTIME_CAPABILITIES,
   createDesktopInfoPayload,
-  registerFlowAgentDesktopHandlers,
+  registerVortexDesktopHandlers,
 } from '../electron/ipc-handlers.mjs';
 
 test('createDesktopInfoPayload snapshots host metadata for the desktop bridge', () => {
@@ -12,8 +12,8 @@ test('createDesktopInfoPayload snapshots host metadata for the desktop bridge', 
     managed: true,
     status: 'ready',
     url: 'http://127.0.0.1:3850',
-    rootDir: '/tmp/flowagent-workspace',
-    configPath: '/tmp/flowagent-workspace/config.json',
+    rootDir: '/tmp/vortex-workspace',
+    configPath: '/tmp/vortex-workspace/config.json',
     configImportedFrom: '/tmp/project/config.json',
     sourceRoot: '/repo/source',
     message: 'Imported config.json from /tmp/project/config.json.',
@@ -34,14 +34,14 @@ test('createDesktopInfoPayload snapshots host metadata for the desktop bridge', 
   });
 
   assert.deepEqual(payload.capabilities, DESKTOP_RUNTIME_CAPABILITIES);
-  assert.equal(payload.host.configPath, '/tmp/flowagent-workspace/config.json');
+  assert.equal(payload.host.configPath, '/tmp/vortex-workspace/config.json');
   assert.equal(payload.host.configImportedFrom, '/tmp/project/config.json');
 
   hostState.message = 'mutated';
   assert.equal(payload.host.message, 'Imported config.json from /tmp/project/config.json.');
 });
 
-test('registerFlowAgentDesktopHandlers wires desktop info and runtime diagnostics handlers', async () => {
+test('registerVortexDesktopHandlers wires desktop info and runtime diagnostics handlers', async () => {
   const handlers = new Map();
   const shownNotifications = [];
   const dialogCalls = [];
@@ -54,8 +54,8 @@ test('registerFlowAgentDesktopHandlers wires desktop info and runtime diagnostic
     managed: true,
     status: 'ready',
     url: 'http://127.0.0.1:3850',
-    rootDir: '/tmp/flowagent-workspace',
-    configPath: '/tmp/flowagent-workspace/config.json',
+    rootDir: '/tmp/vortex-workspace',
+    configPath: '/tmp/vortex-workspace/config.json',
     configImportedFrom: '/tmp/project/config.json',
     sourceRoot: '/repo/source',
     message: 'Host bridge is ready.',
@@ -65,7 +65,7 @@ test('registerFlowAgentDesktopHandlers wires desktop info and runtime diagnostic
     lastExitCode: null,
   };
 
-  registerFlowAgentDesktopHandlers({
+  registerVortexDesktopHandlers({
     ipcMain,
     app: {
       getVersion() {
@@ -135,38 +135,38 @@ test('registerFlowAgentDesktopHandlers wires desktop info and runtime diagnostic
   });
 
   assert.deepEqual([...handlers.keys()].sort(), [
-    'flowagent:get-desktop-info',
-    'flowagent:get-runtime-diagnostics',
-    'flowagent:show-notification',
-    'flowagent:show-open-dialog',
-    'flowagent:show-save-dialog',
+    'vortex:get-desktop-info',
+    'vortex:get-runtime-diagnostics',
+    'vortex:show-notification',
+    'vortex:show-open-dialog',
+    'vortex:show-save-dialog',
   ]);
 
-  const desktopInfo = await handlers.get('flowagent:get-desktop-info')();
+  const desktopInfo = await handlers.get('vortex:get-desktop-info')();
   assert.equal(desktopInfo.host.pid, 9876);
   assert.equal(desktopInfo.host.configImportedFrom, '/tmp/project/config.json');
 
-  const diagnostics = await handlers.get('flowagent:get-runtime-diagnostics')();
+  const diagnostics = await handlers.get('vortex:get-runtime-diagnostics')();
   assert.equal(diagnostics.appVersion, '0.0.0-test');
   assert.equal(diagnostics.mainProcess.pid, 1234);
   assert.equal(diagnostics.mainProcess.uptimeSec, 12);
   assert.equal(diagnostics.host.reachable, true);
   assert.equal(diagnostics.host.latencyMs, 18);
   assert.equal(diagnostics.host.statusCode, 200);
-  assert.equal(diagnostics.host.configPath, '/tmp/flowagent-workspace/config.json');
+  assert.equal(diagnostics.host.configPath, '/tmp/vortex-workspace/config.json');
 
-  const notification = await handlers.get('flowagent:show-notification')(null, {
+  const notification = await handlers.get('vortex:show-notification')(null, {
     title: 'Archive done',
     body: 'Updated warm and cold memory.',
   });
   assert.deepEqual(notification, { shown: true });
   assert.deepEqual(shownNotifications, [{ title: 'Archive done', body: 'Updated warm and cold memory.' }]);
 
-  const openDialog = await handlers.get('flowagent:show-open-dialog')(null, {
+  const openDialog = await handlers.get('vortex:show-open-dialog')(null, {
     title: 'Open workspace',
     properties: ['openDirectory'],
   });
-  const saveDialog = await handlers.get('flowagent:show-save-dialog')(null, {
+  const saveDialog = await handlers.get('vortex:show-save-dialog')(null, {
     defaultPath: '/tmp/project/config.json',
   });
   assert.deepEqual(openDialog.filePaths, ['/tmp/project']);

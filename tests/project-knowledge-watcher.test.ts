@@ -13,7 +13,7 @@ after(async () => {
 });
 
 async function createTempRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'flowagent-project-watch-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'vortex-project-watch-'));
   tempRoots.push(root);
   return root;
 }

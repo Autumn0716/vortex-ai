@@ -10,19 +10,19 @@ import type {
   PromptSeed,
 } from './db-types';
 
-export const ACTIVE_CONVERSATION_KEY = 'flowagent_active_conversation_id';
+export const ACTIVE_CONVERSATION_KEY = 'vortex_active_conversation_id';
 export const DEFAULT_CONVERSATION_TITLE = 'New Conversation';
 
 const LEGACY_WELCOME_MESSAGE =
-  'Hello! I am your FlowAgent. SQLite is now connected for local storage and RAG. How can I assist you today?';
+  'Hello! I am your Vortex. SQLite is now connected for local storage and RAG. How can I assist you today?';
 
 const DEFAULT_ASSISTANTS: AssistantSeed[] = [
   {
-    id: 'assistant_flowagent_core',
-    name: 'FlowAgent Core',
+    id: 'assistant_vortex_core',
+    name: 'Vortex Core',
     description: 'Balanced general-purpose agent for research, planning, and implementation.',
     systemPrompt:
-      'You are FlowAgent Core. Be pragmatic, structured, and concise. Use tools when they improve the answer. When collaborating with other agents, provide a direct answer first and then the rationale.',
+      'You are Vortex Core. Be pragmatic, structured, and concise. Use tools when they improve the answer. When collaborating with other agents, provide a direct answer first and then the rationale.',
     accentColor: 'from-blue-500/20 to-violet-500/20',
     isDefault: true,
   },

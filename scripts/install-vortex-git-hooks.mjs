@@ -22,4 +22,4 @@ exit 0
 await mkdir(hooksDir, { recursive: true });
 await writeFile(hookPath, hook, 'utf8');
 await chmod(hookPath, 0o755);
-console.log(`Installed FlowAgent pre-push hook at ${hookPath}`);
+console.log(`Installed Vortex pre-push hook at ${hookPath}`);

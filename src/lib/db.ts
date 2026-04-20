@@ -157,7 +157,7 @@ function resetDatabaseConnectionState() {
 }
 
 const DB_STORAGE_KEY = 'sqlite_db';
-const DB_FILENAME = '/flowagent.sqlite3';
+const DB_FILENAME = '/vortex.sqlite3';
 
 function nowIso(): string {
   return new Date().toISOString();

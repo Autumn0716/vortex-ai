@@ -16,7 +16,7 @@ after(async () => {
 });
 
 async function createTempRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'flowagent-agent-task-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'vortex-agent-task-'));
   tempRoots.push(root);
   return root;
 }

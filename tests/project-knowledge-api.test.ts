@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
 
-import { createFlowAgentApiServer } from '../server/api-server';
+import { createVortexApiServer } from '../server/api-server';
 import {
   getProjectKnowledgeSnapshot,
   getProjectKnowledgeStatus,
@@ -20,14 +20,14 @@ after(async () => {
 });
 
 async function createTempRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'flowagent-project-knowledge-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'vortex-project-knowledge-'));
   tempRoots.push(root);
   return root;
 }
 
 async function startServer(rootDir: string) {
   const { app, nightlyArchiveReady, nightlyArchiveScheduler, projectKnowledgeWatcher, projectKnowledgeReady } =
-    createFlowAgentApiServer({ rootDir });
+    createVortexApiServer({ rootDir });
   await Promise.all([nightlyArchiveReady, projectKnowledgeReady]);
   const server = await new Promise<Server>((resolve, reject) => {
     const instance = app.listen(0, '127.0.0.1', () => resolve(instance));
@@ -56,7 +56,7 @@ test('project knowledge API exposes shared docs and SKILL.md snapshots with chan
   await mkdir(path.join(rootDir, 'docs'), { recursive: true });
   await mkdir(path.join(rootDir, 'skills/systematic-debugging'), { recursive: true });
   await mkdir(path.join(rootDir, 'src/lib'), { recursive: true });
-  await writeFile(path.join(rootDir, 'README.md'), '# FlowAgent\n\nworkspace guidance', 'utf8');
+  await writeFile(path.join(rootDir, 'README.md'), '# Vortex\n\nworkspace guidance', 'utf8');
   await writeFile(path.join(rootDir, 'docs/guide.md'), '# Guide\n\nuse docs', 'utf8');
   await writeFile(
     path.join(rootDir, 'src/lib/runtime.ts'),

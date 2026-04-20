@@ -102,7 +102,7 @@ const TOKEN_SYNONYMS = new Map<string, string[]>([
 const GRAPH_ENTITY_STOPWORDS = new Set([
   ...ENGLISH_QUERY_STOPWORDS,
   'about',
-  'flowagent',
+  'vortex',
   'general',
   'guide',
   'http',

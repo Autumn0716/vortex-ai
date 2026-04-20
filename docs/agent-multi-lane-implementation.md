@@ -1,8 +1,8 @@
-# FlowAgent Frontend Implementation Notes
+# Vortex Frontend Implementation Notes
 
 ## Overview
 
-This document records the current frontend completion work for FlowAgent AI, with a focus on preserving the existing visual design while making the interface actually functional.
+This document records the current frontend completion work for Vortex AI, with a focus on preserving the existing visual design while making the interface actually functional.
 
 The current implementation centers on three technical pillars:
 
@@ -55,7 +55,7 @@ The current implementation centers on three technical pillars:
 
 ### Frontend Data Model
 
-Implemented in [src/lib/db.ts](/Users/jiangxun/flowagent-ai/src/lib/db.ts).
+Implemented in [src/lib/db.ts](/Users/jiangxun/vortex-ai/src/lib/db.ts).
 
 Primary tables:
 
@@ -72,9 +72,9 @@ This keeps the old local-first design, but upgrades it from a single-thread demo
 
 Implemented in:
 
-- [src/lib/agent/runtime.ts](/Users/jiangxun/flowagent-ai/src/lib/agent/runtime.ts)
-- [src/lib/agent/tools.ts](/Users/jiangxun/flowagent-ai/src/lib/agent/tools.ts)
-- [src/components/ChatInterface.tsx](/Users/jiangxun/flowagent-ai/src/components/ChatInterface.tsx)
+- [src/lib/agent/runtime.ts](/Users/jiangxun/vortex-ai/src/lib/agent/runtime.ts)
+- [src/lib/agent/tools.ts](/Users/jiangxun/vortex-ai/src/lib/agent/tools.ts)
+- [src/components/ChatInterface.tsx](/Users/jiangxun/vortex-ai/src/components/ChatInterface.tsx)
 
 How it works:
 
@@ -130,8 +130,8 @@ That maps very well to our multi-agent lane UI.
 
 Implemented in:
 
-- [src/lib/pretext.ts](/Users/jiangxun/flowagent-ai/src/lib/pretext.ts)
-- [src/components/chat/AgentLaneColumn.tsx](/Users/jiangxun/flowagent-ai/src/components/chat/AgentLaneColumn.tsx)
+- [src/lib/pretext.ts](/Users/jiangxun/vortex-ai/src/lib/pretext.ts)
+- [src/components/chat/AgentLaneColumn.tsx](/Users/jiangxun/vortex-ai/src/components/chat/AgentLaneColumn.tsx)
 
 Integration strategy:
 
@@ -201,15 +201,15 @@ This reduces initial page cost compared with bundling all agent/runtime code int
 
 ## Key Files
 
-- [src/components/ChatInterface.tsx](/Users/jiangxun/flowagent-ai/src/components/ChatInterface.tsx)
-- [src/components/chat/AgentLaneColumn.tsx](/Users/jiangxun/flowagent-ai/src/components/chat/AgentLaneColumn.tsx)
-- [src/components/PromptsPanel.tsx](/Users/jiangxun/flowagent-ai/src/components/PromptsPanel.tsx)
-- [src/components/settings/SettingsView.tsx](/Users/jiangxun/flowagent-ai/src/components/settings/SettingsView.tsx)
-- [src/lib/db.ts](/Users/jiangxun/flowagent-ai/src/lib/db.ts)
-- [src/lib/pretext.ts](/Users/jiangxun/flowagent-ai/src/lib/pretext.ts)
-- [src/lib/agent/runtime.ts](/Users/jiangxun/flowagent-ai/src/lib/agent/runtime.ts)
-- [src/lib/agent/tools.ts](/Users/jiangxun/flowagent-ai/src/lib/agent/tools.ts)
-- [src/lib/webcontainer.ts](/Users/jiangxun/flowagent-ai/src/lib/webcontainer.ts)
+- [src/components/ChatInterface.tsx](/Users/jiangxun/vortex-ai/src/components/ChatInterface.tsx)
+- [src/components/chat/AgentLaneColumn.tsx](/Users/jiangxun/vortex-ai/src/components/chat/AgentLaneColumn.tsx)
+- [src/components/PromptsPanel.tsx](/Users/jiangxun/vortex-ai/src/components/PromptsPanel.tsx)
+- [src/components/settings/SettingsView.tsx](/Users/jiangxun/vortex-ai/src/components/settings/SettingsView.tsx)
+- [src/lib/db.ts](/Users/jiangxun/vortex-ai/src/lib/db.ts)
+- [src/lib/pretext.ts](/Users/jiangxun/vortex-ai/src/lib/pretext.ts)
+- [src/lib/agent/runtime.ts](/Users/jiangxun/vortex-ai/src/lib/agent/runtime.ts)
+- [src/lib/agent/tools.ts](/Users/jiangxun/vortex-ai/src/lib/agent/tools.ts)
+- [src/lib/webcontainer.ts](/Users/jiangxun/vortex-ai/src/lib/webcontainer.ts)
 
 ## Verification
 

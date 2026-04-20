@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Package the current local-first FlowAgent stack into a usable macOS Electron app without rewriting the core React + LangGraph + local host architecture. Phase 1 focuses on shipping a real desktop `.app` that starts the UI and host bridge automatically, persists local data safely, and improves overall UI density and polish for desktop usage.
+**Goal:** Package the current local-first Vortex stack into a usable macOS Electron app without rewriting the core React + LangGraph + local host architecture. Phase 1 focuses on shipping a real desktop `.app` that starts the UI and host bridge automatically, persists local data safely, and improves overall UI density and polish for desktop usage.
 
 **Architecture:** Keep the current browser app as the renderer layer. Add an Electron main process that owns the desktop window, environment bootstrapping, capability gating, and local host process lifecycle. Preserve the existing local `api-server` for Phase 1 instead of forcing an immediate IPC rewrite. Keep file-backed sources of truth (`config.json`, `model-metadata.json`, `memory/agents/...`) local-first. Add an explicit desktop runtime mode so the app can distinguish web-hosted limitations from desktop-hosted capabilities.
 
@@ -191,7 +191,7 @@
 
 ## Phase 1 Deliverable
 
-By the end of this plan, FlowAgent should run as a local macOS Electron application that:
+By the end of this plan, Vortex should run as a local macOS Electron application that:
 
 - launches as a desktop app instead of requiring manual browser + host orchestration
 - automatically manages the local host bridge

@@ -67,7 +67,7 @@ export async function createRuntimeDiagnosticsPayload({
   };
 }
 
-export function registerFlowAgentDesktopHandlers({
+export function registerVortexDesktopHandlers({
   ipcMain,
   app,
   getHostState,
@@ -78,7 +78,7 @@ export function registerFlowAgentDesktopHandlers({
   osModule = os,
   capabilities = DESKTOP_RUNTIME_CAPABILITIES,
 }) {
-  ipcMain.handle('flowagent:get-desktop-info', () =>
+  ipcMain.handle('vortex:get-desktop-info', () =>
     createDesktopInfoPayload({
       hostState: getHostState(),
       platform: processInfo.platform,
@@ -87,7 +87,7 @@ export function registerFlowAgentDesktopHandlers({
     }),
   );
 
-  ipcMain.handle('flowagent:get-runtime-diagnostics', () =>
+  ipcMain.handle('vortex:get-runtime-diagnostics', () =>
     createRuntimeDiagnosticsPayload({
       appVersion: app.getVersion(),
       hostState: getHostState(),
@@ -101,12 +101,12 @@ export function registerFlowAgentDesktopHandlers({
     }),
   );
 
-  ipcMain.handle('flowagent:show-notification', (_event, payload = {}) => {
+  ipcMain.handle('vortex:show-notification', (_event, payload = {}) => {
     if (!notificationApi?.isSupported?.()) {
       return { shown: false, reason: 'unsupported' };
     }
 
-    const title = typeof payload.title === 'string' && payload.title.trim() ? payload.title.trim() : 'FlowAgent';
+    const title = typeof payload.title === 'string' && payload.title.trim() ? payload.title.trim() : 'Vortex';
     const body = typeof payload.body === 'string' ? payload.body.trim().slice(0, 240) : '';
     const notification = new notificationApi.Notification({
       title,
@@ -116,7 +116,7 @@ export function registerFlowAgentDesktopHandlers({
     return { shown: true };
   });
 
-  ipcMain.handle('flowagent:show-open-dialog', (_event, options = {}) => {
+  ipcMain.handle('vortex:show-open-dialog', (_event, options = {}) => {
     if (!dialogApi?.showOpenDialog) {
       return { canceled: true, filePaths: [] };
     }
@@ -127,7 +127,7 @@ export function registerFlowAgentDesktopHandlers({
     });
   });
 
-  ipcMain.handle('flowagent:show-save-dialog', (_event, options = {}) => {
+  ipcMain.handle('vortex:show-save-dialog', (_event, options = {}) => {
     if (!dialogApi?.showSaveDialog) {
       return { canceled: true };
     }

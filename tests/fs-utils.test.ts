@@ -7,7 +7,7 @@ import test from 'node:test';
 import { walkDirectory } from '../server/lib/fs-utils';
 
 test('walkDirectory returns nested files without directory entries', async () => {
-  const rootDir = await mkdtemp(path.join(tmpdir(), 'flowagent-fs-utils-'));
+  const rootDir = await mkdtemp(path.join(tmpdir(), 'vortex-fs-utils-'));
   await mkdir(path.join(rootDir, 'nested/deeper'), { recursive: true });
   await writeFile(path.join(rootDir, 'root.md'), 'root', 'utf8');
   await writeFile(path.join(rootDir, 'nested/child.md'), 'child', 'utf8');

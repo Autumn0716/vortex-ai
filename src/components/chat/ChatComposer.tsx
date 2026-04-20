@@ -102,9 +102,9 @@ function ChatComposerComponent({
   };
 
   return (
-    <div className="bg-gradient-to-t from-[#05050A] via-[#05050A] to-transparent p-4">
-      <div className="mx-auto w-full max-w-[1120px]">
-        <div className="rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-2 shadow-[0_18px_50px_rgba(0,0,0,0.32)] transition-all focus-within:border-white/20 focus-within:bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))]">
+    <div className="bg-gradient-to-t from-[var(--app-bg-secondary)] via-[var(--app-bg-secondary)] to-transparent p-4 pb-6">
+      <div className="mx-auto w-full max-w-4xl">
+        <div className="rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.03))] p-3 shadow-[0_24px_60px_rgba(0,0,0,0.36)] backdrop-blur-xl transition-all focus-within:border-white/20 focus-within:bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.04))]">
           <div className="mb-1.5 flex flex-wrap items-center gap-1.5 px-2 pb-1.5">
             <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-white/65">
               {activeDisplayName}
@@ -154,11 +154,11 @@ function ChatComposerComponent({
             </div>
           ) : null}
 
-          <label className="sr-only" htmlFor="flowagent-chat-composer">
+          <label className="sr-only" htmlFor="vortex-chat-composer">
             Message {activeDisplayName}
           </label>
           <textarea
-            id="flowagent-chat-composer"
+            id="vortex-chat-composer"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -167,7 +167,7 @@ function ChatComposerComponent({
                 submit();
               }
             }}
-            placeholder={workspaceAvailable ? `Message ${activeDisplayName}...` : 'Message FlowAgent...'}
+            placeholder={workspaceAvailable ? `Message ${activeDisplayName}...` : 'Message Vortex...'}
             className="min-h-[52px] max-h-[200px] w-full resize-none bg-transparent px-3 py-2 text-sm leading-7 text-white outline-none placeholder:text-white/40 custom-scrollbar"
             rows={1}
           />

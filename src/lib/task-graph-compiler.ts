@@ -71,7 +71,7 @@ function buildCompilerMessages(goal: string, topicTitle?: string) {
     {
       role: 'system',
       content: [
-        'You compile user goals into a compact execution graph for FlowAgent.',
+        'You compile user goals into a compact execution graph for Vortex.',
         'Return only a task plan for planner -> dispatcher -> worker branches -> reviewer.',
         'Your job is only to split the goal into 1-4 worker branches.',
         'Each worker should be parallel-friendly, concrete, and independently reviewable.',
@@ -296,7 +296,7 @@ async function requestTaskPlanViaProvider(input: {
         text: {
           format: {
             type: 'json_schema',
-            name: 'flowagent_task_plan',
+            name: 'vortex_task_plan',
             schema: TASK_GRAPH_JSON_SCHEMA,
             strict: true,
           },
@@ -321,7 +321,7 @@ async function requestTaskPlanViaProvider(input: {
         response_format: {
           type: 'json_schema',
           json_schema: {
-            name: 'flowagent_task_plan',
+            name: 'vortex_task_plan',
             schema: TASK_GRAPH_JSON_SCHEMA,
             strict: true,
           },

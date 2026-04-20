@@ -3,8 +3,8 @@ import type { Database } from './db';
 import { mapRows } from './agent-workspace-queries';
 import { resolveActiveAgentId } from './agent-workspace-model';
 
-export const ACTIVE_AGENT_KEY = 'flowagent_active_agent_id_v2';
-export const ACTIVE_TOPIC_KEY = 'flowagent_active_topic_id_v2';
+export const ACTIVE_AGENT_KEY = 'vortex_active_agent_id_v2';
+export const ACTIVE_TOPIC_KEY = 'vortex_active_topic_id_v2';
 
 export async function resolveAgentIdForMemorySync(
   database: Database,

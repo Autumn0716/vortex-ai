@@ -29,8 +29,8 @@ test('createRuntimeCapabilityProfile exposes desktop config path metadata', () =
       managed: true,
       status: 'ready',
       url: 'http://127.0.0.1:3850',
-      rootDir: '/Users/demo/Library/Application Support/FlowAgent/workspace',
-      configPath: '/Users/demo/Library/Application Support/FlowAgent/workspace/config.json',
+      rootDir: '/Users/demo/Library/Application Support/Vortex/workspace',
+      configPath: '/Users/demo/Library/Application Support/Vortex/workspace/config.json',
       configImportedFrom: '/Users/demo/project/config.json',
       message: 'Imported config.json from /Users/demo/project/config.json.',
       startedAt: '2026-04-14T13:00:00.000Z',
@@ -44,7 +44,7 @@ test('createRuntimeCapabilityProfile exposes desktop config path metadata', () =
   assert.equal(profile.hostBridge.available, true);
   assert.equal(
     profile.hostBridge.configPath,
-    '/Users/demo/Library/Application Support/FlowAgent/workspace/config.json',
+    '/Users/demo/Library/Application Support/Vortex/workspace/config.json',
   );
   assert.equal(profile.hostBridge.message, 'Imported config.json from /Users/demo/project/config.json.');
 });

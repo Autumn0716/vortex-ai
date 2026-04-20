@@ -19,7 +19,7 @@ after(async () => {
 });
 
 async function createTempRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'flowagent-daily-summary-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'vortex-daily-summary-'));
   tempRoots.push(root);
   return root;
 }
@@ -43,7 +43,7 @@ test('daily summary block is deterministic and replaceable', () => {
   });
 
   assert.match(buildDailySummaryBlock({ date: '2026-04-15', sourceMarkdown, now: '2026-04-16T08:00:00.000Z' }), /Summary:/);
-  assert.equal((second.match(/flowagent:daily-summary:start/g) ?? []).length, 1);
+  assert.equal((second.match(/vortex:daily-summary:start/g) ?? []).length, 1);
   assert.equal(stripDailySummaryBlock(second).includes('Auto Daily Summary'), false);
   assert.match(second, /TODO 接入昨日会话摘要/);
 });
@@ -72,7 +72,7 @@ test('daily summary scheduler writes yesterday summary and catch-up state', asyn
 
   scheduler.stop();
   assert.equal(resolveDailySummaryTargetDate('2026-04-16T09:00:00.000Z'), '2026-04-15');
-  assert.match(dailyFile, /flowagent:daily-summary:start/);
+  assert.match(dailyFile, /vortex:daily-summary:start/);
   assert.equal(status.state.lastRunSummary?.targetDate, '2026-04-15');
   assert.equal(status.state.lastRunSummary?.updatedFiles, 1);
   assert.equal(status.catchUpDue, false);

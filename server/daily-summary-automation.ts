@@ -52,10 +52,10 @@ export interface DailySummarySchedulerOptions {
 }
 
 const DAILY_SUMMARY_SCHEDULE_TIME = '08:00';
-const FLOWAGENT_DIRNAME = '.flowagent';
+const VORTEX_DIRNAME = '.vortex';
 const STATE_FILENAME = 'daily-summary-state.json';
-const SUMMARY_START = '<!-- flowagent:daily-summary:start -->';
-const SUMMARY_END = '<!-- flowagent:daily-summary:end -->';
+const SUMMARY_START = '<!-- vortex:daily-summary:start -->';
+const SUMMARY_END = '<!-- vortex:daily-summary:end -->';
 
 const DEFAULT_DAILY_SUMMARY_STATE: DailySummaryState = {
   lastSuccessfulRunAt: null,
@@ -65,11 +65,11 @@ const DEFAULT_DAILY_SUMMARY_STATE: DailySummaryState = {
 };
 
 function getStatePath(rootDir: string) {
-  return path.join(rootDir, FLOWAGENT_DIRNAME, STATE_FILENAME);
+  return path.join(rootDir, VORTEX_DIRNAME, STATE_FILENAME);
 }
 
 async function ensureStateDir(rootDir: string) {
-  await fs.mkdir(path.join(rootDir, FLOWAGENT_DIRNAME), { recursive: true });
+  await fs.mkdir(path.join(rootDir, VORTEX_DIRNAME), { recursive: true });
 }
 
 function normalizeDailySummaryState(value?: Partial<DailySummaryState> | null): DailySummaryState {

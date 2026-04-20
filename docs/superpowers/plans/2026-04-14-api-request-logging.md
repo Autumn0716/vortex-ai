@@ -17,7 +17,7 @@
 
 - [x] **Step 1: Add logger option**
 
-Extend `FlowAgentApiServerOptions` with `logger?: Pick<Console, 'info' | 'warn' | 'error'>` so tests and Electron can provide their own logger later.
+Extend `VortexApiServerOptions` with `logger?: Pick<Console, 'info' | 'warn' | 'error'>` so tests and Electron can provide their own logger later.
 
 - [x] **Step 2: Add request logging middleware**
 

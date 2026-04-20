@@ -4,7 +4,7 @@
 
 **Goal:** Add an API-server-hosted nightly memory archive scheduler that runs lifecycle compression automatically at night, catches up on missed runs at startup, and exposes minimal status/config controls in the existing settings UI.
 
-**Architecture:** Add a focused server-side scheduler module that stores config/state in `.flowagent/`, runs file-backed lifecycle sync for each agent directory under `memory/agents`, and exposes status/config through API-server endpoints. The browser keeps its existing local SQLite sync path and will ingest the updated files on normal rescan/startup.
+**Architecture:** Add a focused server-side scheduler module that stores config/state in `.vortex/`, runs file-backed lifecycle sync for each agent directory under `memory/agents`, and exposes status/config through API-server endpoints. The browser keeps its existing local SQLite sync path and will ingest the updated files on normal rescan/startup.
 
 **Tech Stack:** TypeScript, Node/Express API server, filesystem-backed scheduler state, React 19 settings UI, existing file-backed memory lifecycle, Node test runner with `tsx`
 

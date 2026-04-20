@@ -335,7 +335,7 @@ const DEFAULT_MCP_SERVERS: McpServerConfig[] = [
     args: '',
     headers: '',
     source: 'builtin',
-    provider: 'FlowAgent',
+    provider: 'Vortex',
   },
 ];
 
@@ -344,7 +344,7 @@ export const DEFAULT_CONFIG: AgentConfig = {
   activeModel: 'gpt-4o',
   providers: DEFAULT_PROVIDERS,
   systemPrompt:
-    'You are FlowAgent, a helpful AI assistant running in the browser. You have access to a local SQLite database for RAG, multiple assistant lanes, and a WebContainer sandbox for executing code. Use tools when they materially improve the answer.',
+    'You are Vortex, a helpful AI assistant running in the browser. You have access to a local SQLite database for RAG, multiple assistant lanes, and a WebContainer sandbox for executing code. Use tools when they materially improve the answer.',
   general: {
     language: 'zh-CN',
     proxyMode: 'direct',

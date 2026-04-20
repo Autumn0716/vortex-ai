@@ -65,12 +65,12 @@ start('dev-all', process.execPath, ['scripts/dev-all.mjs']);
 const rendererPort = await waitForRendererPort();
 const rendererUrl = `http://127.0.0.1:${rendererPort}`;
 
-console.log(`Opening FlowAgent desktop renderer at ${rendererUrl}`);
+console.log(`Opening Vortex desktop renderer at ${rendererUrl}`);
 
 start('electron', npmCommand, ['exec', 'electron', 'electron/main.mjs'], {
   env: {
     ...process.env,
-    FLOWAGENT_RENDERER_URL: rendererUrl,
-    FLOWAGENT_ELECTRON_MANAGE_HOST: 'false',
+    VORTEX_RENDERER_URL: rendererUrl,
+    VORTEX_ELECTRON_MANAGE_HOST: 'false',
   },
 });

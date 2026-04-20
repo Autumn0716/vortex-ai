@@ -55,12 +55,12 @@ export const TerminalPanel = ({
     let shellProcess: any;
 
     const init = async () => {
-      term.writeln('\x1b[34m[FlowAgent OS]\x1b[0m Booting WebContainer sandbox...');
+      term.writeln('\x1b[34m[Vortex OS]\x1b[0m Booting WebContainer sandbox...');
       try {
         const wc = await getWebContainer();
         setIsBooting(false);
         term.writeln('\x1b[32m[Success]\x1b[0m WebContainer booted successfully.');
-        term.writeln('\x1b[34m[FlowAgent OS]\x1b[0m Starting shell environment...\r\n');
+        term.writeln('\x1b[34m[Vortex OS]\x1b[0m Starting shell environment...\r\n');
 
         shellProcess = await wc.spawn('jsh', {
           terminal: {

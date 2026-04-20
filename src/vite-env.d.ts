@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-interface FlowAgentDesktopInfo {
+interface VortexDesktopInfo {
   mode: 'electron';
   platform: NodeJS.Platform;
   versions: {
@@ -32,7 +32,7 @@ interface FlowAgentDesktopInfo {
   };
 }
 
-interface FlowAgentRuntimeDiagnostics {
+interface VortexRuntimeDiagnostics {
   appVersion: string;
   platform: NodeJS.Platform;
   versions: {
@@ -52,7 +52,7 @@ interface FlowAgentRuntimeDiagnostics {
     freeMemoryBytes: number;
     loadAverage: number[];
   };
-  host: FlowAgentDesktopInfo['host'] & {
+  host: VortexDesktopInfo['host'] & {
     reachable: boolean;
     latencyMs: number;
     statusCode: number | null;
@@ -62,8 +62,8 @@ interface FlowAgentRuntimeDiagnostics {
 
 interface Window {
   flowAgentDesktop?: {
-    getDesktopInfo: () => Promise<FlowAgentDesktopInfo>;
-    getRuntimeDiagnostics: () => Promise<FlowAgentRuntimeDiagnostics>;
+    getDesktopInfo: () => Promise<VortexDesktopInfo>;
+    getRuntimeDiagnostics: () => Promise<VortexRuntimeDiagnostics>;
     showNotification: (payload: { title?: string; body?: string }) => Promise<{ shown: boolean; reason?: string }>;
     showOpenDialog: (options?: {
       title?: string;

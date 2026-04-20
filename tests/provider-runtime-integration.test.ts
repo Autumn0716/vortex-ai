@@ -656,7 +656,7 @@ test('task graph compiler uses /responses payload for responses-compatible provi
     return new Response(
       JSON.stringify({
         output_text: JSON.stringify({
-          title: 'FlowAgent workflow',
+          title: 'Vortex workflow',
           summary: 'Plan tasks.',
           workers: [
             {
@@ -684,7 +684,7 @@ test('task graph compiler uses /responses payload for responses-compatible provi
 
     assert.equal(captured.url, 'https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1/responses');
     assert.equal(captured.body?.text?.format?.type, 'json_schema');
-    assert.equal(captured.body?.text?.format?.name, 'flowagent_task_plan');
+    assert.equal(captured.body?.text?.format?.name, 'vortex_task_plan');
     assert.equal(graph.compilerStrategy, 'llm');
     assert.equal(graph.nodes.some((node) => node.type === 'worker'), true);
   } finally {
@@ -712,7 +712,7 @@ test('task graph compiler uses /chat/completions payload for chat-compatible pro
           {
             message: {
               content: JSON.stringify({
-                title: 'FlowAgent workflow',
+                title: 'Vortex workflow',
                 summary: 'Plan tasks.',
                 workers: [
                   {
@@ -743,7 +743,7 @@ test('task graph compiler uses /chat/completions payload for chat-compatible pro
 
     assert.equal(captured.url, 'https://api.example.com/v1/chat/completions');
     assert.equal(captured.body?.response_format?.type, 'json_schema');
-    assert.equal(captured.body?.response_format?.json_schema?.name, 'flowagent_task_plan');
+    assert.equal(captured.body?.response_format?.json_schema?.name, 'vortex_task_plan');
     assert.equal(graph.compilerStrategy, 'llm');
     assert.equal(graph.nodes.some((node) => node.type === 'worker'), true);
   } finally {

@@ -20,7 +20,7 @@ after(async () => {
 });
 
 async function createTempRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'flowagent-code-review-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'vortex-code-review-'));
   tempRoots.push(root);
   return root;
 }

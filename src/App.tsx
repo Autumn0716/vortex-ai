@@ -41,7 +41,7 @@ const FeatureCard = ({ icon: Icon, title, description }: { icon: any, title: str
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'landing' | 'chat'>('landing');
-  const [desktopInfo, setDesktopInfo] = useState<FlowAgentDesktopInfo | null>(null);
+  const [desktopInfo, setDesktopInfo] = useState<VortexDesktopInfo | null>(null);
   const runtimeCapabilities = useMemo(
     () => createRuntimeCapabilityProfile(desktopInfo),
     [desktopInfo],
@@ -87,7 +87,7 @@ export default function App() {
           <div className="w-8 h-8 bg-gradient-brand rounded-lg flex items-center justify-center">
             <Zap size={18} className="text-white fill-current" />
           </div>
-          <span className="text-xl font-bold tracking-tighter">FLOWAGENT</span>
+          <span className="text-xl font-bold tracking-tighter">VORTEX</span>
         </div>
         <div className="hidden md:flex items-center gap-8 text-sm font-medium text-white/70">
           <a href="#" className="hover:text-blue-400 transition-colors">Models</a>
@@ -295,7 +295,7 @@ export default function App() {
             <div className="w-6 h-6 bg-gradient-brand rounded flex items-center justify-center">
               <Zap size={14} className="text-white fill-current" />
             </div>
-            <span className="font-bold tracking-tighter">FLOWAGENT</span>
+            <span className="font-bold tracking-tighter">VORTEX</span>
           </div>
           <div className="flex gap-8 text-sm text-white/40">
             <a href="#" className="hover:text-white transition-colors">Privacy</a>
@@ -303,7 +303,7 @@ export default function App() {
             <a href="#" className="hover:text-white transition-colors">Twitter</a>
             <a href="#" className="hover:text-white transition-colors">Discord</a>
           </div>
-          <p className="text-xs text-white/20">© 2026 FlowAgent AI. All rights reserved.</p>
+          <p className="text-xs text-white/20">© 2026 Vortex AI. All rights reserved.</p>
         </div>
       </footer>
         </div>

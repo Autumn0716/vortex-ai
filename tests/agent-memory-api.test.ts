@@ -8,7 +8,7 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 import { promisify } from 'node:util';
 
-import { createFlowAgentApiServer, resolveAllowedPath } from '../server/api-server';
+import { createVortexApiServer, resolveAllowedPath } from '../server/api-server';
 import {
   getApiServerHealth,
   getAutomationSnapshot,
@@ -42,7 +42,7 @@ after(async () => {
 });
 
 async function createTempRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'flowagent-api-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'vortex-api-'));
   tempRoots.push(root);
   return root;
 }
@@ -61,7 +61,7 @@ async function startServer(
     dailySummaryScheduler,
     weeklyArchiveReady,
     weeklyArchiveScheduler,
-  } = createFlowAgentApiServer({
+  } = createVortexApiServer({
     rootDir,
     authToken,
     nightlyArchiveNow,
@@ -88,12 +88,12 @@ async function startServer(
 }
 
 test('resolveAllowedPath only permits memory files under memory/agents', () => {
-  const allowed = resolveAllowedPath('/tmp/project', 'memory/agents/flowagent-core/MEMORY.md');
-  assert.match(allowed.absolutePath, /memory\/agents\/flowagent-core\/MEMORY\.md$/);
+  const allowed = resolveAllowedPath('/tmp/project', 'memory/agents/vortex-core/MEMORY.md');
+  assert.match(allowed.absolutePath, /memory\/agents\/vortex-core\/MEMORY\.md$/);
 
   assert.throws(() => resolveAllowedPath('/tmp/project', '../secrets.txt'), /Only memory\/agents paths are allowed|Invalid path/);
   assert.throws(
-    () => resolveAllowedPath('/tmp/project', 'memory/agents/flowagent-core/notes.txt', { allowDirectory: false }),
+    () => resolveAllowedPath('/tmp/project', 'memory/agents/vortex-core/notes.txt', { allowDirectory: false }),
     /Only Markdown memory files are allowed/,
   );
 });
@@ -121,22 +121,22 @@ test('API server health and file operations work through the registered memory f
     const fileStore = getAgentMemoryFileStore();
     assert.ok(fileStore);
 
-    await fileStore!.writeText('memory/agents/flowagent-core/MEMORY.md', '# Memory\n\n默认使用中文输出。');
+    await fileStore!.writeText('memory/agents/vortex-core/MEMORY.md', '# Memory\n\n默认使用中文输出。');
     await fileStore!.writeText(
-      'memory/agents/flowagent-core/daily/2026-04-01.md',
+      'memory/agents/vortex-core/daily/2026-04-01.md',
       '# 2026-04-01\n\n- TODO: verify file-backed runtime.',
     );
 
     assert.equal(
-      await fileStore!.readText('memory/agents/flowagent-core/MEMORY.md'),
+      await fileStore!.readText('memory/agents/vortex-core/MEMORY.md'),
       '# Memory\n\n默认使用中文输出。',
     );
-    assert.deepEqual(await fileStore!.listPaths('memory/agents/flowagent-core'), [
-      'memory/agents/flowagent-core/MEMORY.md',
-      'memory/agents/flowagent-core/daily/2026-04-01.md',
+    assert.deepEqual(await fileStore!.listPaths('memory/agents/vortex-core'), [
+      'memory/agents/vortex-core/MEMORY.md',
+      'memory/agents/vortex-core/daily/2026-04-01.md',
     ]);
 
-    const diskContent = await readFile(path.join(rootDir, 'memory/agents/flowagent-core/MEMORY.md'), 'utf8');
+    const diskContent = await readFile(path.join(rootDir, 'memory/agents/vortex-core/MEMORY.md'), 'utf8');
     assert.equal(diskContent, '# Memory\n\n默认使用中文输出。');
   } finally {
     await server.close();
@@ -195,7 +195,7 @@ test('API server exposes readable and writable nightly archive settings', async 
     assert.equal(nextStatus?.settings.cronExpression, '15 4 * * *');
     assert.equal(nextStatus?.settings.useLlmScoring, true);
 
-    const settingsFile = await readFile(path.join(rootDir, '.flowagent/nightly-memory-archive-settings.json'), 'utf8');
+    const settingsFile = await readFile(path.join(rootDir, '.vortex/nightly-memory-archive-settings.json'), 'utf8');
     assert.match(settingsFile, /"time": "04:30"/);
     assert.match(settingsFile, /"cronExpression": "15 4 \* \* \*"/);
 
@@ -269,7 +269,7 @@ test('API automation registry can run the code review automation', async () => {
     assert.equal(runStatus?.state.lastRunSummary?.trigger, 'manual');
     assert.equal(runStatus?.state.lastRunSummary?.failedAgents, 0);
 
-    const codeReviewState = await readFile(path.join(rootDir, '.flowagent/code-review-state.json'), 'utf8');
+    const codeReviewState = await readFile(path.join(rootDir, '.vortex/code-review-state.json'), 'utf8');
     assert.match(codeReviewState, /"reviewNotes"/);
   } finally {
     await server.close();
@@ -300,7 +300,7 @@ test('API automation registry can run the weekly archive wrapper', async () => {
     assert.equal(runStatus?.state.lastRunSummary?.trigger, 'manual');
     assert.equal(runStatus?.state.lastRunSummary?.processedAgents, 1);
 
-    const weeklyState = await readFile(path.join(rootDir, '.flowagent/weekly-archive-state.json'), 'utf8');
+    const weeklyState = await readFile(path.join(rootDir, '.vortex/weekly-archive-state.json'), 'utf8');
     assert.match(weeklyState, /"promotedCount"/);
   } finally {
     await server.close();
@@ -332,7 +332,7 @@ test('API automation registry can generate yesterday daily summaries', async () 
     assert.equal(runStatus?.state.lastRunSummary?.processedAgents, 1);
 
     const dailyFile = await readFile(path.join(rootDir, 'memory/agents/core/daily/2026-04-15.md'), 'utf8');
-    assert.match(dailyFile, /flowagent:daily-summary:start/);
+    assert.match(dailyFile, /vortex:daily-summary:start/);
     assert.match(dailyFile, /Summary:/);
     assert.match(dailyFile, /Open Loops:/);
     assert.match(dailyFile, /自动化触发器/);
@@ -341,7 +341,7 @@ test('API automation registry can generate yesterday daily summaries', async () 
   }
 });
 
-test('API server exports and imports FlowAgent agent packages', async () => {
+test('API server exports and imports Vortex agent packages', async () => {
   const rootDir = await createTempRoot();
   await mkdir(path.join(rootDir, 'memory/agents/core/daily'), { recursive: true });
   await mkdir(path.join(rootDir, 'skills/review'), { recursive: true });
@@ -356,7 +356,7 @@ test('API server exports and imports FlowAgent agent packages', async () => {
 
   try {
     const packageData = await exportAgentPackageViaApi(settings, 'core');
-    assert.equal(packageData?.format, 'flowagent.package');
+    assert.equal(packageData?.format, 'vortex.package');
     assert.ok(packageData?.memoryFiles.some((file) => file.path === 'memory/agents/core/MEMORY.md'));
     assert.ok(packageData?.skillFiles.some((file) => file.path === 'skills/review/SKILL.md'));
 
@@ -385,19 +385,19 @@ test('API file helpers respect auth token protection', async () => {
   };
 
   try {
-    await writeAgentMemoryFile('memory/agents/flowagent-core/MEMORY.md', 'Authenticated write.', authorized);
+    await writeAgentMemoryFile('memory/agents/vortex-core/MEMORY.md', 'Authenticated write.', authorized);
     assert.equal(
-      await readAgentMemoryFile('memory/agents/flowagent-core/MEMORY.md', authorized),
+      await readAgentMemoryFile('memory/agents/vortex-core/MEMORY.md', authorized),
       'Authenticated write.',
     );
 
     await assert.rejects(
-      () => readAgentMemoryFile('memory/agents/flowagent-core/MEMORY.md', unauthorized),
+      () => readAgentMemoryFile('memory/agents/vortex-core/MEMORY.md', unauthorized),
       /Unauthorized/,
     );
 
     const unauthorizedResponse = await fetch(
-      `${server.baseUrl}/api/memory/file?path=memory/agents/flowagent-core/MEMORY.md`,
+      `${server.baseUrl}/api/memory/file?path=memory/agents/vortex-core/MEMORY.md`,
     );
     assert.equal(unauthorizedResponse.status, 401);
     assert.deepEqual(await unauthorizedResponse.json(), {
@@ -483,18 +483,18 @@ test('API memory file listing includes warm and cold surrogate markdown files', 
   };
 
   try {
-    await writeAgentMemoryFile('memory/agents/flowagent-core/MEMORY.md', '# Memory', settings);
-    await writeAgentMemoryFile('memory/agents/flowagent-core/daily/2026-04-01.md', '# Source', settings);
-    await writeAgentMemoryFile('memory/agents/flowagent-core/daily/2026-04-01.warm.md', '# Warm', settings);
-    await writeAgentMemoryFile('memory/agents/flowagent-core/daily/2026-04-01.cold.md', '# Cold', settings);
+    await writeAgentMemoryFile('memory/agents/vortex-core/MEMORY.md', '# Memory', settings);
+    await writeAgentMemoryFile('memory/agents/vortex-core/daily/2026-04-01.md', '# Source', settings);
+    await writeAgentMemoryFile('memory/agents/vortex-core/daily/2026-04-01.warm.md', '# Warm', settings);
+    await writeAgentMemoryFile('memory/agents/vortex-core/daily/2026-04-01.cold.md', '# Cold', settings);
 
-    const files = await listAgentMemoryFiles('flowagent-core', settings);
+    const files = await listAgentMemoryFiles('vortex-core', settings);
     assert.deepEqual(
       files.filter((file) => file.path.includes('/daily/')).map((file) => [file.path, file.kind, file.label]),
       [
-        ['memory/agents/flowagent-core/daily/2026-04-01.warm.md', 'daily_warm', '2026-04-01.warm.md'],
-        ['memory/agents/flowagent-core/daily/2026-04-01.md', 'daily_source', '2026-04-01.md'],
-        ['memory/agents/flowagent-core/daily/2026-04-01.cold.md', 'daily_cold', '2026-04-01.cold.md'],
+        ['memory/agents/vortex-core/daily/2026-04-01.warm.md', 'daily_warm', '2026-04-01.warm.md'],
+        ['memory/agents/vortex-core/daily/2026-04-01.md', 'daily_source', '2026-04-01.md'],
+        ['memory/agents/vortex-core/daily/2026-04-01.cold.md', 'daily_cold', '2026-04-01.cold.md'],
       ],
     );
   } finally {
@@ -512,15 +512,15 @@ test('API memory file listing includes bootstrap correction and reflection files
   };
 
   try {
-    await writeAgentMemoryFile('memory/agents/flowagent-core/MEMORY.md', '# Memory', settings);
+    await writeAgentMemoryFile('memory/agents/vortex-core/MEMORY.md', '# Memory', settings);
 
-    const files = await listAgentMemoryFiles('flowagent-core', settings);
+    const files = await listAgentMemoryFiles('vortex-core', settings);
     assert.deepEqual(
       files.slice(0, 3).map((file) => [file.path, file.kind, file.label, file.exists]),
       [
-        ['memory/agents/flowagent-core/MEMORY.md', 'memory', 'MEMORY.md', true],
-        ['memory/agents/flowagent-core/corrections.md', 'corrections', 'corrections.md', false],
-        ['memory/agents/flowagent-core/reflections.md', 'reflections', 'reflections.md', false],
+        ['memory/agents/vortex-core/MEMORY.md', 'memory', 'MEMORY.md', true],
+        ['memory/agents/vortex-core/corrections.md', 'corrections', 'corrections.md', false],
+        ['memory/agents/vortex-core/reflections.md', 'reflections', 'reflections.md', false],
       ],
     );
   } finally {

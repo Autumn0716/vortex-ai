@@ -20,9 +20,9 @@
 
 ```ts
 test('buildAgentMemoryPaths resolves warm and cold surrogate paths', () => {
-  const paths = buildAgentMemoryPaths('flowagent-core', '2026-04-01');
-  assert.equal(paths.warmFile, 'memory/agents/flowagent-core/daily/2026-04-01.warm.md');
-  assert.equal(paths.coldFile, 'memory/agents/flowagent-core/daily/2026-04-01.cold.md');
+  const paths = buildAgentMemoryPaths('vortex-core', '2026-04-01');
+  assert.equal(paths.warmFile, 'memory/agents/vortex-core/daily/2026-04-01.warm.md');
+  assert.equal(paths.coldFile, 'memory/agents/vortex-core/daily/2026-04-01.cold.md');
 });
 
 test('detectMemoryFileKind distinguishes source warm and cold daily files', () => {
@@ -362,7 +362,7 @@ test('syncAgentMemoryFromStore prefers cold then warm then source rows for the s
   ]));
 
   await syncAgentMemoryFromStore(database, {
-    agentId: 'agent_flowagent_core',
+    agentId: 'agent_vortex_core',
     agentSlug: 'core',
     fileStore,
     now: '2026-04-20T12:00:00.000Z',
@@ -375,7 +375,7 @@ test('syncAgentMemoryFromStore prefers cold then warm then source rows for the s
 });
 
 test('getAgentMemoryContext only injects one effective document per date', async () => {
-  const context = await getAgentMemoryContext('agent_flowagent_core');
+  const context = await getAgentMemoryContext('agent_vortex_core');
   assert.match(context, /Cold memory|Warm memory|Hot memory/);
   assert.doesNotMatch(context, /2026-03-01.*2026-03-01/s);
 });

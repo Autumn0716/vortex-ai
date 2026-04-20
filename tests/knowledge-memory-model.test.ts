@@ -121,7 +121,7 @@ test('buildConversationMemoryEntry keeps attachment tool and task signals in dai
 test('buildConversationMemoryEntry records explicit task states and longer tool results', () => {
   const entry = buildConversationMemoryEntry({
     topicTitle: 'Runtime Debug',
-    authorName: 'FlowAgent',
+    authorName: 'Vortex',
     role: 'assistant',
     createdAt: '2026-04-01T08:32:00.000Z',
     content: '报错已经修复并提交，之前的 blocked 状态解除。',

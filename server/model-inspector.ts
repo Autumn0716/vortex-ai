@@ -421,7 +421,7 @@ export async function inspectOfficialModelMetadata(
     try {
       const response = await fetchImpl(source.url, {
         headers: {
-          'User-Agent': 'FlowAgent-Inspector/1.0',
+          'User-Agent': 'Vortex-Inspector/1.0',
           Accept: 'text/html,application/xhtml+xml',
         },
       });

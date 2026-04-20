@@ -11,8 +11,8 @@
   --app-bg: #030308;
   --app-bg-secondary: #05050A;
   --app-bg-sidebar: #0A0A0F;
-  --app-bg-modal: #1E1E1E;
-  --app-bg-modal-side: #181818;
+  --app-bg-modal: #171717;
+  --app-bg-modal-side: #101010;
   --app-surface: rgba(255,255,255,0.05);
   --app-surface-strong: rgba(255,255,255,0.1);
   --app-surface-soft: rgba(255,255,255,0.03);
@@ -26,6 +26,11 @@
   --app-accent-strong: #7c63ff;
   --app-accent-soft: rgba(79,124,255,0.16);
   --app-shadow: 0 20px 60px rgba(0,0,0,0.35);
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 @layer base {
@@ -44,6 +49,10 @@
     color: var(--app-text);
     @apply antialiased;
     font-family: var(--font-sans);
+  }
+
+  button:not(:disabled) {
+    @apply transition-transform active:scale-[0.96];
   }
 }
 
@@ -94,7 +103,69 @@
     border-color: var(--app-border);
     color: var(--app-text);
   }
+
+  .glass-panel {
+    @apply rounded-2xl border border-white/10 bg-white/[0.03] shadow-[0_20px_60px_rgba(0,0,0,0.35)];
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+  }
+
+  .glass-button {
+    @apply flex items-center justify-center rounded-xl border border-white/10 bg-white/5 text-white/80 transition-all hover:bg-white/10 hover:text-white active:scale-95;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .animate-slide-up {
+    animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .animate-glow {
+    animation: glow-pulse 2s infinite ease-in-out;
+  }
+
+  @keyframes slide-up {
+    0% {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes glow-pulse {
+    0% {
+      opacity: 0.6;
+      box-shadow: 0 0 10px rgba(var(--app-accent), 0.2);
+    }
+    50% {
+      opacity: 1;
+      box-shadow: 0 0 20px rgba(var(--app-accent), 0.5);
+    }
+    100% {
+      opacity: 0.6;
+      box-shadow: 0 0 10px rgba(var(--app-accent), 0.2);
+    }
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
 }
+
 
 html[data-theme='light'] .bg-\[\#030308\] {
   background-color: var(--app-bg) !important;

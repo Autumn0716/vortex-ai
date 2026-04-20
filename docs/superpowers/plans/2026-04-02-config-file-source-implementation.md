@@ -34,7 +34,7 @@ import {
 } from '../server/config-store';
 
 test('readProjectConfig creates config.json from defaults when missing', async () => {
-  const rootDir = await mkdtemp(path.join(os.tmpdir(), 'flowagent-config-store-'));
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), 'vortex-config-store-'));
   const config = await readProjectConfig(rootDir);
 
   assert.equal(getConfigFilePath(rootDir), path.join(rootDir, 'config.json'));
@@ -45,7 +45,7 @@ test('readProjectConfig creates config.json from defaults when missing', async (
 });
 
 test('writeProjectConfig persists normalized config to config.json', async () => {
-  const rootDir = await mkdtemp(path.join(os.tmpdir(), 'flowagent-config-store-write-'));
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), 'vortex-config-store-write-'));
   const saved = await writeProjectConfig(rootDir, {
     apiServer: { enabled: true, baseUrl: 'http://127.0.0.1:3850' },
   });
@@ -132,11 +132,11 @@ import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createFlowAgentApiServer } from '../server/api-server';
+import { createVortexApiServer } from '../server/api-server';
 
 test('api-server exposes readable and writable config.json endpoints', async () => {
-  const rootDir = await mkdtemp(path.join(os.tmpdir(), 'flowagent-config-api-'));
-  const { app, nightlyArchiveScheduler } = createFlowAgentApiServer({ rootDir });
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), 'vortex-config-api-'));
+  const { app, nightlyArchiveScheduler } = createVortexApiServer({ rootDir });
   const server = app.listen(0, '127.0.0.1');
 
   const address = server.address();

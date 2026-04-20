@@ -23,7 +23,7 @@ export class AppErrorBoundary extends React.Component<AppErrorBoundaryProps, App
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('FlowAgent render error:', error, errorInfo);
+    console.error('Vortex render error:', error, errorInfo);
     this.setState({
       error,
       errorInfo,
@@ -50,7 +50,7 @@ export class AppErrorBoundary extends React.Component<AppErrorBoundaryProps, App
               </div>
               <h1 className="mt-2 text-2xl font-semibold text-white">页面渲染失败</h1>
               <p className="mt-2 text-sm leading-6 text-white/70">
-                FlowAgent 前端在渲染阶段抛出了异常。下面是原始错误信息和组件堆栈。
+                Vortex 前端在渲染阶段抛出了异常。下面是原始错误信息和组件堆栈。
               </p>
             </div>
             <button

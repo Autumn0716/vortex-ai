@@ -91,15 +91,15 @@ function createDatabase() {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
-        'agent_flowagent_core',
-        'flowagent-core',
-        'FlowAgent Core',
+        'agent_vortex_core',
+        'vortex-core',
+        'Vortex Core',
         'Test agent',
         'System prompt',
         null,
         null,
         'from-blue-500/20 to-violet-500/20',
-        'agents/flowagent-core',
+        'agents/vortex-core',
         1,
         '2026-04-01T00:00:00.000Z',
         '2026-04-01T00:00:00.000Z',
@@ -118,7 +118,7 @@ function selectDerivedRows(database: Database) {
         WHERE agent_id = ?
         ORDER BY memory_scope ASC, event_date ASC
       `,
-      ['agent_flowagent_core'],
+      ['agent_vortex_core'],
     )[0]?.values ?? []
   );
 }
@@ -180,7 +180,7 @@ function installEmbeddingFetchMock(routes: Array<{ match: string; embedding: num
 test('syncAgentMemoryFromStore upserts derived rows for long-term and daily markdown files', async () => {
   const database = await createDatabase();
 
-  const paths = buildAgentMemoryPaths('flowagent-core', '2026-04-01');
+  const paths = buildAgentMemoryPaths('vortex-core', '2026-04-01');
   const fileStore = new InMemoryFileStore(
     new Map([
       [
@@ -201,8 +201,8 @@ test('syncAgentMemoryFromStore upserts derived rows for long-term and daily mark
   );
 
   await syncAgentMemoryFromStore(database, {
-    agentId: 'agent_flowagent_core',
-    agentSlug: 'flowagent-core',
+    agentId: 'agent_vortex_core',
+    agentSlug: 'vortex-core',
     fileStore,
     now: '2026-04-01T09:00:00.000Z',
   });
@@ -249,8 +249,8 @@ test('syncAgentMemoryFromStore upserts derived rows for long-term and daily mark
   );
 
   await syncAgentMemoryFromStore(database, {
-    agentId: 'agent_flowagent_core',
-    agentSlug: 'flowagent-core',
+    agentId: 'agent_vortex_core',
+    agentSlug: 'vortex-core',
     fileStore,
     now: '2026-04-01T10:00:00.000Z',
   });
@@ -286,7 +286,7 @@ test('syncAgentMemoryFromStore upserts derived rows for long-term and daily mark
 
 test('syncAgentMemoryFromStore indexes corrections and reflections bootstrap files', async () => {
   const database = await createDatabase();
-  const paths = buildAgentMemoryPaths('flowagent-core', '2026-04-01');
+  const paths = buildAgentMemoryPaths('vortex-core', '2026-04-01');
   const fileStore = new InMemoryFileStore(
     new Map([
       [
@@ -311,8 +311,8 @@ test('syncAgentMemoryFromStore indexes corrections and reflections bootstrap fil
   );
 
   await syncAgentMemoryFromStore(database, {
-    agentId: 'agent_flowagent_core',
-    agentSlug: 'flowagent-core',
+    agentId: 'agent_vortex_core',
+    agentSlug: 'vortex-core',
     fileStore,
     now: '2026-04-01T09:00:00.000Z',
   });
@@ -334,7 +334,7 @@ test('syncAgentMemoryFromStore indexes corrections and reflections bootstrap fil
 
 test('syncAgentMemoryFromStore is idempotent when markdown content is unchanged', async () => {
   const database = await createDatabase();
-  const paths = buildAgentMemoryPaths('flowagent-core', '2026-04-01');
+  const paths = buildAgentMemoryPaths('vortex-core', '2026-04-01');
   const fileStore = new InMemoryFileStore(
     new Map([
       [paths.memoryFile, '---\ntitle: "Working Preferences"\n---\n\nKeep answers terse.'],
@@ -343,16 +343,16 @@ test('syncAgentMemoryFromStore is idempotent when markdown content is unchanged'
   );
 
   const first = await syncAgentMemoryFromStore(database, {
-    agentId: 'agent_flowagent_core',
-    agentSlug: 'flowagent-core',
+    agentId: 'agent_vortex_core',
+    agentSlug: 'vortex-core',
     fileStore,
     now: '2026-04-01T09:00:00.000Z',
   });
   const rowsAfterFirst = selectDerivedRows(database);
 
   const second = await syncAgentMemoryFromStore(database, {
-    agentId: 'agent_flowagent_core',
-    agentSlug: 'flowagent-core',
+    agentId: 'agent_vortex_core',
+    agentSlug: 'vortex-core',
     fileStore,
     now: '2026-04-01T10:00:00.000Z',
   });
@@ -368,10 +368,10 @@ test('syncAgentMemoryFromStore is idempotent when markdown content is unchanged'
 
 test('syncAgentMemoryFromStore chooses effective rows based on the date tier', async () => {
   const database = await createDatabase();
-  const hotPaths = buildAgentMemoryPaths('flowagent-core', '2026-04-19');
-  const warmPaths = buildAgentMemoryPaths('flowagent-core', '2026-04-10');
-  const coldPaths = buildAgentMemoryPaths('flowagent-core', '2026-03-01');
-  const orphanPaths = buildAgentMemoryPaths('flowagent-core', '2026-03-05');
+  const hotPaths = buildAgentMemoryPaths('vortex-core', '2026-04-19');
+  const warmPaths = buildAgentMemoryPaths('vortex-core', '2026-04-10');
+  const coldPaths = buildAgentMemoryPaths('vortex-core', '2026-03-01');
+  const orphanPaths = buildAgentMemoryPaths('vortex-core', '2026-03-05');
   const fileStore = new InMemoryFileStore(
     new Map([
       [hotPaths.dailyFile, '---\ntitle: "2026-04-19 Daily Log"\n---\n\n- Hot source detail.'],
@@ -388,8 +388,8 @@ test('syncAgentMemoryFromStore chooses effective rows based on the date tier', a
   );
 
   await syncAgentMemoryFromStore(database, {
-    agentId: 'agent_flowagent_core',
-    agentSlug: 'flowagent-core',
+    agentId: 'agent_vortex_core',
+    agentSlug: 'vortex-core',
     fileStore,
     now: '2026-04-20T12:00:00.000Z',
   });
@@ -453,7 +453,7 @@ test('syncAgentMemoryFromStore migrates only intended legacy global and dated da
     `,
     [
       'legacy_global',
-      'agent_flowagent_core',
+      'agent_vortex_core',
       'Preferences',
       'Remember project preferences.',
       'global',
@@ -484,7 +484,7 @@ test('syncAgentMemoryFromStore migrates only intended legacy global and dated da
     `,
     [
       'legacy_daily',
-      'agent_flowagent_core',
+      'agent_vortex_core',
       'Daily Notes',
       'Investigated migration path.',
       'daily',
@@ -515,7 +515,7 @@ test('syncAgentMemoryFromStore migrates only intended legacy global and dated da
     `,
     [
       'session_note',
-      'agent_flowagent_core',
+      'agent_vortex_core',
       'Session Scratchpad',
       'Do not migrate this.',
       'session',
@@ -546,7 +546,7 @@ test('syncAgentMemoryFromStore migrates only intended legacy global and dated da
     `,
     [
       'undated_daily',
-      'agent_flowagent_core',
+      'agent_vortex_core',
       'Broken Daily',
       'Missing event date.',
       'daily',
@@ -562,16 +562,16 @@ test('syncAgentMemoryFromStore migrates only intended legacy global and dated da
   const fileStore = new InMemoryFileStore();
 
   const result = await syncAgentMemoryFromStore(database, {
-    agentId: 'agent_flowagent_core',
-    agentSlug: 'flowagent-core',
+    agentId: 'agent_vortex_core',
+    agentSlug: 'vortex-core',
     fileStore,
     now: '2026-04-01T09:00:00.000Z',
   });
 
-  const paths = buildAgentMemoryPaths('flowagent-core', '2026-04-01');
+  const paths = buildAgentMemoryPaths('vortex-core', '2026-04-01');
   const memoryMarkdown = await fileStore.readText(paths.memoryFile);
   const dailyMarkdown = await fileStore.readText(paths.dailyFile);
-  const straySessionMarkdown = await fileStore.readText('memory/agents/flowagent-core/daily/session.md');
+  const straySessionMarkdown = await fileStore.readText('memory/agents/vortex-core/daily/session.md');
 
   assert.equal(result.migrated, true);
   assert.match(memoryMarkdown ?? '', /Remember project preferences\./);
@@ -587,7 +587,7 @@ test('syncAgentMemoryFromStore migrates only intended legacy global and dated da
         WHERE agent_id = ?
         ORDER BY id ASC
       `,
-      ['agent_flowagent_core'],
+      ['agent_vortex_core'],
     )[0]?.values ?? []
   ).map((row) => String(row[0]));
   assert.equal(remainingIds.filter((id) => id.startsWith('memory_file_')).length, 2);
@@ -601,7 +601,7 @@ test('syncAgentMemoryFromStore migrates only intended legacy global and dated da
 
 test('syncAgentMemoryFromStore deletes stale derived rows for removed markdown files', async () => {
   const database = await createDatabase();
-  const paths = buildAgentMemoryPaths('flowagent-core', '2026-04-01');
+  const paths = buildAgentMemoryPaths('vortex-core', '2026-04-01');
   const fileStore = new InMemoryFileStore(
     new Map([
       [paths.memoryFile, '---\ntitle: "Working Preferences"\n---\n\nKeep answers terse.'],
@@ -610,8 +610,8 @@ test('syncAgentMemoryFromStore deletes stale derived rows for removed markdown f
   );
 
   await syncAgentMemoryFromStore(database, {
-    agentId: 'agent_flowagent_core',
-    agentSlug: 'flowagent-core',
+    agentId: 'agent_vortex_core',
+    agentSlug: 'vortex-core',
     fileStore,
     now: '2026-04-01T09:00:00.000Z',
   });
@@ -621,8 +621,8 @@ test('syncAgentMemoryFromStore deletes stale derived rows for removed markdown f
   const prunedStore = new InMemoryFileStore(removed);
 
   const result = await syncAgentMemoryFromStore(database, {
-    agentId: 'agent_flowagent_core',
-    agentSlug: 'flowagent-core',
+    agentId: 'agent_vortex_core',
+    agentSlug: 'vortex-core',
     fileStore: prunedStore,
     now: '2026-04-01T10:00:00.000Z',
   });
@@ -682,7 +682,7 @@ test('syncCurrentAgentMemory scopes workspace sync to the requested agent', asyn
 
   const fileStore = new InMemoryFileStore(
     new Map([
-      ['memory/agents/flowagent-core/MEMORY.md', '---\ntitle: "Core"\n---\n\nCore memory.'],
+      ['memory/agents/vortex-core/MEMORY.md', '---\ntitle: "Core"\n---\n\nCore memory.'],
       ['memory/agents/writer/MEMORY.md', '---\ntitle: "Writer"\n---\n\nWriter memory.'],
     ]),
   );
@@ -942,7 +942,7 @@ test('syncAgentMemoryFromStore upserts cold memory embeddings when embedding con
   const restoreFetch = installEmbeddingFetchMock([{ match: 'Cold source detail.', embedding: [0.2, 0.4, 0.8] }]);
 
   const database = await createDatabase();
-  const coldPaths = buildAgentMemoryPaths('flowagent-core', '2026-03-01');
+  const coldPaths = buildAgentMemoryPaths('vortex-core', '2026-03-01');
   const fileStore = new InMemoryFileStore(
     new Map([
       [coldPaths.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Cold source detail.\n- TODO archive it.'],
@@ -952,8 +952,8 @@ test('syncAgentMemoryFromStore upserts cold memory embeddings when embedding con
 
   try {
     await syncAgentMemoryFromStore(database, {
-      agentId: 'agent_flowagent_core',
-      agentSlug: 'flowagent-core',
+      agentId: 'agent_vortex_core',
+      agentSlug: 'vortex-core',
       fileStore,
       now: '2026-04-20T12:00:00.000Z',
       embeddingConfig: TEST_EMBEDDING_CONFIG,
@@ -961,7 +961,7 @@ test('syncAgentMemoryFromStore upserts cold memory embeddings when embedding con
 
     const rows = selectColdEmbeddingRows(database);
     assert.equal(rows.length, 1);
-    assert.equal(rows[0]?.[1], 'agent_flowagent_core');
+    assert.equal(rows[0]?.[1], 'agent_vortex_core');
     assert.equal(rows[0]?.[2], '2026-03-01');
     assert.equal(rows[0]?.[3], 'cold_summary');
     assert.equal(rows[0]?.[4], 'test-embedding');
@@ -977,7 +977,7 @@ test('syncAgentMemoryFromStore deletes stale cold embeddings when cold surrogate
   const restoreFetch = installEmbeddingFetchMock([{ match: 'Cold source detail.', embedding: [0.1, 0.3, 0.9] }]);
 
   const database = await createDatabase();
-  const coldPaths = buildAgentMemoryPaths('flowagent-core', '2026-03-01');
+  const coldPaths = buildAgentMemoryPaths('vortex-core', '2026-03-01');
   const fullStore = new InMemoryFileStore(
     new Map([
       [coldPaths.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Cold source detail.'],
@@ -987,8 +987,8 @@ test('syncAgentMemoryFromStore deletes stale cold embeddings when cold surrogate
 
   try {
     await syncAgentMemoryFromStore(database, {
-      agentId: 'agent_flowagent_core',
-      agentSlug: 'flowagent-core',
+      agentId: 'agent_vortex_core',
+      agentSlug: 'vortex-core',
       fileStore: fullStore,
       now: '2026-04-20T12:00:00.000Z',
       embeddingConfig: TEST_EMBEDDING_CONFIG,
@@ -999,8 +999,8 @@ test('syncAgentMemoryFromStore deletes stale cold embeddings when cold surrogate
     );
 
     await syncAgentMemoryFromStore(database, {
-      agentId: 'agent_flowagent_core',
-      agentSlug: 'flowagent-core',
+      agentId: 'agent_vortex_core',
+      agentSlug: 'vortex-core',
       fileStore: sourceOnlyStore,
       now: '2026-04-05T12:00:00.000Z',
       embeddingConfig: TEST_EMBEDDING_CONFIG,
@@ -1015,7 +1015,7 @@ test('syncAgentMemoryFromStore deletes stale cold embeddings when cold surrogate
 
 test('syncAgentMemoryFromStore skips cold vector sync when embedding config is unavailable', async () => {
   const database = await createDatabase();
-  const coldPaths = buildAgentMemoryPaths('flowagent-core', '2026-03-01');
+  const coldPaths = buildAgentMemoryPaths('vortex-core', '2026-03-01');
   const fileStore = new InMemoryFileStore(
     new Map([
       [coldPaths.dailyFile, '---\ntitle: "2026-03-01 Daily Log"\n---\n\n- Cold source detail.'],
@@ -1024,8 +1024,8 @@ test('syncAgentMemoryFromStore skips cold vector sync when embedding config is u
   );
 
   await syncAgentMemoryFromStore(database, {
-    agentId: 'agent_flowagent_core',
-    agentSlug: 'flowagent-core',
+    agentId: 'agent_vortex_core',
+    agentSlug: 'vortex-core',
     fileStore,
     now: '2026-04-20T12:00:00.000Z',
     embeddingConfig: null,

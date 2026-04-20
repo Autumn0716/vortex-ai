@@ -87,7 +87,7 @@ This module should not know about Express routes directly.
 
 Persist scheduler state in a project-local file:
 
-- `.flowagent/nightly-archive-state.json`
+- `.vortex/nightly-archive-state.json`
 
 The file should record at least:
 
@@ -163,7 +163,7 @@ The UI should keep the current visual theme and card layout.
    - run lifecycle sync
    - run current-agent index sync
 4. aggregate success/failure summary
-5. write `.flowagent/nightly-archive-state.json`
+5. write `.vortex/nightly-archive-state.json`
 6. schedule the next run
 
 ## Catch-Up Semantics

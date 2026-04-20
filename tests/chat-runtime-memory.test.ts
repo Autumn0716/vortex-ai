@@ -8,20 +8,20 @@ import { getDefaultTopicModelFeatures, type TopicWorkspace } from '../src/lib/ag
 function createWorkspace(overrides?: Partial<TopicWorkspace['runtime']>): TopicWorkspace {
   return {
     agent: {
-      id: 'agent_flowagent_core',
-      slug: 'flowagent-core',
-      name: 'FlowAgent Core',
+      id: 'agent_vortex_core',
+      slug: 'vortex-core',
+      name: 'Vortex Core',
       description: 'Test agent',
       systemPrompt: 'System prompt',
       accentColor: 'from-blue-500/20 to-violet-500/20',
-      workspaceRelpath: 'agents/flowagent-core',
+      workspaceRelpath: 'agents/vortex-core',
       isDefault: true,
       createdAt: '2026-04-14T00:00:00.000Z',
       updatedAt: '2026-04-14T00:00:00.000Z',
     },
     topic: {
       id: 'topic_memory_request',
-      agentId: 'agent_flowagent_core',
+      agentId: 'agent_vortex_core',
       title: 'Memory Request',
       titleSource: 'auto',
       preview: 'preview',
@@ -45,8 +45,8 @@ function createWorkspace(overrides?: Partial<TopicWorkspace['runtime']>): TopicW
       sessionMode: 'agent',
       providerId: undefined,
       model: undefined,
-      displayName: 'FlowAgent',
-      systemPrompt: 'You are FlowAgent.',
+      displayName: 'Vortex',
+      systemPrompt: 'You are Vortex.',
       enableMemory: true,
       enableSkills: true,
       enableTools: true,
@@ -68,7 +68,7 @@ test('buildAgentMemoryContextRequest forwards the current user content as query'
   const request = buildAgentMemoryContextRequest(workspace, config, userContent);
 
   assert.ok(request);
-  assert.equal(request?.agentId, 'agent_flowagent_core');
+  assert.equal(request?.agentId, 'agent_vortex_core');
   assert.equal(request?.options.query, userContent);
   assert.equal(request?.options.topicId, 'topic_memory_request');
   assert.equal(request?.options.includeSessionMemory, true);

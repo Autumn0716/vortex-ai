@@ -14,11 +14,11 @@ import { ensureAgentWorkspaceSchema } from './agent-workspace-schema';
 import type { Database } from './db';
 
 const FALLBACK_AGENT_SEED = {
-  id: 'agent_flowagent_core',
-  name: 'FlowAgent Core',
+  id: 'agent_vortex_core',
+  name: 'Vortex Core',
   description: 'Balanced general-purpose agent for research, planning, and implementation.',
   systemPrompt:
-    'You are FlowAgent Core. Be pragmatic, structured, and concise. Use tools when they materially improve the answer.',
+    'You are Vortex Core. Be pragmatic, structured, and concise. Use tools when they materially improve the answer.',
   accentColor: 'from-blue-500/20 to-violet-500/20',
 };
 

@@ -41,7 +41,7 @@ export interface CodeReviewAutomationOptions {
   logger?: Pick<Console, 'warn' | 'error'>;
 }
 
-const FLOWAGENT_DIRNAME = '.flowagent';
+const VORTEX_DIRNAME = '.vortex';
 const STATE_FILENAME = 'code-review-state.json';
 
 const DEFAULT_CODE_REVIEW_STATE: CodeReviewState = {
@@ -52,11 +52,11 @@ const DEFAULT_CODE_REVIEW_STATE: CodeReviewState = {
 };
 
 function getStatePath(rootDir: string) {
-  return path.join(rootDir, FLOWAGENT_DIRNAME, STATE_FILENAME);
+  return path.join(rootDir, VORTEX_DIRNAME, STATE_FILENAME);
 }
 
 async function ensureStateDir(rootDir: string) {
-  await fs.mkdir(path.join(rootDir, FLOWAGENT_DIRNAME), { recursive: true });
+  await fs.mkdir(path.join(rootDir, VORTEX_DIRNAME), { recursive: true });
 }
 
 function normalizeCodeReviewState(value?: Partial<CodeReviewState> | null): CodeReviewState {

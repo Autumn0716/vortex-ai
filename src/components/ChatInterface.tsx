@@ -19,6 +19,7 @@ import {
   Sun,
   Terminal,
   X,
+  Zap,
 } from 'lucide-react';
 import { AgentLaneColumn } from './chat/AgentLaneColumn';
 import { ChatComposer, type ComposerAppendRequest } from './chat/ChatComposer';
@@ -800,7 +801,7 @@ export const ChatInterface: React.FC<{
     [activeTopicId, topicRunStates],
   );
   const activeDisplayName =
-    workspace?.runtime.displayName ?? workspace?.agent.name ?? selectedAgent?.name ?? 'FlowAgent';
+    workspace?.runtime.displayName ?? workspace?.agent.name ?? selectedAgent?.name ?? 'Vortex';
   const activeProviderId =
     workspace?.runtime.providerId ?? workspace?.agent.providerId ?? config.activeProviderId;
   const activeProvider =
@@ -1328,7 +1329,7 @@ export const ChatInterface: React.FC<{
           onSoftTimeout: () => {
             startTransition(() => {
               setShellNotice(
-                'Opening the local workspace is taking longer than usual. FlowAgent is still loading your local data.',
+                'Opening the local workspace is taking longer than usual. Vortex is still loading your local data.',
               );
             });
           },
@@ -1365,7 +1366,7 @@ export const ChatInterface: React.FC<{
           onSoftTimeout: () => {
             startTransition(() => {
               setShellNotice(
-                'Loading the current topic is taking longer than usual. FlowAgent is still waiting on local workspace data.',
+                'Loading the current topic is taking longer than usual. Vortex is still waiting on local workspace data.',
               );
             });
           },
@@ -2936,253 +2937,124 @@ export const ChatInterface: React.FC<{
         onChange={handleImageAttachmentImport}
       />
 
-      <div className="z-30 flex w-14 flex-shrink-0 flex-col items-center gap-3 border-r border-white/5 bg-[#0A0A0F] py-3">
-        <button
-          onClick={onBack}
-          className="group flex h-9 w-9 items-center justify-center rounded-full bg-gradient-brand text-white shadow-lg transition-transform hover:scale-[1.03]"
-          title="返回主页"
-        >
-          <House size={15} className="transition-transform group-hover:-translate-y-[1px]" />
-        </button>
-
-        <button
-          onClick={() => setActiveTab('chat')}
-          className={`rounded-xl p-2 transition-all ${
-            activeTab === 'chat'
-              ? 'bg-white/10 text-white shadow-sm'
-              : 'text-white/40 hover:bg-white/5 hover:text-white/80'
-          }`}
-          title="Chat"
-        >
-          <MessageSquare size={18} />
-        </button>
-        <button
-          onClick={() => setActiveTab('prompts')}
-          className={`rounded-xl p-2 transition-all ${
-            activeTab === 'prompts'
-              ? 'bg-white/10 text-white shadow-sm'
-              : 'text-white/40 hover:bg-white/5 hover:text-white/80'
-          }`}
-          title="Agents & Prompts"
-        >
-          <Sparkles size={18} />
-        </button>
-        <button
-          onClick={() => setActiveTab('knowledge')}
-          className={`rounded-xl p-2 transition-all ${
-            activeTab === 'knowledge'
-              ? 'bg-white/10 text-white shadow-sm'
-              : 'text-white/40 hover:bg-white/5 hover:text-white/80'
-          }`}
-          title="Knowledge Base"
-        >
-          <Globe size={18} />
-        </button>
-        <button
-          onClick={() => setActiveTab('sandbox')}
-          disabled={!runtimeCapabilities.sandbox.webContainer}
-          className={`rounded-xl p-2 transition-all ${
-            activeTab === 'sandbox'
-              ? 'bg-white/10 text-white shadow-sm'
-              : runtimeCapabilities.sandbox.webContainer
-                ? 'text-white/40 hover:bg-white/5 hover:text-white/80'
-                : 'cursor-not-allowed text-white/15'
-          }`}
-          title={
-            runtimeCapabilities.sandbox.webContainer
-              ? 'WebContainer Sandbox'
-              : 'Sandbox is unavailable in this runtime'
-          }
-        >
-          <Terminal size={18} />
-        </button>
-
-        <div className="flex-1" />
-
-        <button
-          className="rounded-xl p-2 text-white/40 transition-all hover:bg-white/5 hover:text-white/80"
-          title="Theme"
-        >
-          <Sun size={18} />
-        </button>
-        <button
-          onClick={() => openSettings('models')}
-          className={`rounded-xl p-2 transition-all ${
-            showSettings
-              ? 'bg-white/10 text-white shadow-sm'
-              : 'text-white/40 hover:bg-white/5 hover:text-white/80'
-          }`}
-          title="Settings"
-        >
-          <Settings size={18} />
-        </button>
-      </div>
-
-      {activeTab === 'chat' && sidebarOpen ? (
+      {sidebarOpen ? (
         <motion.div
           initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 248, opacity: 1 }}
-          className="flex flex-shrink-0 flex-col border-r border-white/10 bg-[#0A0A0F]"
+          animate={{ width: 260, opacity: 1 }}
+          className="z-30 flex flex-shrink-0 flex-col border-r border-white/5 bg-[var(--app-bg-sidebar)]"
         >
-          <div className="space-y-2.5 p-3">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-2.5">
-              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-white/35">
-                Active Agent
+          <div className="flex items-center justify-between px-3.5 py-3">
+            <button
+              onClick={onBack}
+              className="flex items-center gap-2 text-white/90 transition-opacity hover:opacity-80"
+              title="Return to Home"
+            >
+              <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-brand shadow-sm">
+                <Zap size={13} className="text-white" />
               </div>
-              <select
-                value={activeAgentId ?? ''}
-                onChange={(event) => activateAgent(event.target.value).catch(console.error)}
-                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[13px] text-white outline-none"
-              >
-                {agents.map((agent) => (
-                  <option key={agent.id} value={agent.id} className="bg-[#111111]">
-                    {agent.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid gap-2">
-              <button
-                onClick={handleCreateTopic}
-                className="group flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 transition-colors hover:bg-white/10"
-              >
-                <span className="text-[13px] font-medium text-white/90">New Agent Topic</span>
-                <Plus size={16} className="text-white/50 transition-colors group-hover:text-white" />
-              </button>
-              <button
-                onClick={handleOpenQuickTopicDialog}
-                className="group flex w-full items-center justify-between rounded-xl border border-white/10 bg-black/20 px-3.5 py-2.5 transition-colors hover:bg-white/10"
-              >
-                <span className="text-[13px] font-medium text-white/80">Quick Topic</span>
-                <Sparkles size={16} className="text-white/45 transition-colors group-hover:text-white" />
-              </button>
-            </div>
-
-            {!searchQuery.trim() ? (
-              <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-white/10 bg-black/20 p-1">
-                {[
-                  { key: 'all', label: 'All', count: topicCounts.all },
-                  { key: 'agent', label: 'Agent', count: topicCounts.agent },
-                  { key: 'quick', label: 'Quick', count: topicCounts.quick },
-                ].map((entry) => (
-                  <button
-                    key={entry.key}
-                    onClick={() => setTopicModeFilter(entry.key as TopicModeFilter)}
-                    className={`rounded-[13px] px-2.5 py-1.5 text-left transition-all ${
-                      topicModeFilter === entry.key
-                        ? 'bg-white/10 text-white shadow-[0_10px_24px_rgba(0,0,0,0.18)]'
-                        : 'text-white/45 hover:bg-white/5 hover:text-white/85'
-                    }`}
-                  >
-                    <div className="text-[10px] font-semibold uppercase tracking-[0.14em]">{entry.label}</div>
-                    <div className="mt-0.5 text-[11px] text-white/45">{entry.count}</div>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-            <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-2.5 py-2">
-              <Search size={14} className="text-white/35" />
-              <input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search topic titles and message content"
-                className="w-full bg-transparent text-[13px] text-white outline-none placeholder:text-white/35"
-              />
-            </label>
-
-            <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-white/35">
-              <span>{searchQuery.trim() ? 'Search Results' : 'Topics'}</span>
-              <span>{fts5Enabled ? 'FTS5 ready' : 'Fallback search'}</span>
-            </div>
+              <span className="text-[14px] font-semibold tracking-wide">Vortex</span>
+            </button>
+            <button
+              onClick={() => setSidebarOpen(false)}
+              className="rounded-lg p-1.5 text-white/40 hover:bg-white/5 hover:text-white/90"
+              title="Collapse Sidebar"
+            >
+              <X size={15} />
+            </button>
           </div>
 
-          <div className="flex-1 space-y-1 overflow-y-auto px-2.5 py-2 custom-scrollbar">
-            {searchQuery.trim() ? (
-              searchResults.length > 0 ? (
-                searchResults.map((result) => (
-                  <button
-                    key={`${result.type}_${result.topicId}_${result.preview}`}
-                    onClick={() => {
-                      setSearchQuery('');
-                      activateTopic(result.topicId).catch(console.error);
-                    }}
-                    className="w-full rounded-xl border border-transparent px-2.5 py-2.5 text-left text-white/70 transition-colors hover:border-white/10 hover:bg-white/5 hover:text-white"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="truncate text-sm font-medium">{result.topicTitle}</span>
-                      <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/45">
-                        {result.type}
-                      </span>
-                    </div>
-                    <p className="mt-1 truncate text-[11px] text-white/40">{result.agentName}</p>
-                    <p className="mt-1.5 line-clamp-2 text-[11px] leading-5 text-white/45">
-                      {result.preview}
-                    </p>
-                  </button>
-                ))
-              ) : (
-                <div className="rounded-xl border border-dashed border-white/10 px-3 py-8 text-center text-sm text-white/35">
-                  No matching topics or messages found.
+          <div className="px-3">
+            <button
+              onClick={handleCreateTopic}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-white/10"
+            >
+              <Plus size={15} /> New Chat
+            </button>
+          </div>
+
+          <div className="mt-3 flex-1 overflow-y-auto px-2 custom-scrollbar">
+            {activeTab === 'chat' && (
+              <div className="mb-2 space-y-1">
+                <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                  Recent Topics
                 </div>
-              )
-            ) : visibleTopics.length > 0 ? (
-              visibleTopics.map((topic) => (
-                <button
-                  key={topic.id}
-                  onClick={() => activateTopic(topic.id).catch(console.error)}
-                  className={`w-full rounded-xl border px-2.5 py-2.5 text-left transition-colors ${
-                    activeTopicId === topic.id
-                      ? 'border-white/10 bg-white/10 text-white'
-                      : 'border-transparent bg-transparent text-white/60 hover:bg-white/5 hover:text-white/90'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <span className="truncate text-[13px] font-medium">{topic.title}</span>
-                      {topic.sessionMode === 'quick' ? (
-                        <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[9px] text-amber-200/80">
-                          Quick
-                        </span>
-                      ) : null}
-                      {topic.parentTopicId ? (
-                        <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-1.5 py-0.5 text-[9px] text-sky-200/80">
-                          Branch
-                        </span>
-                      ) : null}
-                      {topicRunStates[topic.id]?.isGenerating ? (
-                        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-1.5 py-0.5 text-[9px] text-emerald-200/80">
-                          Live
-                        </span>
-                      ) : null}
-                    </div>
-                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] text-white/45">
-                      {topic.messageCount}
-                    </span>
+                {visibleTopics.length > 0 ? (
+                  visibleTopics.map((topic) => (
+                    <button
+                      key={topic.id}
+                      onClick={() => activateTopic(topic.id).catch(console.error)}
+                      className={`w-full group rounded-xl px-2.5 py-2 text-left transition-colors ${
+                        activeTopicId === topic.id
+                          ? 'bg-white/10 text-white'
+                          : 'text-white/60 hover:bg-white/5 hover:text-white/90'
+                      }`}
+                    >
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <span className="truncate text-[13px]">{topic.title}</span>
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-2 py-4 text-center text-xs text-white/30">
+                    No topics found
                   </div>
-                  {topic.parentTopicId ? (
-                    <p className="mt-1 truncate text-[10px] text-sky-200/45">
-                      From {topics.find((entry) => entry.id === topic.parentTopicId)?.title ?? 'parent topic'}
-                    </p>
-                  ) : null}
-                  <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-white/40">
-                    {topic.preview}
-                  </p>
-                </button>
-              ))
-            ) : (
-              <div className="rounded-xl border border-dashed border-white/10 px-3 py-8 text-center text-sm text-white/35">
-                {topicModeFilter === 'all'
-                  ? 'No topics yet. Create one to start chatting with this agent.'
-                  : `No ${topicModeFilter} topics yet.`}
+                )}
               </div>
             )}
           </div>
-        </motion.div>
-      ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col bg-[#05050A]">
+          <div className="space-y-1 border-t border-white/5 p-2">
+            {[
+              { id: 'chat', icon: MessageSquare, label: 'Chat View' },
+              { id: 'prompts', icon: Sparkles, label: 'Prompt Library' },
+              { id: 'knowledge', icon: Globe, label: 'Knowledge Base' },
+              { id: 'sandbox', icon: Terminal, label: 'Web Sandbox', disabled: !runtimeCapabilities.sandbox.webContainer },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                disabled={tab.disabled}
+                className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] transition-colors ${
+                  activeTab === tab.id
+                    ? 'bg-white/10 font-medium text-white'
+                    : tab.disabled
+                      ? 'cursor-not-allowed opacity-30 text-white'
+                      : 'text-white/60 hover:bg-white/5 hover:text-white/90'
+                }`}
+              >
+                <tab.icon size={16} />
+                {tab.label}
+              </button>
+            ))}
+            <div className="my-1 border-t border-white/5" />
+            <button
+              onClick={() => openSettings('models')}
+              className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] text-white/60 transition-colors hover:bg-white/5 hover:text-white/90"
+            >
+              <Settings size={16} /> Settings
+            </button>
+          </div>
+        </motion.div>
+      ) : (
+        <div className="z-30 flex w-12 flex-shrink-0 flex-col items-center border-r border-white/5 bg-[var(--app-bg-sidebar)] py-3">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="group flex h-8 w-8 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/5 hover:text-white"
+            title="Expand Sidebar"
+          >
+            <PanelLeft size={18} />
+          </button>
+          <div className="my-2 border-t border-white/5 w-6" />
+          <button onClick={() => setActiveTab('chat')} className={`rounded-lg p-2 ${activeTab === 'chat' ? 'bg-white/10 text-white' : 'text-white/40 hover:bg-white/5 hover:text-white/90'}`}><MessageSquare size={16}/></button>
+          <button onClick={() => setActiveTab('prompts')} className={`rounded-lg p-2 ${activeTab === 'prompts' ? 'bg-white/10 text-white' : 'text-white/40 hover:bg-white/5 hover:text-white/90'}`}><Sparkles size={16}/></button>
+          <button onClick={() => setActiveTab('knowledge')} className={`rounded-lg p-2 ${activeTab === 'knowledge' ? 'bg-white/10 text-white' : 'text-white/40 hover:bg-white/5 hover:text-white/90'}`}><Globe size={16}/></button>
+
+          <div className="flex-1" />
+          <button onClick={() => openSettings('models')} className="rounded-lg p-2 text-white/40 hover:bg-white/5 hover:text-white/90"><Settings size={16}/></button>
+        </div>
+      )}
+
+      <div className="flex min-w-0 flex-1 flex-col bg-[var(--app-bg-secondary)] relative">
         {activeTab === 'chat' ? (
           <>
             <header className="flex h-13 flex-shrink-0 items-center justify-between border-b border-white/10 px-3.5">
@@ -3327,7 +3199,7 @@ export const ChatInterface: React.FC<{
 
             {workspace && (activeParentTopic || activeChildBranches.length > 0 || activeSiblingBranches.length > 0) ? (
               <div className="border-b border-white/5 bg-white/[0.02] px-4 py-2.5">
-                <div className="mx-auto flex w-full max-w-[1180px] flex-wrap items-center gap-2">
+                <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center gap-2">
                   {activeParentTopic ? (
                     <button
                       onClick={() => activateTopic(activeParentTopic.id).catch(console.error)}
@@ -3420,7 +3292,7 @@ export const ChatInterface: React.FC<{
                 </div>
               ) : (
                 <div className="h-full overflow-x-auto custom-scrollbar">
-                  <div className="mx-auto grid min-h-full w-full max-w-[1180px] gap-4 p-4 md:p-6">
+                  <div className="mx-auto grid min-h-full w-full max-w-4xl gap-4 p-4 md:p-6 pb-20">
                     <AgentLaneColumn
                       lane={activeLane ?? {
                         id: workspace.agent.id,

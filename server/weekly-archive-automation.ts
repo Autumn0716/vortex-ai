@@ -31,7 +31,7 @@ export interface WeeklyArchiveSchedulerOptions {
   logger?: Pick<Console, 'warn' | 'error'>;
 }
 
-const FLOWAGENT_DIRNAME = '.flowagent';
+const VORTEX_DIRNAME = '.vortex';
 const STATE_FILENAME = 'weekly-archive-state.json';
 const WEEKLY_ARCHIVE_SCHEDULE_DAY = 0;
 const WEEKLY_ARCHIVE_SCHEDULE_TIME = '04:00';
@@ -45,11 +45,11 @@ const DEFAULT_WEEKLY_ARCHIVE_STATE: WeeklyArchiveState = {
 };
 
 function getStatePath(rootDir: string) {
-  return path.join(rootDir, FLOWAGENT_DIRNAME, STATE_FILENAME);
+  return path.join(rootDir, VORTEX_DIRNAME, STATE_FILENAME);
 }
 
 async function ensureStateDir(rootDir: string) {
-  await fs.mkdir(path.join(rootDir, FLOWAGENT_DIRNAME), { recursive: true });
+  await fs.mkdir(path.join(rootDir, VORTEX_DIRNAME), { recursive: true });
 }
 
 function normalizeWeeklyArchiveState(value?: Partial<WeeklyArchiveState> | null): WeeklyArchiveState {

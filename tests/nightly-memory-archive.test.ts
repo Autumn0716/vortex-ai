@@ -26,7 +26,7 @@ after(async () => {
 });
 
 async function createTempRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'flowagent-nightly-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'vortex-nightly-'));
   tempRoots.push(root);
   return root;
 }
@@ -127,9 +127,9 @@ test('readNightlyArchiveState and readNightlyArchiveSettings return defaults whe
 
 test('readNightlyArchiveState and readNightlyArchiveSettings warn and return defaults when files are malformed', async () => {
   const rootDir = await createTempRoot();
-  await mkdir(path.join(rootDir, '.flowagent'), { recursive: true });
-  await writeFile(path.join(rootDir, '.flowagent/nightly-memory-archive-settings.json'), '{"enabled": ', 'utf8');
-  await writeFile(path.join(rootDir, '.flowagent/nightly-memory-archive-state.json'), '{"lastSuccessfulRunAt": ', 'utf8');
+  await mkdir(path.join(rootDir, '.vortex'), { recursive: true });
+  await writeFile(path.join(rootDir, '.vortex/nightly-memory-archive-settings.json'), '{"enabled": ', 'utf8');
+  await writeFile(path.join(rootDir, '.vortex/nightly-memory-archive-state.json'), '{"lastSuccessfulRunAt": ', 'utf8');
 
   const originalWarn = console.warn;
   const warnings: string[] = [];
@@ -162,9 +162,9 @@ test('readNightlyArchiveState and readNightlyArchiveSettings warn and return def
 
 test('readNightlyArchiveSettings keeps older settings files compatible', async () => {
   const rootDir = await createTempRoot();
-  await mkdir(path.join(rootDir, '.flowagent'), { recursive: true });
+  await mkdir(path.join(rootDir, '.vortex'), { recursive: true });
   await writeFile(
-    path.join(rootDir, '.flowagent/nightly-memory-archive-settings.json'),
+    path.join(rootDir, '.vortex/nightly-memory-archive-settings.json'),
     JSON.stringify({ enabled: true, time: '04:45', useLlmScoring: true }),
     'utf8',
   );
@@ -177,7 +177,7 @@ test('readNightlyArchiveSettings keeps older settings files compatible', async (
   });
 });
 
-test('writeNightlyArchiveSettings and writeNightlyArchiveState persist project-local .flowagent files', async () => {
+test('writeNightlyArchiveSettings and writeNightlyArchiveState persist project-local .vortex files', async () => {
   const rootDir = await createTempRoot();
   const settings: NightlyArchiveSettings = {
     enabled: false,
@@ -202,9 +202,9 @@ test('writeNightlyArchiveSettings and writeNightlyArchiveState persist project-l
     lastRunSummary: null,
   });
 
-  assert.match(await readFile(path.join(rootDir, '.flowagent/nightly-memory-archive-settings.json'), 'utf8'), /"time": "04:15"/);
+  assert.match(await readFile(path.join(rootDir, '.vortex/nightly-memory-archive-settings.json'), 'utf8'), /"time": "04:15"/);
   assert.match(
-    await readFile(path.join(rootDir, '.flowagent/nightly-memory-archive-settings.json'), 'utf8'),
+    await readFile(path.join(rootDir, '.vortex/nightly-memory-archive-settings.json'), 'utf8'),
     /"cronExpression": "30 4 \* \* \*"/,
   );
 });

@@ -6,7 +6,7 @@ export interface RuntimeCapabilityProfile {
   hostBridge: {
     available: boolean;
     managed: boolean;
-    status: 'unavailable' | FlowAgentDesktopInfo['host']['status'];
+    status: 'unavailable' | VortexDesktopInfo['host']['status'];
     url?: string;
     rootDir?: string;
     configPath?: string;
@@ -46,7 +46,7 @@ export const WEB_RUNTIME_CAPABILITIES: RuntimeCapabilityProfile = {
 };
 
 export function createRuntimeCapabilityProfile(
-  desktopInfo?: FlowAgentDesktopInfo | null,
+  desktopInfo?: VortexDesktopInfo | null,
 ): RuntimeCapabilityProfile {
   if (!desktopInfo) {
     return WEB_RUNTIME_CAPABILITIES;

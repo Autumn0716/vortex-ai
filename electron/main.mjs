@@ -12,13 +12,13 @@ import {
   resolveElectronProjectRoot,
   resolveElectronRendererEntry,
 } from './app-paths.mjs';
-import { registerFlowAgentDesktopHandlers } from './ipc-handlers.mjs';
+import { registerVortexDesktopHandlers } from './ipc-handlers.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const sourceRoot = path.resolve(__dirname, '..');
 const preloadPath = path.join(__dirname, 'preload.mjs');
-const shouldManageHost = process.env.FLOWAGENT_ELECTRON_MANAGE_HOST !== 'false';
-const hostPort = Number(process.env.FLOWAGENT_API_PORT ?? 3850);
+const shouldManageHost = process.env.VORTEX_ELECTRON_MANAGE_HOST !== 'false';
+const hostPort = Number(process.env.VORTEX_API_PORT ?? 3850);
 const hostUrl = `http://127.0.0.1:${hostPort}`;
 let hostProcess = null;
 let mainWindow = null;
@@ -184,8 +184,8 @@ async function ensureHostBridge() {
   updateHostState({
     status: 'starting',
     message: usesBundledHost
-      ? 'Starting the bundled FlowAgent host bridge.'
-      : 'Starting the local FlowAgent host bridge.',
+      ? 'Starting the bundled Vortex host bridge.'
+      : 'Starting the local Vortex host bridge.',
     startedAt: new Date().toISOString(),
   });
   hostProcess = spawn(process.execPath, hostArgs, {
@@ -194,8 +194,8 @@ async function ensureHostBridge() {
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
-      FLOWAGENT_PROJECT_ROOT: projectRoot,
-      FLOWAGENT_DESKTOP: '1',
+      VORTEX_PROJECT_ROOT: projectRoot,
+      VORTEX_DESKTOP: '1',
     },
   });
   updateHostState({
@@ -205,7 +205,7 @@ async function ensureHostBridge() {
 
   hostProcess.on('exit', (code) => {
     if (code && code !== 0) {
-      console.error(`FlowAgent host bridge exited with code ${code}`);
+      console.error(`Vortex host bridge exited with code ${code}`);
       updateHostState({
         status: 'failed',
         message: `Host bridge exited with code ${code}.`,
@@ -245,7 +245,7 @@ function createMainWindow() {
     height: 900,
     minWidth: 1040,
     minHeight: 720,
-    title: 'FlowAgent',
+    title: 'Vortex',
     backgroundColor: '#05050A',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 18, y: 18 },
@@ -268,7 +268,7 @@ function createMainWindow() {
     void window.loadURL(pathToFileURL(rendererEntry.value).toString());
   }
 
-  if (process.env.FLOWAGENT_ELECTRON_DEVTOOLS === 'true') {
+  if (process.env.VORTEX_ELECTRON_DEVTOOLS === 'true') {
     window.webContents.openDevTools({ mode: 'detach' });
   }
 
@@ -300,10 +300,10 @@ function createTray() {
 
   const iconPath = path.join(__dirname, 'assets', process.platform === 'darwin' ? 'icon.icns' : 'icon-base.png');
   tray = new Tray(iconPath);
-  tray.setToolTip('FlowAgent');
+  tray.setToolTip('Vortex');
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Show FlowAgent', click: showMainWindow },
+      { label: 'Show Vortex', click: showMainWindow },
       { type: 'separator' },
       { label: 'Quit', click: () => app.quit() },
     ]),
@@ -311,9 +311,9 @@ function createTray() {
   tray.on('click', showMainWindow);
 }
 
-app.setName('FlowAgent');
+app.setName('Vortex');
 
-registerFlowAgentDesktopHandlers({
+registerVortexDesktopHandlers({
   ipcMain,
   app,
   getHostState: () => hostState,
@@ -331,7 +331,7 @@ app.whenReady().then(async () => {
   try {
     await ensureHostBridge();
   } catch (error) {
-    console.error('Failed to start FlowAgent host bridge:', error);
+    console.error('Failed to start Vortex host bridge:', error);
     updateHostState({
       status: 'failed',
       message: error instanceof Error ? error.message : 'Failed to start host bridge.',

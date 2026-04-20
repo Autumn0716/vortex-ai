@@ -5,19 +5,19 @@ import { readProjectConfig, writeProjectConfig } from './config-store';
 import { walkDirectory } from './lib/fs-utils';
 import type { AgentConfig } from '../src/lib/agent/config';
 
-export interface FlowAgentPackageFile {
+export interface VortexPackageFile {
   path: string;
   content: string;
 }
 
-export interface FlowAgentPackage {
-  format: 'flowagent.package';
+export interface VortexPackage {
+  format: 'vortex.package';
   formatVersion: 1;
   exportedAt: string;
   agentSlug: string;
   config: AgentConfig;
-  memoryFiles: FlowAgentPackageFile[];
-  skillFiles: FlowAgentPackageFile[];
+  memoryFiles: VortexPackageFile[];
+  skillFiles: VortexPackageFile[];
 }
 
 export interface ImportAgentPackageResult {
@@ -51,7 +51,7 @@ async function readTextFiles(rootDir: string, relativeRoot: string, predicate: (
     return [];
   }
   const filePaths = stat.isFile() ? [absoluteRoot] : await walkDirectory(absoluteRoot);
-  const files: FlowAgentPackageFile[] = [];
+  const files: VortexPackageFile[] = [];
 
   for (const filePath of filePaths.sort((left, right) => left.localeCompare(right))) {
     const relativePath = path.relative(rootDir, filePath).replace(/\\/g, '/');
@@ -71,14 +71,14 @@ export async function exportAgentPackage(input: {
   rootDir: string;
   agentSlug: string;
   now?: string;
-}): Promise<FlowAgentPackage> {
+}): Promise<VortexPackage> {
   const rootDir = path.resolve(input.rootDir);
   const agentSlug = normalizeAgentSlug(input.agentSlug);
   const config = await readProjectConfig(rootDir);
   const memoryRoot = `memory/agents/${agentSlug}`;
 
   return {
-    format: 'flowagent.package',
+    format: 'vortex.package',
     formatVersion: 1,
     exportedAt: input.now ?? new Date().toISOString(),
     agentSlug,
@@ -94,14 +94,14 @@ export async function exportAgentPackage(input: {
 
 export async function importAgentPackage(input: {
   rootDir: string;
-  packageData: FlowAgentPackage;
+  packageData: VortexPackage;
   targetAgentSlug?: string;
   importConfig?: boolean;
 }): Promise<ImportAgentPackageResult> {
   const rootDir = path.resolve(input.rootDir);
   const packageData = input.packageData;
-  if (packageData?.format !== 'flowagent.package' || packageData.formatVersion !== 1) {
-    throw new Error('Unsupported FlowAgent package format.');
+  if (packageData?.format !== 'vortex.package' || packageData.formatVersion !== 1) {
+    throw new Error('Unsupported Vortex package format.');
   }
 
   const sourceAgentSlug = normalizeAgentSlug(packageData.agentSlug);

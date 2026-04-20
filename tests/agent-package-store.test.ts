@@ -16,7 +16,7 @@ after(async () => {
 });
 
 async function createTempRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'flowagent-package-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'vortex-package-'));
   tempRoots.push(root);
   return root;
 }
@@ -35,7 +35,7 @@ test('exportAgentPackage bundles config, agent memory markdown, and shared skill
     now: '2026-04-16T10:00:00.000Z',
   });
 
-  assert.equal(packageData.format, 'flowagent.package');
+  assert.equal(packageData.format, 'vortex.package');
   assert.equal(packageData.agentSlug, 'core');
   assert.equal(packageData.exportedAt, '2026-04-16T10:00:00.000Z');
   assert.deepEqual(

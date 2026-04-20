@@ -21,8 +21,8 @@
 - Added agent-scoped `corrections.md` and `reflections.md` bootstrap memory files so user corrections and agent failure lessons can be edited in Settings, indexed from Markdown, injected into runtime prompts, and inspected separately in Prompt Inspector.
 - Improved Memory Timeline with text search, finer event labels, expandable metadata, and snapshot-backed undo for future memory file saves or daily-file deletes.
 - Added code-aware project knowledge indexing for `src/**/*.ts|tsx|py|go`, producing compact code-summary documents with imports, symbols, source paths, and previews for local RAG.
-- Added first-pass FlowAgent package export/import APIs for bundling project config, agent Markdown memory files, and shared Markdown skills into a `.flowagent` JSON package.
-- Added Settings UI controls for exporting/importing `.flowagent` agent packages, including target-agent slug rewriting and optional project config import.
+- Added first-pass Vortex package export/import APIs for bundling project config, agent Markdown memory files, and shared Markdown skills into a `.vortex` JSON package.
+- Added Settings UI controls for exporting/importing `.vortex` agent packages, including target-agent slug rewriting and optional project config import.
 - Added a manual automation trigger for the nightly memory archive via `POST /api/nightly-archive/run` and a matching Settings action to run the archive job immediately.
 - Added a first-pass automation registry with `GET /api/automations` and `POST /api/automations/:id/run`, plus a Settings card that lists and runs registered background jobs.
 - Added optional daily cron scheduling for the nightly memory archive, persisted as `cronExpression` while preserving older fixed-time settings and exposing the effective schedule through the automation registry.
@@ -35,7 +35,7 @@
 - Improved LLM session summaries by passing the previous persisted summary into the summary builder, so model-based compression can incrementally merge newly aged-out turns instead of blindly recompressing all earlier context.
 - Hardened database transaction error handling so rollback failures preserve the original write error, and started migrating API server routes to a shared async error wrapper with stable `error_code` responses.
 - Expanded core integration coverage for Responses function-calling continuation, transaction rollback failures, API registry/package paths, query-router memory routing, and cold-vector memory recall.
-- Added a local Express-based memory API server plus frontend file-store registration so FlowAgent can read and write `memory/agents/<agent-slug>/...` directly from the Settings UI.
+- Added a local Express-based memory API server plus frontend file-store registration so Vortex can read and write `memory/agents/<agent-slug>/...` directly from the Settings UI.
 - Switched the Settings memory page from legacy global-memory document editing to raw Markdown file editing while preserving the existing theme shell.
 - Added warm/cold lifecycle surrogate sync so `daily/*.warm.md` and `daily/*.cold.md` can be generated deterministically while SQLite only indexes the effective representation for each day.
 - Added configurable memory lifecycle windows in project `config.json`, letting hot/warm retention days drive runtime memory routing, explicit-date cold routing, derived memory indexing, and nightly warm/cold archive sync instead of fixed hard-coded `2/15` day windows.
@@ -44,11 +44,11 @@
 - Added a first-pass query-aware memory router so explicit old-time questions now go straight to `cold + global`, while ordinary questions search `hot + warm + global` first and only fall back to cold memory when recent layers are thin.
 - Added a dedicated `agent_memory_embeddings` table plus cold-memory embedding sync so effective `cold.md` surrogates now produce rebuildable semantic vectors without reusing the knowledge-base document tables.
 - Added query-time cold vector retrieval so explicit cold routes and recent-layer fallback paths can semantically recall the most relevant cold summaries instead of injecting every cold memory row.
-- Added nightly memory archive scheduling to the local `api-server`, including project-local `.flowagent` settings/state files, startup catch-up for missed runs, and a matching Settings UI card for enabling and inspecting the job.
+- Added nightly memory archive scheduling to the local `api-server`, including project-local `.vortex` settings/state files, startup catch-up for missed runs, and a matching Settings UI card for enabling and inspecting the job.
 - Moved app configuration persistence toward a project-local `config.json` source, added `config.example.json`, exposed config read/write routes through the local `api-server`, and changed `npm run dev` to start both the frontend and host bridge together.
 - Added optional nightly LLM memory scoring that reuses the active model from `config.json`, writes scored metadata into warm/cold surrogate frontmatter, and falls back to deterministic rules when model calls fail.
 - Added weighted nightly promotion scoring with configurable memory weights in `config.json`, plus automatic promotion into an auto-managed `MEMORY.md` learned-patterns block for explicit user directives, repeated conclusions, and broadly reusable validated patterns.
-- Added host-backed shared `SKILL.md` sync plus agent-scoped private skill sync so FlowAgent can index `skills/**/SKILL.md` and `memory/agents/<agent-slug>/skills/**/SKILL.md`, then inject the most relevant skills into the runtime prompt with agent-local skills preferred over shared ones.
+- Added host-backed shared `SKILL.md` sync plus agent-scoped private skill sync so Vortex can index `skills/**/SKILL.md` and `memory/agents/<agent-slug>/skills/**/SKILL.md`, then inject the most relevant skills into the runtime prompt with agent-local skills preferred over shared ones.
 - Replaced the previous shared project knowledge polling loop with an `api-server` watcher plus event stream so root-level `docs/**/*.md` and `skills/**/SKILL.md` changes now trigger automatic re-sync without waiting for a timer.
 - Started the session-instance refactor by extending `topics` with session runtime fields, moving generation state to per-topic tracking, and adding an initial `Quick Topic` mode that disables memory, skills, and tools by default.
 - Added a frontend runtime error boundary plus null-safe topic runtime rendering so session-scoped chat views no longer white-screen when `workspace` is temporarily unavailable during bootstrap or topic switching.

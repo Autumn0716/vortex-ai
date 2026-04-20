@@ -1,8 +1,8 @@
-# FlowAgent Settings System
+# Vortex Settings System
 
 ## Scope
 
-This document describes the settings capabilities added on top of the existing FlowAgent UI without changing the overall visual structure.
+This document describes the settings capabilities added on top of the existing Vortex UI without changing the overall visual structure.
 
 ## Implemented Areas
 
@@ -83,7 +83,7 @@ The config object now includes:
 
 Primary file:
 
-- `/Users/jiangxun/flowagent-ai/src/lib/agent/config.ts`
+- `/Users/jiangxun/vortex-ai/src/lib/agent/config.ts`
 
 ### SQLite
 
@@ -93,7 +93,7 @@ Added persistent table:
 
 Primary file:
 
-- `/Users/jiangxun/flowagent-ai/src/lib/db.ts`
+- `/Users/jiangxun/vortex-ai/src/lib/db.ts`
 
 ## Theme Runtime
 
@@ -101,16 +101,16 @@ Theme behavior is applied through CSS variables and a lightweight theme helper.
 
 Primary files:
 
-- `/Users/jiangxun/flowagent-ai/src/lib/theme.ts`
-- `/Users/jiangxun/flowagent-ai/src/index.css`
+- `/Users/jiangxun/vortex-ai/src/lib/theme.ts`
+- `/Users/jiangxun/vortex-ai/src/index.css`
 
 ## Agent Runtime Integration
 
-When `memory.includeGlobalMemory` is enabled, FlowAgent loads all global memory documents and injects the merged content into each lane's system prompt before LangGraph execution.
+When `memory.includeGlobalMemory` is enabled, Vortex loads all global memory documents and injects the merged content into each lane's system prompt before LangGraph execution.
 
 Primary file:
 
-- `/Users/jiangxun/flowagent-ai/src/components/ChatInterface.tsx`
+- `/Users/jiangxun/vortex-ai/src/components/ChatInterface.tsx`
 
 ## Notes
 

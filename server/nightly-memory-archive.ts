@@ -97,20 +97,20 @@ const DEFAULT_NIGHTLY_ARCHIVE_STATE: NightlyArchiveState = {
   lastRunSummary: null,
 };
 
-const FLOWAGENT_DIRNAME = '.flowagent';
+const VORTEX_DIRNAME = '.vortex';
 const SETTINGS_FILENAME = 'nightly-memory-archive-settings.json';
 const STATE_FILENAME = 'nightly-memory-archive-state.json';
 
-function getFlowAgentDir(rootDir: string) {
-  return path.resolve(rootDir, FLOWAGENT_DIRNAME);
+function getVortexDir(rootDir: string) {
+  return path.resolve(rootDir, VORTEX_DIRNAME);
 }
 
 function getSettingsPath(rootDir: string) {
-  return path.join(getFlowAgentDir(rootDir), SETTINGS_FILENAME);
+  return path.join(getVortexDir(rootDir), SETTINGS_FILENAME);
 }
 
 function getStatePath(rootDir: string) {
-  return path.join(getFlowAgentDir(rootDir), STATE_FILENAME);
+  return path.join(getVortexDir(rootDir), STATE_FILENAME);
 }
 
 export function validateNightlyArchiveTime(value: string) {
@@ -242,8 +242,8 @@ export function shouldRunNightlyCatchup(input: {
   return new Date(reference).getTime() < new Date(mostRecentScheduledRunAt).getTime();
 }
 
-async function ensureFlowAgentDir(rootDir: string) {
-  await fs.mkdir(getFlowAgentDir(rootDir), { recursive: true });
+async function ensureVortexDir(rootDir: string) {
+  await fs.mkdir(getVortexDir(rootDir), { recursive: true });
 }
 
 async function readJsonFile<T>(filePath: string): Promise<T | null> {
@@ -277,7 +277,7 @@ export async function readNightlyArchiveSettings(rootDir: string) {
 
 export async function writeNightlyArchiveSettings(rootDir: string, value: Partial<NightlyArchiveSettings>) {
   const next = normalizeNightlyArchiveSettings(value);
-  await ensureFlowAgentDir(rootDir);
+  await ensureVortexDir(rootDir);
   await writeJsonFile(getSettingsPath(rootDir), next);
   return next;
 }
@@ -289,7 +289,7 @@ export async function readNightlyArchiveState(rootDir: string) {
 
 export async function writeNightlyArchiveState(rootDir: string, value: Partial<NightlyArchiveState>) {
   const next = normalizeNightlyArchiveState(value);
-  await ensureFlowAgentDir(rootDir);
+  await ensureVortexDir(rootDir);
   await writeJsonFile(getStatePath(rootDir), next);
   return next;
 }

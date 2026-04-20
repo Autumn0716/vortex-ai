@@ -29,14 +29,14 @@ test('resolveElectronProjectRoot uses userData workspace in packaged mode', () =
     isPackaged: true,
     getPath(name) {
       assert.equal(name, 'userData');
-      return '/tmp/flowagent-userdata';
+      return '/tmp/vortex-userdata';
     },
   };
 
   try {
     assert.equal(
       resolveElectronProjectRoot(app, '/repo/source'),
-      path.join('/tmp/flowagent-userdata', 'workspace'),
+      path.join('/tmp/vortex-userdata', 'workspace'),
     );
   } finally {
     process.cwd = originalCwd;
@@ -44,7 +44,7 @@ test('resolveElectronProjectRoot uses userData workspace in packaged mode', () =
 });
 
 test('resolveElectronProjectRoot prefers the packaged launch cwd when project markers exist', async () => {
-  const root = await createTempRoot('flowagent-electron-root-');
+  const root = await createTempRoot('vortex-electron-root-');
   await writeFile(path.join(root, 'config.json'), '{}', 'utf8');
 
   const originalCwd = process.cwd;
@@ -53,7 +53,7 @@ test('resolveElectronProjectRoot prefers the packaged launch cwd when project ma
   const app = {
     isPackaged: true,
     getPath() {
-      return '/tmp/flowagent-userdata';
+      return '/tmp/vortex-userdata';
     },
   };
 
@@ -65,7 +65,7 @@ test('resolveElectronProjectRoot prefers the packaged launch cwd when project ma
 });
 
 test('resolveElectronConfigImportSource prefers explicit env, then cwd, then sourceRoot', async () => {
-  const root = await createTempRoot('flowagent-electron-paths-');
+  const root = await createTempRoot('vortex-electron-paths-');
   const explicitDir = path.join(root, 'explicit');
   const cwdDir = path.join(root, 'cwd');
   const sourceDir = path.join(root, 'source');
@@ -86,7 +86,7 @@ test('resolveElectronConfigImportSource prefers explicit env, then cwd, then sou
     resolveElectronConfigImportSource(app, sourceDir, {
       cwd: cwdDir,
       env: {
-        FLOWAGENT_DESKTOP_IMPORT_CONFIG: explicitConfig,
+        VORTEX_DESKTOP_IMPORT_CONFIG: explicitConfig,
       },
     }),
     explicitConfig,
@@ -111,7 +111,7 @@ test('resolveElectronConfigImportSource prefers explicit env, then cwd, then sou
 });
 
 test('resolveElectronBootstrapFileSource resolves non-config bootstrap files from cwd then sourceRoot', async () => {
-  const root = await createTempRoot('flowagent-electron-bootstrap-');
+  const root = await createTempRoot('vortex-electron-bootstrap-');
   const cwdDir = path.join(root, 'cwd');
   const sourceDir = path.join(root, 'source');
   await Promise.all([mkdir(cwdDir, { recursive: true }), mkdir(sourceDir, { recursive: true })]);

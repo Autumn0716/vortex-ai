@@ -15,7 +15,7 @@ test.after(async () => {
 });
 
 async function createTempRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'flowagent-config-store-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'vortex-config-store-'));
   tempRoots.push(root);
   return root;
 }

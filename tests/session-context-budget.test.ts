@@ -67,14 +67,14 @@ test('estimateSessionContextTokens reports per-section totals for context observ
     },
   ];
   const breakdown = estimateSessionContextTokens({
-    systemPrompt: 'You are FlowAgent.',
+    systemPrompt: 'You are Vortex.',
     sessionSummary: '已完成前置总结。',
     runtimeSystemPrompt: '请优先引用证据。',
     toolContext: 'tools: search_knowledge_base, web_search',
     messages,
   });
 
-  assert.equal(breakdown.systemPromptTokens, estimateTextTokens('You are FlowAgent.'));
+  assert.equal(breakdown.systemPromptTokens, estimateTextTokens('You are Vortex.'));
   assert.equal(breakdown.sessionSummaryTokens, estimateTextTokens('已完成前置总结。'));
   assert.equal(breakdown.runtimeSystemPromptTokens, estimateTextTokens('请优先引用证据。'));
   assert.equal(

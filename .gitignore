@@ -9,6 +9,12 @@ coverage/
 .env*
 !.env.example
 config.json
+model-metadata.json
+scratch.py
+.flowagent/
+.vortex/
+.agents/
+memory/
 .superpowers/
 .vite/
 .vercel

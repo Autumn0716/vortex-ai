@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
 
-import { createFlowAgentApiServer } from '../server/api-server';
+import { createVortexApiServer } from '../server/api-server';
 import { getProjectConfig, saveProjectConfig } from '../src/lib/agent-memory-api';
 
 const tempRoots: string[] = [];
@@ -16,13 +16,13 @@ after(async () => {
 });
 
 async function createTempRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'flowagent-config-api-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'vortex-config-api-'));
   tempRoots.push(root);
   return root;
 }
 
 async function startServer(rootDir: string) {
-  const { app, nightlyArchiveReady, nightlyArchiveScheduler } = createFlowAgentApiServer({
+  const { app, nightlyArchiveReady, nightlyArchiveScheduler } = createVortexApiServer({
     rootDir,
   });
   await nightlyArchiveReady;

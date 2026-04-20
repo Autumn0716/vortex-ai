@@ -358,7 +358,7 @@ function AgentLaneColumnComponent({
 
   return (
     <section
-      className="flex min-w-0 w-full max-w-[980px] flex-1 flex-col overflow-hidden rounded-[26px] border border-white/10 bg-white/[0.03] shadow-[0_20px_60px_rgba(0,0,0,0.35)]"
+      className="flex min-w-0 w-full max-w-[980px] flex-1 flex-col overflow-hidden glass-panel"
       style={{
         boxShadow: `0 18px 45px color-mix(in srgb, ${accentColor} 18%, transparent)`,
       }}
@@ -420,7 +420,24 @@ function AgentLaneColumnComponent({
                 typeof onRegenerateAssistantMessage === 'function';
               const canCopy = typeof onCopyMessage === 'function';
               const canDelete = !isUser && typeof onDeleteAssistantMessage === 'function';
-              const reasoningText = !isUser ? messageReasoningById[message.id] ?? '' : '';
+
+              let contentToRender = message.content;
+              let parsedReasoning = '';
+              if (!isUser && contentToRender.includes('<think>')) {
+                const thinkMatch = contentToRender.match(/<think>([\s\S]*?)<\/think>/);
+                if (thinkMatch) {
+                  parsedReasoning = thinkMatch[1];
+                  contentToRender = contentToRender.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+                } else {
+                  const unclosedThinkMatch = contentToRender.match(/<think>([\s\S]*)$/);
+                  if (unclosedThinkMatch) {
+                    parsedReasoning = unclosedThinkMatch[1];
+                    contentToRender = contentToRender.replace(/<think>[\s\S]*$/, '').trim();
+                  }
+                }
+              }
+
+              const reasoningText = !isUser ? (messageReasoningById[message.id] || parsedReasoning || '').trim() : '';
               const metrics = !isUser ? messageMetricsById[message.id] : undefined;
               const reasoningCollapsed = collapsedReasoningById[message.id] ?? false;
               const knowledgeEvidencePanels = !isUser ? parseKnowledgeEvidencePanels(message.tools) : [];
@@ -428,7 +445,7 @@ function AgentLaneColumnComponent({
               return (
                 <div
                   key={item.key}
-                  className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}
+                  className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-slide-up`}
                   style={{
                     contentVisibility: 'auto',
                     containIntrinsicSize: `${estimatedHeight}px`,
@@ -488,7 +505,7 @@ function AgentLaneColumnComponent({
                       </div>
 
                       {!isUser && reasoningText ? (
-                        <div className="w-full rounded-2xl border border-fuchsia-400/15 bg-fuchsia-400/8 px-4 py-3 text-sm text-white/80">
+                        <div className="w-full rounded-2xl border border-fuchsia-400/20 bg-[#160a16]/60 backdrop-blur-md px-4 py-3 text-sm shadow-sm transition-all animate-slide-up">
                           <button
                             onClick={() =>
                               setCollapsedReasoningById((previous) => ({
@@ -584,7 +601,7 @@ function AgentLaneColumnComponent({
                       >
                         <div className="prose prose-invert prose-sm max-w-none prose-p:leading-relaxed prose-pre:border prose-pre:border-white/10 prose-pre:bg-black/40">
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {message.content}
+                            {contentToRender}
                           </ReactMarkdown>
                         </div>
                       </div>
@@ -768,17 +785,17 @@ function AgentLaneColumnComponent({
                         ) : null}
                       </div>
                     ) : null}
-                    <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-white/10 bg-black/20 px-4 py-3">
+                    <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-white/10 bg-black/40 backdrop-blur-md px-4 py-3 shadow-inner">
                       <div
-                        className="h-2 w-2 animate-bounce rounded-full"
+                        className="h-2 w-2 animate-glow rounded-full"
                         style={{ backgroundColor: accentColor, animationDelay: '0ms' }}
                       />
                       <div
-                        className="h-2 w-2 animate-bounce rounded-full"
+                        className="h-2 w-2 animate-glow rounded-full"
                         style={{ backgroundColor: accentColor, animationDelay: '120ms' }}
                       />
                       <div
-                        className="h-2 w-2 animate-bounce rounded-full"
+                        className="h-2 w-2 animate-glow rounded-full"
                         style={{ backgroundColor: accentColor, animationDelay: '240ms' }}
                       />
                     </div>

@@ -49,19 +49,19 @@ export interface OfficialModelMetadataResponse {
   updatedAt?: string;
 }
 
-export interface FlowAgentPackageFile {
+export interface VortexPackageFile {
   path: string;
   content: string;
 }
 
-export interface FlowAgentPackage {
-  format: 'flowagent.package';
+export interface VortexPackage {
+  format: 'vortex.package';
   formatVersion: 1;
   exportedAt: string;
   agentSlug: string;
   config: AgentConfig;
-  memoryFiles: FlowAgentPackageFile[];
-  skillFiles: FlowAgentPackageFile[];
+  memoryFiles: VortexPackageFile[];
+  skillFiles: VortexPackageFile[];
 }
 
 export interface ImportAgentPackageResult {
@@ -476,12 +476,12 @@ export async function saveProjectConfig(
 export async function exportAgentPackage(
   settings: ApiServerSettings,
   agentSlug: string,
-): Promise<FlowAgentPackage | null> {
+): Promise<VortexPackage | null> {
   if (!settings.enabled) {
     return null;
   }
 
-  return requestApi<FlowAgentPackage>(
+  return requestApi<VortexPackage>(
     settings,
     `/api/agent-packages/export?agentSlug=${encodeURIComponent(agentSlug)}`,
     {},
@@ -491,7 +491,7 @@ export async function exportAgentPackage(
 
 export async function importAgentPackage(
   settings: ApiServerSettings,
-  packageData: FlowAgentPackage,
+  packageData: VortexPackage,
   options: { targetAgentSlug?: string; importConfig?: boolean } = {},
 ): Promise<ImportAgentPackageResult | null> {
   if (!settings.enabled) {

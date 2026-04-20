@@ -29,7 +29,7 @@ function resolveSnippetCommand(language: string, code: string) {
   }
 
   throw new Error(
-    `Unsupported sandbox language "${language}". FlowAgent currently supports javascript/typescript and bash/sh.`,
+    `Unsupported sandbox language "${language}". Vortex currently supports javascript/typescript and bash/sh.`,
   );
 }
 

@@ -29,9 +29,9 @@ import {
 } from '../src/lib/agent-memory-files';
 
 test('buildAgentMemoryPaths resolves MEMORY.md and daily paths for an agent slug', () => {
-  const paths = buildAgentMemoryPaths('flowagent-core', '2026-04-01');
-  assert.equal(paths.memoryFile, 'memory/agents/flowagent-core/MEMORY.md');
-  assert.equal(paths.dailyFile, 'memory/agents/flowagent-core/daily/2026-04-01.md');
+  const paths = buildAgentMemoryPaths('vortex-core', '2026-04-01');
+  assert.equal(paths.memoryFile, 'memory/agents/vortex-core/MEMORY.md');
+  assert.equal(paths.dailyFile, 'memory/agents/vortex-core/daily/2026-04-01.md');
 });
 
 test('serializeMemoryMarkdown round-trips frontmatter and body', () => {
@@ -106,7 +106,7 @@ test('syncAgentMemoryFromFiles upserts long-term and daily markdown into derived
   const writes: string[] = [];
   const fileStore = {
     readMemoryFile: async () => '# Long-term\n\n默认使用中文输出。',
-    listDailyFiles: async () => [{ path: 'memory/agents/flowagent-core/daily/2026-04-01.md', content: '- [08:30] TODO 修复 bootstrap。' }],
+    listDailyFiles: async () => [{ path: 'memory/agents/vortex-core/daily/2026-04-01.md', content: '- [08:30] TODO 修复 bootstrap。' }],
   };
   const database = {
     run(sql: string) {
@@ -118,8 +118,8 @@ test('syncAgentMemoryFromFiles upserts long-term and daily markdown into derived
   };
 
   await syncAgentMemoryFromFiles({
-    agentId: 'agent_flowagent_core',
-    agentSlug: 'flowagent-core',
+    agentId: 'agent_vortex_core',
+    agentSlug: 'vortex-core',
     database,
     fileStore,
   });

@@ -99,7 +99,7 @@ import {
   type AgentMemoryFileEntry,
   type AutomationRunStatus,
   type AutomationSnapshot,
-  type FlowAgentPackage,
+  type VortexPackage,
   type NightlyArchiveStatus,
   type OfficialModelMetadataResponse,
 } from '../../lib/agent-memory-api';
@@ -529,17 +529,17 @@ function SectionCard({
   className?: string;
 }) {
   return (
-    <section
-      className={`rounded-[24px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.025))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] ${className}`}
-    >
-      <div className="mb-3 flex items-start justify-between gap-4">
+    <section className={`border-b border-white/5 py-4 last:border-0 ${className}`}>
+      <div className="mb-4 flex items-start justify-between gap-4">
         <div>
           <h3 className="text-sm font-semibold text-white/90">{title}</h3>
-          {description ? <p className="mt-1 text-xs text-white/45">{description}</p> : null}
+          {description ? <p className="mt-1 text-[13px] text-white/45 leading-relaxed">{description}</p> : null}
         </div>
-        {action}
+        {action && <div className="flex-shrink-0">{action}</div>}
       </div>
-      {children}
+      <div className="flex flex-col gap-3">
+        {children}
+      </div>
     </section>
   );
 }
@@ -556,13 +556,14 @@ function ToggleCard({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="rounded-[22px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.02))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <div className="text-sm font-medium text-white/90">{title}</div>
-          <p className="mt-1 text-xs text-white/45">{description}</p>
-        </div>
-        <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3.5 transition-colors hover:bg-white/[0.04]">
+      <div className="flex-1">
+        <div className="text-sm font-medium text-white/90">{title}</div>
+        <p className="mt-0.5 text-xs text-white/45">{description}</p>
+      </div>
+      <div className="relative inline-flex flex-shrink-0 items-center">
+        <input type="checkbox" className="peer sr-only" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+        <div className="h-6 w-11 rounded-full bg-black/40 border border-white/10 peer-checked:border-emerald-500/20 peer-checked:bg-emerald-500/80 peer-focus:ring-2 peer-focus:ring-emerald-500/30 transition-all after:absolute after:top-[3px] after:left-[3px] after:h-4.5 after:w-4.5 after:rounded-full after:bg-white after:shadow-sm after:transition-all peer-checked:after:translate-x-[20px]"></div>
       </div>
     </label>
   );
@@ -603,6 +604,52 @@ function WeightInputCard({
         onChange={(event) => onChange(Number(event.target.value))}
         className="mt-3 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
       />
+    </div>
+  );
+}
+
+function SystemPromptEditor({
+  draft,
+  updateDraft,
+}: {
+  draft: AgentConfig;
+  updateDraft: React.Dispatch<React.SetStateAction<AgentConfig>>;
+}) {
+  const [localPrompt, setLocalPrompt] = useState(draft.systemPrompt);
+
+  useEffect(() => {
+    setLocalPrompt(draft.systemPrompt);
+  }, [draft.systemPrompt]);
+
+  const handleSave = () => {
+    updateDraft((current) => ({
+      ...current,
+      systemPrompt: localPrompt,
+    }));
+  };
+
+  const isDirty = localPrompt !== draft.systemPrompt;
+
+  return (
+    <div className="flex flex-col gap-3">
+      <textarea
+        value={localPrompt}
+        onChange={(e) => setLocalPrompt(e.target.value)}
+        className="min-h-[220px] w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
+      />
+      <div className="flex justify-end">
+        <button
+          onClick={handleSave}
+          disabled={!isDirty}
+          className={`glass-button w-full sm:w-auto px-5 py-2.5 text-sm font-medium transition-all ${
+            isDirty
+              ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/30 hover:border-emerald-500/40'
+              : 'opacity-50 cursor-not-allowed'
+          }`}
+        >
+          {isDirty ? '保存改动' : '已保存'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -687,7 +734,7 @@ export const SettingsView = ({
   const [automationSnapshot, setAutomationSnapshot] = useState<AutomationSnapshot | null>(null);
   const [automationLoadingId, setAutomationLoadingId] = useState<string | null>(null);
   const [automationMessage, setAutomationMessage] = useState<MemoryFileStatus | null>(null);
-  const initialAgentSlug = agents.find((agent) => agent.id === activeAgentId)?.slug ?? agents[0]?.slug ?? 'flowagent-core';
+  const initialAgentSlug = agents.find((agent) => agent.id === activeAgentId)?.slug ?? agents[0]?.slug ?? 'vortex-core';
   const [agentTaskDraft, setAgentTaskDraft] = useState({
     agentSlug: initialAgentSlug,
     instruction: '',
@@ -700,7 +747,7 @@ export const SettingsView = ({
   const [agentPackageStatus, setAgentPackageStatus] = useState<MemoryFileStatus | null>(null);
   const [documentQualityScores, setDocumentQualityScores] = useState<DocumentQualityScoreRecord[]>([]);
   const [documentQualityLoading, setDocumentQualityLoading] = useState(false);
-  const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<FlowAgentRuntimeDiagnostics | null>(null);
+  const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<VortexRuntimeDiagnostics | null>(null);
   const [runtimeDiagnosticsLoading, setRuntimeDiagnosticsLoading] = useState(false);
   const [runtimeDiagnosticsError, setRuntimeDiagnosticsError] = useState('');
   const backupRestoreInputRef = useRef<HTMLInputElement>(null);
@@ -1758,7 +1805,7 @@ export const SettingsView = ({
       await loadMemoryFiles({
         preferredPath: activeMemoryFilePath,
       });
-      showDesktopNotification('FlowAgent 记忆归档完成', formatLifecycleSyncStatus(lifecycleResult));
+      showDesktopNotification('Vortex 记忆归档完成', formatLifecycleSyncStatus(lifecycleResult));
       void recordAuditLog({
         category: 'memory',
         action: 'memory_lifecycle_synced',
@@ -1996,7 +2043,7 @@ export const SettingsView = ({
       void recordAuditLog({
         category: 'config',
         action: 'nightly_archive_saved',
-        target: '.flowagent/nightly-memory-archive-settings.json',
+        target: '.vortex/nightly-memory-archive-settings.json',
         status: 'success',
         summary: `Saved nightly archive settings: ${summarizeChangedKeys(diff.changedKeys)}.`,
         metadata: diff,
@@ -2005,7 +2052,7 @@ export const SettingsView = ({
         console.warn('Failed to record nightly archive audit log:', error);
       });
       showDesktopNotification(
-        'FlowAgent 夜间归档已更新',
+        'Vortex 夜间归档已更新',
         `${nextStatus?.settings.enabled ? '已启用' : '已关闭'} · ${formatNightlyArchiveSchedule(nextStatus?.settings)}`,
       );
       await loadNightlyArchive();
@@ -2136,17 +2183,17 @@ export const SettingsView = ({
 
   const handleBackup = async () => {
     const payload = {
-      kind: 'flowagent-backup',
+      kind: 'vortex-backup',
       exportedAt: new Date().toISOString(),
       config: draft,
       workspace: await exportWorkspaceData({ minimal: draft.data.minimalBackup }),
     };
-    downloadJson(payload, `flowagent-backup-${Date.now()}.json`);
+    downloadJson(payload, `vortex-backup-${Date.now()}.json`);
   };
 
   const handleMarkdownExport = async () => {
     const payload = await exportWorkspaceData();
-    downloadText(buildMarkdownExport(payload), `flowagent-export-${Date.now()}.md`);
+    downloadText(buildMarkdownExport(payload), `vortex-export-${Date.now()}.md`);
   };
 
   const handleAgentPackageExport = async () => {
@@ -2156,7 +2203,7 @@ export const SettingsView = ({
       if (!packageData) {
         throw new Error('本地 API Server 未启用或无法导出 agent package。');
       }
-      downloadJson(packageData, `${packageData.agentSlug}-${Date.now()}.flowagent`);
+      downloadJson(packageData, `${packageData.agentSlug}-${Date.now()}.vortex`);
       setAgentPackageStatus({
         tone: 'success',
         message: `已导出 ${packageData.agentSlug}：${packageData.memoryFiles.length} 个记忆文件，${packageData.skillFiles.length} 个 skill 文件。`,
@@ -2176,7 +2223,7 @@ export const SettingsView = ({
     }
 
     try {
-      const packageData = JSON.parse(await readFileAsText(file)) as FlowAgentPackage;
+      const packageData = JSON.parse(await readFileAsText(file)) as VortexPackage;
       const result = await importAgentPackage(draft.apiServer, packageData, {
         targetAgentSlug: agentPackageDraft.targetAgentSlug.trim() || undefined,
         importConfig: agentPackageDraft.importConfig,
@@ -2270,16 +2317,7 @@ export const SettingsView = ({
             </SectionCard>
 
             <SectionCard title="全局 System Prompt" description="对所有 lane 生效的系统级提示词。">
-              <textarea
-                value={draft.systemPrompt}
-                onChange={(event) =>
-                  updateDraft((current) => ({
-                    ...current,
-                    systemPrompt: event.target.value,
-                  }))
-                }
-                className="min-h-[220px] w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
-              />
+              <SystemPromptEditor draft={draft} updateDraft={updateDraft} />
             </SectionCard>
           </div>
         );
@@ -2710,7 +2748,7 @@ export const SettingsView = ({
 
             <SectionCard
               title="Agent 配置包"
-              description="打包 config.json、指定 agent 的 Markdown 记忆和共享 skills 为 .flowagent 文件。"
+              description="打包 config.json、指定 agent 的 Markdown 记忆和共享 skills 为 .vortex 文件。"
               action={
                 <button
                   onClick={handleAgentPackageExport}
@@ -2718,7 +2756,7 @@ export const SettingsView = ({
                   className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Download size={15} />
-                  导出 .flowagent
+                  导出 .vortex
                 </button>
               }
             >
@@ -2737,8 +2775,8 @@ export const SettingsView = ({
                       </option>
                     ))
                   ) : (
-                    <option value="flowagent-core" className="bg-[#111111]">
-                      flowagent-core
+                    <option value="vortex-core" className="bg-[#111111]">
+                      vortex-core
                     </option>
                   )}
                 </select>
@@ -4452,8 +4490,8 @@ export const SettingsView = ({
                                 </option>
                               ))
                             ) : (
-                              <option value="flowagent-core" className="bg-[#111111]">
-                                flowagent-core
+                              <option value="vortex-core" className="bg-[#111111]">
+                                vortex-core
                               </option>
                             )}
                           </select>
@@ -4585,7 +4623,7 @@ export const SettingsView = ({
                         : 'text-white/45'
                   }`}
                 >
-                  {nightlyArchiveMessage?.message ?? '夜间归档设置会保存到项目内 `.flowagent/` 状态文件。'}
+                  {nightlyArchiveMessage?.message ?? '夜间归档设置会保存到项目内 `.vortex/` 状态文件。'}
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
                   <button
@@ -4979,13 +5017,13 @@ export const SettingsView = ({
       <input
         ref={agentPackageImportInputRef}
         type="file"
-        accept=".flowagent,application/json"
+        accept=".vortex,application/json"
         className="hidden"
         onChange={handleAgentPackageImport}
       />
 
-      <div className="flex h-[86vh] min-h-[640px] w-full max-w-[1460px] overflow-hidden rounded-[32px] border border-white/10 bg-[#1E1E1E] shadow-2xl">
-        <div className="flex w-48 flex-col border-r border-white/5 bg-[#181818]">
+      <div className="flex h-[85vh] min-h-[640px] w-full max-w-[1080px] overflow-hidden rounded-[24px] border border-white/10 bg-[var(--app-bg-modal)] shadow-2xl">
+        <div className="flex w-[220px] flex-col border-r border-white/5 bg-[var(--app-bg-modal-side)]">
           <div className="flex items-center gap-2 border-b border-white/5 p-4 font-semibold text-white/90">
             <SettingsIcon size={18} />
             <span>设置</span>

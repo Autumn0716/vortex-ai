@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, test } from 'node:test';
 
-import { createFlowAgentApiServer } from '../server/api-server';
+import { createVortexApiServer } from '../server/api-server';
 import { listAgentMemoryFiles, writeAgentMemoryFile } from '../src/lib/agent-memory-api';
 import {
   syncAgentMemoryLifecycleFromStore,
@@ -17,13 +17,13 @@ import {
 const tempRoots: string[] = [];
 
 async function createTempRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'flowagent-lifecycle-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'vortex-lifecycle-'));
   tempRoots.push(root);
   return root;
 }
 
 async function startServer(rootDir: string) {
-  const { app, nightlyArchiveReady, nightlyArchiveScheduler } = createFlowAgentApiServer({
+  const { app, nightlyArchiveReady, nightlyArchiveScheduler } = createVortexApiServer({
     rootDir,
     authToken: '',
     nightlyArchiveNow: () => '2026-04-20T12:00:00.000Z',
@@ -548,7 +548,7 @@ test('listAgentMemoryFiles exposes warm and cold surrogate entries distinctly', 
 
 test('API server startup catch-up generates warm and cold surrogate files before the server is used', async () => {
   const rootDir = await createTempRoot();
-  await mkdir(path.join(rootDir, '.flowagent'), { recursive: true });
+  await mkdir(path.join(rootDir, '.vortex'), { recursive: true });
   await mkdir(path.join(rootDir, 'memory/agents/core/daily'), { recursive: true });
   await writeFile(
     path.join(rootDir, 'memory/agents/core/daily/2026-04-10.md'),
@@ -561,12 +561,12 @@ test('API server startup catch-up generates warm and cold surrogate files before
     'utf8',
   );
   await writeFile(
-    path.join(rootDir, '.flowagent/nightly-memory-archive-settings.json'),
+    path.join(rootDir, '.vortex/nightly-memory-archive-settings.json'),
     JSON.stringify({ enabled: true, time: '03:00' }, null, 2),
     'utf8',
   );
   await writeFile(
-    path.join(rootDir, '.flowagent/nightly-memory-archive-state.json'),
+    path.join(rootDir, '.vortex/nightly-memory-archive-state.json'),
     JSON.stringify(
       {
         lastSuccessfulRunAt: '2026-04-19T01:00:00.000Z',

@@ -10,15 +10,15 @@ import {
 } from '../src/lib/agent-memory-files';
 
 test('buildAgentMemoryPaths resolves MEMORY.md and daily paths for an agent slug', () => {
-  const paths = buildAgentMemoryPaths('flowagent-core', '2026-04-01');
-  assert.equal(paths.baseDir, 'memory/agents/flowagent-core');
-  assert.equal(paths.memoryFile, 'memory/agents/flowagent-core/MEMORY.md');
-  assert.equal(paths.correctionsFile, 'memory/agents/flowagent-core/corrections.md');
-  assert.equal(paths.reflectionsFile, 'memory/agents/flowagent-core/reflections.md');
-  assert.equal(paths.dailyDir, 'memory/agents/flowagent-core/daily');
-  assert.equal(paths.dailyFile, 'memory/agents/flowagent-core/daily/2026-04-01.md');
-  assert.equal(paths.warmFile, 'memory/agents/flowagent-core/daily/2026-04-01.warm.md');
-  assert.equal(paths.coldFile, 'memory/agents/flowagent-core/daily/2026-04-01.cold.md');
+  const paths = buildAgentMemoryPaths('vortex-core', '2026-04-01');
+  assert.equal(paths.baseDir, 'memory/agents/vortex-core');
+  assert.equal(paths.memoryFile, 'memory/agents/vortex-core/MEMORY.md');
+  assert.equal(paths.correctionsFile, 'memory/agents/vortex-core/corrections.md');
+  assert.equal(paths.reflectionsFile, 'memory/agents/vortex-core/reflections.md');
+  assert.equal(paths.dailyDir, 'memory/agents/vortex-core/daily');
+  assert.equal(paths.dailyFile, 'memory/agents/vortex-core/daily/2026-04-01.md');
+  assert.equal(paths.warmFile, 'memory/agents/vortex-core/daily/2026-04-01.warm.md');
+  assert.equal(paths.coldFile, 'memory/agents/vortex-core/daily/2026-04-01.cold.md');
 });
 
 test('detectMemoryFileKind distinguishes source warm and cold daily files', () => {

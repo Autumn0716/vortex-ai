@@ -24,7 +24,7 @@ import {
 import { createWeeklyArchiveScheduler } from './weekly-archive-automation';
 import { walkDirectory } from './lib/fs-utils';
 
-export interface FlowAgentApiServerOptions {
+export interface VortexApiServerOptions {
   authToken?: string;
   rootDir?: string;
   nightlyArchiveNow?: () => string | Date;
@@ -152,9 +152,9 @@ function applyRequestLogging(app: Express, logger: Pick<Console, 'info'>) {
   });
 }
 
-export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}) {
-  const rootDir = path.resolve(options.rootDir ?? process.env.FLOWAGENT_PROJECT_ROOT ?? process.cwd());
-  const authToken = (options.authToken ?? process.env.FLOWAGENT_API_TOKEN ?? '').trim();
+export function createVortexApiServer(options: VortexApiServerOptions = {}) {
+  const rootDir = path.resolve(options.rootDir ?? process.env.VORTEX_PROJECT_ROOT ?? process.cwd());
+  const authToken = (options.authToken ?? process.env.VORTEX_API_TOKEN ?? '').trim();
   const logger = options.logger ?? console;
   const memoryRootDir = path.resolve(rootDir, 'memory/agents');
   mkdirSync(memoryRootDir, { recursive: true });
@@ -336,7 +336,7 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
       async (request, response) => {
         const agentSlug = String(request.query.agentSlug ?? '');
         const packageData = await exportAgentPackage({ rootDir, agentSlug });
-        response.setHeader('Content-Disposition', `attachment; filename="${packageData.agentSlug}.flowagent"`);
+        response.setHeader('Content-Disposition', `attachment; filename="${packageData.agentSlug}.vortex"`);
         response.json(packageData);
       },
     ),
@@ -694,13 +694,13 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
 }
 
 async function startServer() {
-  const port = Number(process.env.FLOWAGENT_API_PORT ?? 3850);
-  const host = process.env.FLOWAGENT_API_HOST ?? '127.0.0.1';
-  const { app, memoryRootDir, nightlyArchiveReady, dailySummaryReady, weeklyArchiveReady, projectKnowledgeReady } = createFlowAgentApiServer();
+  const port = Number(process.env.VORTEX_API_PORT ?? 3850);
+  const host = process.env.VORTEX_API_HOST ?? '127.0.0.1';
+  const { app, memoryRootDir, nightlyArchiveReady, dailySummaryReady, weeklyArchiveReady, projectKnowledgeReady } = createVortexApiServer();
   await Promise.all([nightlyArchiveReady, dailySummaryReady, weeklyArchiveReady, projectKnowledgeReady]);
 
   app.listen(port, host, () => {
-    console.log(`FlowAgent API server listening on http://${host}:${port}`);
+    console.log(`Vortex API server listening on http://${host}:${port}`);
     console.log(`Memory root: ${memoryRootDir}`);
   });
 }
@@ -708,7 +708,7 @@ async function startServer() {
 const entryFile = process.argv[1] ? path.resolve(process.argv[1]) : '';
 if (entryFile && entryFile === fileURLToPath(import.meta.url)) {
   startServer().catch((error) => {
-    console.error('Failed to start FlowAgent API server:', error);
+    console.error('Failed to start Vortex API server:', error);
     process.exitCode = 1;
   });
 }
