@@ -2,6 +2,27 @@ interface TransactionDatabase {
   run(query: string): void;
 }
 
+export class DatabaseTransactionError extends Error {
+  constructor(
+    message: string,
+    options: {
+      cause: unknown;
+      rollbackError?: unknown;
+    },
+  ) {
+    super(message, {
+      cause: options.cause instanceof Error ? options.cause : undefined,
+    });
+    this.name = 'DatabaseTransactionError';
+    if (options.rollbackError) {
+      Object.defineProperty(this, 'rollbackError', {
+        value: options.rollbackError,
+        enumerable: false,
+      });
+    }
+  }
+}
+
 export async function runDatabaseTransaction<T>(
   database: TransactionDatabase,
   callback: () => T | Promise<T>,
@@ -12,7 +33,14 @@ export async function runDatabaseTransaction<T>(
     database.run('COMMIT');
     return result;
   } catch (error) {
-    database.run('ROLLBACK');
+    try {
+      database.run('ROLLBACK');
+    } catch (rollbackError) {
+      throw new DatabaseTransactionError('Database transaction failed and rollback also failed.', {
+        cause: error,
+        rollbackError,
+      });
+    }
     throw error;
   }
 }

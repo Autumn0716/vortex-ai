@@ -91,6 +91,34 @@ function sendApiError(response: Response, status: number, errorCode: string, mes
   });
 }
 
+type ApiRouteFailure = {
+  status: number | ((error: unknown) => number);
+  errorCode: string;
+  fallbackMessage: string;
+};
+
+function readErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function apiRoute(
+  failure: ApiRouteFailure,
+  handler: (request: Request, response: Response) => Promise<void> | void,
+) {
+  return async (request: Request, response: Response) => {
+    try {
+      await handler(request, response);
+    } catch (error) {
+      sendApiError(
+        response,
+        typeof failure.status === 'function' ? failure.status(error) : failure.status,
+        failure.errorCode,
+        readErrorMessage(error, failure.fallbackMessage),
+      );
+    }
+  };
+}
+
 function isModelMetadataStoreFailure(error: unknown) {
   return error instanceof Error && error.message.includes('Failed to read model metadata store at ');
 }
@@ -197,18 +225,19 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     });
   });
 
-  app.get('/api/config', async (_request, response) => {
-    try {
-      response.json(await readProjectConfig(rootDir));
-    } catch (error) {
-      sendApiError(
-        response,
-        500,
-        'CONFIG_READ_FAILED',
-        error instanceof Error ? error.message : 'Failed to read project config.',
-      );
-    }
-  });
+  app.get(
+    '/api/config',
+    apiRoute(
+      {
+        status: 500,
+        errorCode: 'CONFIG_READ_FAILED',
+        fallbackMessage: 'Failed to read project config.',
+      },
+      async (_request, response) => {
+        response.json(await readProjectConfig(rootDir));
+      },
+    ),
+  );
 
   app.get('/api/model-inspector', async (request, response) => {
     try {
@@ -282,53 +311,56 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     }
   });
 
-  app.put('/api/config', async (request, response) => {
-    try {
-      response.json(await writeProjectConfig(rootDir, request.body ?? {}));
-    } catch (error) {
-      sendApiError(
-        response,
-        400,
-        'CONFIG_WRITE_FAILED',
-        error instanceof Error ? error.message : 'Failed to write project config.',
-      );
-    }
-  });
+  app.put(
+    '/api/config',
+    apiRoute(
+      {
+        status: 400,
+        errorCode: 'CONFIG_WRITE_FAILED',
+        fallbackMessage: 'Failed to write project config.',
+      },
+      async (request, response) => {
+        response.json(await writeProjectConfig(rootDir, request.body ?? {}));
+      },
+    ),
+  );
 
-  app.get('/api/agent-packages/export', async (request, response) => {
-    try {
-      const agentSlug = String(request.query.agentSlug ?? '');
-      const packageData = await exportAgentPackage({ rootDir, agentSlug });
-      response.setHeader('Content-Disposition', `attachment; filename="${packageData.agentSlug}.flowagent"`);
-      response.json(packageData);
-    } catch (error) {
-      sendApiError(
-        response,
-        400,
-        'AGENT_PACKAGE_EXPORT_FAILED',
-        error instanceof Error ? error.message : 'Failed to export agent package.',
-      );
-    }
-  });
+  app.get(
+    '/api/agent-packages/export',
+    apiRoute(
+      {
+        status: 400,
+        errorCode: 'AGENT_PACKAGE_EXPORT_FAILED',
+        fallbackMessage: 'Failed to export agent package.',
+      },
+      async (request, response) => {
+        const agentSlug = String(request.query.agentSlug ?? '');
+        const packageData = await exportAgentPackage({ rootDir, agentSlug });
+        response.setHeader('Content-Disposition', `attachment; filename="${packageData.agentSlug}.flowagent"`);
+        response.json(packageData);
+      },
+    ),
+  );
 
-  app.post('/api/agent-packages/import', async (request, response) => {
-    try {
-      const result = await importAgentPackage({
-        rootDir,
-        packageData: request.body?.packageData ?? request.body?.package,
-        targetAgentSlug: typeof request.body?.targetAgentSlug === 'string' ? request.body.targetAgentSlug : undefined,
-        importConfig: request.body?.importConfig === true,
-      });
-      response.json(result);
-    } catch (error) {
-      sendApiError(
-        response,
-        400,
-        'AGENT_PACKAGE_IMPORT_FAILED',
-        error instanceof Error ? error.message : 'Failed to import agent package.',
-      );
-    }
-  });
+  app.post(
+    '/api/agent-packages/import',
+    apiRoute(
+      {
+        status: 400,
+        errorCode: 'AGENT_PACKAGE_IMPORT_FAILED',
+        fallbackMessage: 'Failed to import agent package.',
+      },
+      async (request, response) => {
+        const result = await importAgentPackage({
+          rootDir,
+          packageData: request.body?.packageData ?? request.body?.package,
+          targetAgentSlug: typeof request.body?.targetAgentSlug === 'string' ? request.body.targetAgentSlug : undefined,
+          importConfig: request.body?.importConfig === true,
+        });
+        response.json(result);
+      },
+    ),
+  );
 
   app.get('/api/nightly-archive', async (_request, response) => {
     try {
@@ -379,119 +411,121 @@ export function createFlowAgentApiServer(options: FlowAgentApiServerOptions = {}
     }
   });
 
-  app.get('/api/automations', async (_request, response) => {
-    try {
-      const nightlyArchive = await nightlyArchiveScheduler.getStatus();
-      const dailySummary = await dailySummaryScheduler.getStatus();
-      const weeklyArchive = await weeklyArchiveScheduler.getStatus();
-      const codeReview = await codeReviewAutomation.getStatus();
-      const agentTask = await agentTaskAutomation.getStatus();
-      response.json({
-        automations: [
-          {
-            id: 'agent_task',
-            title: 'Agent 任务触发',
-            description: '把任意 agent 操作写入对应 daily 记忆，作为可审计的任务队列入口。',
-            enabled: agentTask.enabled,
-            schedule: agentTask.schedule,
-            running: agentTask.running,
-            nextRunAt: agentTask.nextRunAt,
-            lastRunSummary: agentTask.state.lastRunSummary,
-            capabilities: ['manual_run', 'agent_operation', 'task_queue'],
-          },
-          {
-            id: 'daily_summary',
-            title: '昨日会话摘要',
-            description: '每天早 8 点为昨日 daily 记忆写入自动摘要区块。',
-            enabled: dailySummary.enabled,
-            schedule: dailySummary.schedule,
-            running: dailySummary.running,
-            nextRunAt: dailySummary.nextRunAt,
-            lastRunSummary: dailySummary.state.lastRunSummary,
-            capabilities: ['manual_run', 'scheduled_run', 'catch_up'],
-          },
-          {
-            id: 'code_review',
-            title: 'Git Push Code Review',
-            description: 'git pre-push hook 触发的轻量代码审查自动化，记录变更文件和风险提示。',
-            enabled: codeReview.enabled,
-            schedule: codeReview.schedule,
-            running: codeReview.running,
-            nextRunAt: codeReview.nextRunAt,
-            lastRunSummary: codeReview.state.lastRunSummary,
-            capabilities: ['manual_run', 'git_pre_push'],
-          },
-          {
-            id: 'weekly_archive',
-            title: '每周记忆归档',
-            description: '每周日自动执行温冷层归档、长期记忆晋升和重要性评分。',
-            enabled: weeklyArchive.enabled,
-            schedule: weeklyArchive.schedule,
-            running: weeklyArchive.running,
-            nextRunAt: weeklyArchive.nextRunAt,
-            lastRunSummary: weeklyArchive.state.lastRunSummary,
-            capabilities: ['manual_run', 'scheduled_run', 'catch_up'],
-          },
-          {
-            id: 'nightly_archive',
-            title: '记忆归档',
-            description: '同步温冷层、执行长期记忆晋升，并可选调用 LLM 重要性评分。',
-            enabled: nightlyArchive.settings.enabled,
-            schedule: formatNightlyArchiveSchedule(nightlyArchive.settings),
-            running: nightlyArchive.running,
-            nextRunAt: nightlyArchive.nextRunAt,
-            lastRunSummary: nightlyArchive.state.lastRunSummary,
-            capabilities: ['manual_run', 'scheduled_run', 'catch_up'],
-          },
-        ],
-      });
-    } catch (error) {
-      sendApiError(
-        response,
-        500,
-        'AUTOMATION_STATUS_FAILED',
-        error instanceof Error ? error.message : 'Failed to read automation status.',
-      );
-    }
-  });
+  app.get(
+    '/api/automations',
+    apiRoute(
+      {
+        status: 500,
+        errorCode: 'AUTOMATION_STATUS_FAILED',
+        fallbackMessage: 'Failed to read automation status.',
+      },
+      async (_request, response) => {
+        const nightlyArchive = await nightlyArchiveScheduler.getStatus();
+        const dailySummary = await dailySummaryScheduler.getStatus();
+        const weeklyArchive = await weeklyArchiveScheduler.getStatus();
+        const codeReview = await codeReviewAutomation.getStatus();
+        const agentTask = await agentTaskAutomation.getStatus();
+        response.json({
+          automations: [
+            {
+              id: 'agent_task',
+              title: 'Agent 任务触发',
+              description: '把任意 agent 操作写入对应 daily 记忆，作为可审计的任务队列入口。',
+              enabled: agentTask.enabled,
+              schedule: agentTask.schedule,
+              running: agentTask.running,
+              nextRunAt: agentTask.nextRunAt,
+              lastRunSummary: agentTask.state.lastRunSummary,
+              capabilities: ['manual_run', 'agent_operation', 'task_queue'],
+            },
+            {
+              id: 'daily_summary',
+              title: '昨日会话摘要',
+              description: '每天早 8 点为昨日 daily 记忆写入自动摘要区块。',
+              enabled: dailySummary.enabled,
+              schedule: dailySummary.schedule,
+              running: dailySummary.running,
+              nextRunAt: dailySummary.nextRunAt,
+              lastRunSummary: dailySummary.state.lastRunSummary,
+              capabilities: ['manual_run', 'scheduled_run', 'catch_up'],
+            },
+            {
+              id: 'code_review',
+              title: 'Git Push Code Review',
+              description: 'git pre-push hook 触发的轻量代码审查自动化，记录变更文件和风险提示。',
+              enabled: codeReview.enabled,
+              schedule: codeReview.schedule,
+              running: codeReview.running,
+              nextRunAt: codeReview.nextRunAt,
+              lastRunSummary: codeReview.state.lastRunSummary,
+              capabilities: ['manual_run', 'git_pre_push'],
+            },
+            {
+              id: 'weekly_archive',
+              title: '每周记忆归档',
+              description: '每周日自动执行温冷层归档、长期记忆晋升和重要性评分。',
+              enabled: weeklyArchive.enabled,
+              schedule: weeklyArchive.schedule,
+              running: weeklyArchive.running,
+              nextRunAt: weeklyArchive.nextRunAt,
+              lastRunSummary: weeklyArchive.state.lastRunSummary,
+              capabilities: ['manual_run', 'scheduled_run', 'catch_up'],
+            },
+            {
+              id: 'nightly_archive',
+              title: '记忆归档',
+              description: '同步温冷层、执行长期记忆晋升，并可选调用 LLM 重要性评分。',
+              enabled: nightlyArchive.settings.enabled,
+              schedule: formatNightlyArchiveSchedule(nightlyArchive.settings),
+              running: nightlyArchive.running,
+              nextRunAt: nightlyArchive.nextRunAt,
+              lastRunSummary: nightlyArchive.state.lastRunSummary,
+              capabilities: ['manual_run', 'scheduled_run', 'catch_up'],
+            },
+          ],
+        });
+      },
+    ),
+  );
 
-  app.post('/api/automations/:id/run', async (request, response) => {
-    try {
-      if (request.params.id === 'daily_summary') {
-        response.json(await dailySummaryScheduler.runNow('manual'));
-        return;
-      }
-      if (request.params.id === 'weekly_archive') {
-        response.json(await weeklyArchiveScheduler.runNow('manual'));
-        return;
-      }
-      if (request.params.id === 'code_review') {
-        response.json(await codeReviewAutomation.runNow('manual'));
-        return;
-      }
-      if (request.params.id === 'agent_task') {
-        response.json(
-          await agentTaskAutomation.runNow('manual', {
-            agentSlug: typeof request.body?.agentSlug === 'string' ? request.body.agentSlug : undefined,
-            instruction: typeof request.body?.instruction === 'string' ? request.body.instruction : undefined,
-          }),
-        );
-        return;
-      }
-      if (request.params.id === 'nightly_archive') {
-        response.json(await nightlyArchiveScheduler.runNow('manual'));
-        return;
-      }
-      sendApiError(response, 404, 'AUTOMATION_NOT_FOUND', `Unknown automation: ${request.params.id}`);
-    } catch (error) {
-      sendApiError(
-        response,
-        500,
-        'AUTOMATION_RUN_FAILED',
-        error instanceof Error ? error.message : 'Failed to run automation.',
-      );
-    }
-  });
+  app.post(
+    '/api/automations/:id/run',
+    apiRoute(
+      {
+        status: 500,
+        errorCode: 'AUTOMATION_RUN_FAILED',
+        fallbackMessage: 'Failed to run automation.',
+      },
+      async (request, response) => {
+        if (request.params.id === 'daily_summary') {
+          response.json(await dailySummaryScheduler.runNow('manual'));
+          return;
+        }
+        if (request.params.id === 'weekly_archive') {
+          response.json(await weeklyArchiveScheduler.runNow('manual'));
+          return;
+        }
+        if (request.params.id === 'code_review') {
+          response.json(await codeReviewAutomation.runNow('manual'));
+          return;
+        }
+        if (request.params.id === 'agent_task') {
+          response.json(
+            await agentTaskAutomation.runNow('manual', {
+              agentSlug: typeof request.body?.agentSlug === 'string' ? request.body.agentSlug : undefined,
+              instruction: typeof request.body?.instruction === 'string' ? request.body.instruction : undefined,
+            }),
+          );
+          return;
+        }
+        if (request.params.id === 'nightly_archive') {
+          response.json(await nightlyArchiveScheduler.runNow('manual'));
+          return;
+        }
+        sendApiError(response, 404, 'AUTOMATION_NOT_FOUND', `Unknown automation: ${request.params.id}`);
+      },
+    ),
+  );
 
   app.get('/api/project-knowledge/status', async (_request, response) => {
     try {

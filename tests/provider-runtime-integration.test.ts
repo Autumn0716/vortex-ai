@@ -217,6 +217,107 @@ test('responses runtime disables thinking when structured output is not plain te
   }
 });
 
+test('responses runtime continues after function calls and surfaces tool events', async () => {
+  const config = buildConfig({
+    id: 'aliyun_responses',
+    name: 'Aliyun Responses',
+    baseUrl: 'https://dashscope.aliyuncs.com/api/v2/apps/protocols/compatible-mode/v1',
+    models: ['qwen3.5-plus'],
+    protocol: 'openai_responses_compatible',
+  });
+
+  const originalFetch = globalThis.fetch;
+  const capturedBodies: Record<string, any>[] = [];
+  globalThis.fetch = (async (_input, init) => {
+    const body = JSON.parse(String(init?.body ?? '{}'));
+    capturedBodies.push(body);
+    if (capturedBodies.length === 1) {
+      return createSseResponse([
+        {
+          type: 'response.output_item.done',
+          item: {
+            type: 'function_call',
+            name: 'missing_tool',
+            call_id: 'call_1',
+            arguments: '{"query":"local docs"}',
+          },
+        },
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp_with_tool',
+          },
+        },
+      ]);
+    }
+
+    return createSseResponse([
+      { type: 'response.output_text.delta', delta: '工具结果已处理。' },
+      {
+        type: 'response.completed',
+        response: {
+          id: 'resp_final',
+          output_text: '工具结果已处理。',
+          usage: {
+            input_tokens: 20,
+            output_tokens: 5,
+            total_tokens: 25,
+          },
+        },
+      },
+    ]);
+  }) as typeof fetch;
+
+  try {
+    const runtime = createAgentRuntime({
+      config,
+      providerId: 'aliyun_responses',
+      model: 'qwen3.5-plus',
+      enableTools: true,
+      enableThinking: false,
+      structuredOutput: { mode: 'text' },
+      responsesTools: {
+        customFunctionCalling: true,
+      },
+    });
+
+    const events = [];
+    for await (const event of runtime.stream({
+      messages: [createHumanMessage('用工具查一下本地资料')],
+    })) {
+      events.push(event);
+    }
+
+    assert.equal(capturedBodies.length, 2);
+    assert.equal(capturedBodies[1]?.previous_response_id, 'resp_with_tool');
+    assert.deepEqual(capturedBodies[1]?.input, [
+      {
+        type: 'function_call_output',
+        call_id: 'call_1',
+        output: 'Tool "missing_tool" is not registered in the current runtime.',
+      },
+    ]);
+    assert.ok(capturedBodies[0]?.tools.some((entry: Record<string, unknown>) => entry.type === 'function'));
+    assert.deepEqual(events[0], {
+      type: 'tool_event',
+      tool: {
+        name: 'missing_tool',
+        status: 'completed',
+        result: 'Tool "missing_tool" is not registered in the current runtime.',
+      },
+    });
+    assert.equal(events.at(-1)?.type, 'assistant_message');
+    assert.equal(events.at(-1)?.content, '工具结果已处理。');
+    assert.deepEqual(events.at(-1)?.usage, {
+      inputTokens: 20,
+      outputTokens: 5,
+      totalTokens: 25,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('responses runtime surfaces contextual SSE parse errors for malformed event payloads', async () => {
   const config = buildConfig({
     id: 'aliyun_responses',

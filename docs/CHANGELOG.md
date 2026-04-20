@@ -33,6 +33,8 @@
 - Added deterministic knowledge document quality scoring with freshness, feedback, completeness, and search-hit signals; quality scores now appear in Settings and influence RAG ranking.
 - Added bounded-concurrency workflow worker execution with serialized handoff writes and parent-topic batch summaries, allowing multiple worker branches under one topic to run in parallel without SQLite transaction collisions.
 - Improved LLM session summaries by passing the previous persisted summary into the summary builder, so model-based compression can incrementally merge newly aged-out turns instead of blindly recompressing all earlier context.
+- Hardened database transaction error handling so rollback failures preserve the original write error, and started migrating API server routes to a shared async error wrapper with stable `error_code` responses.
+- Expanded core integration coverage for Responses function-calling continuation, transaction rollback failures, API registry/package paths, query-router memory routing, and cold-vector memory recall.
 - Added a local Express-based memory API server plus frontend file-store registration so FlowAgent can read and write `memory/agents/<agent-slug>/...` directly from the Settings UI.
 - Switched the Settings memory page from legacy global-memory document editing to raw Markdown file editing while preserving the existing theme shell.
 - Added warm/cold lifecycle surrogate sync so `daily/*.warm.md` and `daily/*.cold.md` can be generated deterministically while SQLite only indexes the effective representation for each day.
