@@ -146,6 +146,7 @@ export interface TopicSessionSummaryBuilderInput {
   historyWindow: number;
   tokenBudget?: number;
   deterministicSummary: { content: string; sourceMessageCount: number } | null;
+  previousSummary?: TopicSessionSummary;
 }
 
 export interface TopicTaskGraphNode extends CompiledTaskGraphNode {

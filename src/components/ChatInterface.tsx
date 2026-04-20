@@ -333,9 +333,15 @@ async function invokeSessionSummaryModel(provider: ModelProvider, model: string,
 }
 
 function buildSessionSummaryPrompt(input: TopicSessionSummaryBuilderInput) {
-  const dialogue = input.messages
-    .filter((message) => message.role === 'user' || message.role === 'assistant')
-    .slice(0, Math.max(0, input.messages.length - input.historyWindow))
+  const dialogueMessages = input.messages.filter(
+    (message) => message.role === 'user' || message.role === 'assistant',
+  );
+  const sourceEnd = Math.max(0, dialogueMessages.length - input.historyWindow);
+  const sourceStart = input.previousSummary
+    ? Math.max(0, input.previousSummary.sourceMessageCount - input.historyWindow)
+    : 0;
+  const dialogue = dialogueMessages
+    .slice(Math.min(sourceStart, sourceEnd), sourceEnd)
     .map((message) => `${message.authorName} (${message.role}): ${message.content.trim()}`)
     .filter(Boolean)
     .join('\n\n');
@@ -345,12 +351,18 @@ function buildSessionSummaryPrompt(input: TopicSessionSummaryBuilderInput) {
   }
 
   return [
-    'Compress these earlier turns for future context injection.',
+    input.previousSummary
+      ? 'Update the existing session summary with newly aged-out turns for future context injection.'
+      : 'Compress these earlier turns for future context injection.',
     'Keep only durable facts, decisions, constraints, TODOs, errors, and next steps.',
     'Avoid filler and do not summarize recent turns that are still available raw.',
+    input.previousSummary ? `Existing summary:\n${input.previousSummary.content}` : '',
+    input.previousSummary ? 'Newly aged-out turns to merge:' : '',
     '',
     dialogue.slice(0, Math.max(4000, input.tokenBudget ? input.tokenBudget * 4 : 12000)),
-  ].join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 const stringifyMessageForEstimate = stringifyMessageForTokenEstimate;

@@ -942,6 +942,7 @@ export async function runReadyWorkflowWorkerBranches(options: {
   parentTopicId?: string;
   graphId?: string;
   maxWorkers?: number;
+  concurrency?: number;
   executeWorker: (input: WorkflowWorkerExecutionInput) => Promise<WorkflowWorkerExecutionResult>;
 }) {
   const database = await ensureAgentSchema();
@@ -1002,6 +1003,13 @@ export async function runReadyWorkflowWorkerBranches(options: {
 
   const executed: TopicTaskGraphNode[] = [];
   const failed: Array<{ node: TopicTaskGraphNode; message: string }> = [];
+  const completedWorkers: Array<{ node: TopicTaskGraphNode; branchTopicTitle: string }> = [];
+  const preparedWorkers: Array<{
+    row: (typeof rows)[number];
+    node: TopicTaskGraphNode;
+    parentTopic: TopicSummary;
+    branchWorkspace: TopicWorkspace;
+  }> = [];
 
   for (const row of rows) {
     const node = toTopicTaskGraphNode(row);
@@ -1048,42 +1056,59 @@ export async function runReadyWorkflowWorkerBranches(options: {
       },
     ]);
 
+    preparedWorkers.push({
+      row,
+      node,
+      parentTopic: parentWorkspace.topic,
+      branchWorkspace,
+    });
+  }
+
+  const runWorkerModel = async (worker: (typeof preparedWorkers)[number]) => {
     try {
       const result = await options.executeWorker({
         graph: {
-          id: row.graph_id,
-          title: row.graph_title,
-          goal: row.graph_goal,
+          id: worker.row.graph_id,
+          title: worker.row.graph_title,
+          goal: worker.row.graph_goal,
         },
-        node,
-        parentTopic: parentWorkspace.topic,
-        branchTopic: branchWorkspace.topic,
-        branchWorkspace,
+        node: worker.node,
+        parentTopic: worker.parentTopic,
+        branchTopic: worker.branchWorkspace.topic,
+        branchWorkspace: worker.branchWorkspace,
       });
       const content = result.content.trim();
       if (!content) {
         throw new Error('Worker execution returned empty content.');
       }
-
-      await addTopicMessages([
-        {
-          topicId: branchWorkspace.topic.id,
-          agentId: branchWorkspace.agent.id,
-          role: 'assistant',
-          authorName: `${branchWorkspace.runtime.displayName} · Worker`,
-          content,
-          createdAt: nowIso(),
-        },
-      ]);
-
-      const handoffResult = await handoffBranchTopicToParent({
-        branchTopicId: branchWorkspace.topic.id,
-        note: result.handoffNote ?? `Background worker completed: ${node.title}`,
-        includeRecentMessages: 4,
-      });
-      executed.push(...handoffResult.completedTaskNodes);
+      return { worker, result: { ...result, content } };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      return {
+        worker,
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
+  };
+
+  const concurrency = Math.max(1, Math.min(options.concurrency ?? limit, limit, preparedWorkers.length || 1));
+  const workerResults: Awaited<ReturnType<typeof runWorkerModel>>[] = [];
+  let nextIndex = 0;
+  await Promise.all(
+    Array.from({ length: concurrency }, async () => {
+      while (nextIndex < preparedWorkers.length) {
+        const worker = preparedWorkers[nextIndex];
+        nextIndex += 1;
+        if (worker) {
+          workerResults.push(await runWorkerModel(worker));
+        }
+      }
+    }),
+  );
+
+  for (const workerResult of workerResults) {
+    const { worker } = workerResult;
+    if ('error' in workerResult) {
+      const message = workerResult.error.message;
       const failedAt = nowIso();
       const failedDatabase = await ensureAgentSchema();
       failedDatabase.run(
@@ -1092,7 +1117,7 @@ export async function runReadyWorkflowWorkerBranches(options: {
           SET status = 'failed', updated_at = ?
           WHERE id = ?
         `,
-        [failedAt, row.id],
+        [failedAt, worker.row.id],
       );
       failedDatabase.run(
         `
@@ -1100,25 +1125,88 @@ export async function runReadyWorkflowWorkerBranches(options: {
           SET status = 'failed', updated_at = ?
           WHERE id = ?
         `,
-        [failedAt, row.graph_id],
+        [failedAt, worker.row.graph_id],
       );
       await saveDB();
       await addTopicMessages([
         {
-          topicId: branchWorkspace.topic.id,
-          agentId: branchWorkspace.agent.id,
+          topicId: worker.branchWorkspace.topic.id,
+          agentId: worker.branchWorkspace.agent.id,
           role: 'system',
           authorName: 'Workflow Runner',
           content: `Background worker failed: ${message}`,
           createdAt: failedAt,
         },
       ]);
-      failed.push({ node, message });
+      failed.push({ node: worker.node, message });
+      continue;
     }
+
+    await addTopicMessages([
+      {
+        topicId: worker.branchWorkspace.topic.id,
+        agentId: worker.branchWorkspace.agent.id,
+        role: 'assistant',
+        authorName: `${worker.branchWorkspace.runtime.displayName} · Worker`,
+        content: workerResult.result.content,
+        createdAt: nowIso(),
+      },
+    ]);
+
+    const handoffResult = await handoffBranchTopicToParent({
+      branchTopicId: worker.branchWorkspace.topic.id,
+      note: workerResult.result.handoffNote ?? `Background worker completed: ${worker.node.title}`,
+      includeRecentMessages: 4,
+    });
+    executed.push(...handoffResult.completedTaskNodes);
+    completedWorkers.push({
+      node: worker.node,
+      branchTopicTitle: worker.branchWorkspace.topic.title,
+    });
+  }
+
+  if (rows.length > 0) {
+    const parentGroups = new Map<string, { agentId: string; completed: string[]; failed: string[] }>();
+    for (const row of rows) {
+      const group = parentGroups.get(row.topic_id) ?? {
+        agentId: row.agent_id,
+        completed: [],
+        failed: [],
+      };
+      const completedWorker = completedWorkers.find((entry) => entry.node.id === row.id);
+      if (completedWorker) {
+        group.completed.push(`${completedWorker.node.title} -> ${completedWorker.branchTopicTitle}`);
+      }
+      const failure = failed.find((entry) => entry.node.id === row.id);
+      if (failure) {
+        group.failed.push(`${failure.node.title}: ${failure.message}`);
+      }
+      parentGroups.set(row.topic_id, group);
+    }
+
+    const completedAt = nowIso();
+    await addTopicMessages(
+      [...parentGroups.entries()].map(([topicId, group]) => ({
+        topicId,
+        agentId: group.agentId,
+        role: 'system' as const,
+        authorName: 'Workflow Runner',
+        content: [
+          `Workflow worker batch finished: ${group.completed.length} completed, ${group.failed.length} failed.`,
+          group.completed.length ? `Completed:\n${group.completed.map((line) => `- ${line}`).join('\n')}` : '',
+          group.failed.length ? `Failed:\n${group.failed.map((line) => `- ${line}`).join('\n')}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+        createdAt: completedAt,
+      })),
+    );
   }
 
   return {
     attemptedCount: rows.length,
+    completedCount: completedWorkers.length,
+    failedCount: failed.length,
     executed,
     failed,
   };
@@ -1438,21 +1526,6 @@ export async function refreshTopicSessionSummary(
   );
 
   const messages = messageRows.map(toTopicMessage);
-  const deterministicSummary = buildTopicSessionSummary(messages, historyWindow, tokenBudget);
-  const modelSummaryContent = options?.buildSummary
-    ? await options.buildSummary({
-        messages,
-        historyWindow,
-        tokenBudget,
-        deterministicSummary,
-      })
-    : null;
-  const nextSummary = modelSummaryContent?.trim()
-    ? {
-        content: modelSummaryContent.trim(),
-        sourceMessageCount: deterministicSummary?.sourceMessageCount ?? messages.length,
-      }
-    : deterministicSummary;
   const current = mapRows<{
     session_summary: string | null;
     session_summary_updated_at: string | null;
@@ -1471,11 +1544,36 @@ export async function refreshTopicSessionSummary(
       [topicId],
     ),
   )[0];
+  const currentContent = current?.session_summary ?? null;
+  const currentCount = Number(current?.session_summary_message_count) || 0;
+  const previousSummary =
+    currentContent && currentContent.trim()
+      ? {
+          content: currentContent,
+          updatedAt: current?.session_summary_updated_at ?? nowIso(),
+          sourceMessageCount: currentCount,
+        }
+      : undefined;
+
+  const deterministicSummary = buildTopicSessionSummary(messages, historyWindow, tokenBudget);
+  const modelSummaryContent = options?.buildSummary
+    ? await options.buildSummary({
+        messages,
+        historyWindow,
+        tokenBudget,
+        deterministicSummary,
+        previousSummary,
+      })
+    : null;
+  const nextSummary = modelSummaryContent?.trim()
+    ? {
+        content: modelSummaryContent.trim(),
+        sourceMessageCount: deterministicSummary?.sourceMessageCount ?? messages.length,
+      }
+    : deterministicSummary;
 
   const nextContent = nextSummary?.content ?? null;
   const nextCount = nextSummary?.sourceMessageCount ?? 0;
-  const currentContent = current?.session_summary ?? null;
-  const currentCount = Number(current?.session_summary_message_count) || 0;
 
   if (currentContent === nextContent && currentCount === nextCount) {
     return nextSummary

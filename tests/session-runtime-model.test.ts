@@ -15,6 +15,7 @@ import {
   getTopicWorkspace,
   handoffBranchTopicToParent,
   listTopics,
+  refreshTopicSessionSummary,
   retryWorkflowBranchTask,
   runReadyWorkflowWorkerBranches,
   saveAgent,
@@ -160,6 +161,60 @@ test('buildTopicSessionSummary moves token-budget overflow into the summary sour
   assert.match(summary?.content ?? '', /Compressed summary from 9 earlier turns/);
   assert.match(summary?.content ?? '', /budget marker 9/);
   assert.doesNotMatch(summary?.content ?? '', /budget marker 10/);
+});
+
+test('refreshTopicSessionSummary passes previous summary to LLM builders for incremental updates', async () => {
+  localforageState.clear();
+  const agentId = createAgentId('agent_summary_incremental');
+  await saveAgent({
+    id: agentId,
+    name: 'Summary Incremental Agent',
+    description: 'Agent used to verify incremental session summaries',
+    systemPrompt: 'Template prompt.',
+    accentColor: 'from-sky-500/20 to-cyan-500/20',
+    workspaceRelpath: `agents/${agentId}`,
+  });
+  const topic = await createTopic({ agentId, title: 'Summary Incremental Topic' });
+  const firstMessages = Array.from({ length: 10 }, (_, index) => ({
+    topicId: topic.id,
+    agentId,
+    role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+    authorName: index % 2 === 0 ? 'You' : 'FlowAgent',
+    content: `first summary turn ${index + 1}`,
+    createdAt: `2026-04-17T09:${String(index).padStart(2, '0')}:00.000Z`,
+  }));
+  await addTopicMessages(firstMessages);
+
+  const firstSummary = await refreshTopicSessionSummary(topic.id, 2, undefined, {
+    buildSummary: async ({ previousSummary }) => {
+      assert.equal(previousSummary, undefined);
+      return 'LLM summary v1';
+    },
+  });
+  assert.equal(firstSummary?.content, 'LLM summary v1');
+
+  await addTopicMessages(
+    Array.from({ length: 4 }, (_, index) => ({
+      topicId: topic.id,
+      agentId,
+      role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+      authorName: index % 2 === 0 ? 'You' : 'FlowAgent',
+      content: `second summary turn ${index + 1}`,
+      createdAt: `2026-04-17T10:${String(index).padStart(2, '0')}:00.000Z`,
+    })),
+  );
+
+  const secondSummary = await refreshTopicSessionSummary(topic.id, 2, undefined, {
+    buildSummary: async ({ previousSummary, deterministicSummary }) => {
+      assert.equal(previousSummary?.content, 'LLM summary v1');
+      assert.equal(previousSummary?.sourceMessageCount, 10);
+      assert.equal(deterministicSummary?.sourceMessageCount, 14);
+      return `${previousSummary?.content}\n- merged new aged-out turns`;
+    },
+  });
+
+  assert.match(secondSummary?.content ?? '', /merged new aged-out turns/);
+  assert.equal(secondSummary?.sourceMessageCount, 14);
 });
 
 test('quick topics resolve to session-scoped runtime overrides with agent features disabled by default', async () => {
@@ -793,6 +848,8 @@ test('runReadyWorkflowWorkerBranches executes ready workers and hands off result
   });
 
   assert.equal(runResult.failed.length, 0);
+  assert.equal(runResult.completedCount, graphResult.branchTopics.length);
+  assert.equal(runResult.failedCount, 0);
   assert.equal(runResult.executed.length, graphResult.branchTopics.length);
   assert.equal(runResult.executed.every((node) => node.status === 'completed'), true);
 
@@ -806,6 +863,14 @@ test('runReadyWorkflowWorkerBranches executes ready workers and hands off result
         /Auto handoff/.test(message.content),
     ),
   );
+  assert.ok(
+    parentWorkspace.messages.some(
+      (message) =>
+        message.role === 'system' &&
+        message.authorName === 'Workflow Runner' &&
+        /worker batch finished/.test(message.content),
+    ),
+  );
 
   const branchWorkspace = await getTopicWorkspace(graphResult.branchTopics[0]!.id);
   assert.ok(branchWorkspace);
@@ -814,4 +879,46 @@ test('runReadyWorkflowWorkerBranches executes ready workers and hands off result
       (message) => message.role === 'assistant' && /Background output/.test(message.content),
     ),
   );
+});
+
+test('runReadyWorkflowWorkerBranches can execute worker branches concurrently', async () => {
+  localforageState.clear();
+  const agentId = createAgentId('agent_workflow_parallel');
+  await saveAgent({
+    id: agentId,
+    name: 'Workflow Parallel Agent',
+    description: 'Agent used to verify parallel worker execution',
+    systemPrompt: 'Template prompt.',
+    accentColor: 'from-sky-500/20 to-cyan-500/20',
+    workspaceRelpath: `agents/${agentId}`,
+  });
+
+  const parentTopic = await createTopic({ agentId, title: 'Workflow Parallel Parent' });
+  const graphResult = await compileTaskGraphFromTopic({
+    sourceTopicId: parentTopic.id,
+    title: 'Workflow Parallel Test',
+    goal: '并行执行多个 worker branch；汇总每个 worker 的结果；生成父会话批次报告',
+  });
+
+  let activeWorkers = 0;
+  let maxActiveWorkers = 0;
+  const runResult = await runReadyWorkflowWorkerBranches({
+    parentTopicId: parentTopic.id,
+    graphId: graphResult.graph.id,
+    maxWorkers: graphResult.branchTopics.length,
+    concurrency: graphResult.branchTopics.length,
+    executeWorker: async ({ node }) => {
+      activeWorkers += 1;
+      maxActiveWorkers = Math.max(maxActiveWorkers, activeWorkers);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      activeWorkers -= 1;
+      return {
+        content: `Parallel output for ${node.title}.`,
+        handoffNote: `Parallel handoff for ${node.title}.`,
+      };
+    },
+  });
+
+  assert.equal(runResult.failed.length, 0);
+  assert.ok(maxActiveWorkers > 1);
 });
