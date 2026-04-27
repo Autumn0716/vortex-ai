@@ -1,41 +1,58 @@
-# Vortex
+<p align="center">
+  <img src="docs/assets/vortex-landing.png" alt="Vortex landing preview" width="100%" />
+</p>
 
-Vortex is a local-first agent workspace for long-running AI work: multi-agent chat, persistent memory, local RAG, workflow automation, and a macOS desktop shell.
+<h1 align="center">Vortex AI</h1>
 
-The core design principle is simple: user-editable Markdown and project-local configuration stay as the source of truth, while SQLite and runtime services act as rebuildable indexes, caches, and local bridges.
+<p align="center">
+  A local-first agent workspace for multi-agent chat, persistent memory, local RAG, workflow automation, and optional desktop builds.
+</p>
 
-## Highlights
+<p align="center">
+  <img alt="React" src="https://img.shields.io/badge/React-19-20232a?style=for-the-badge&logo=react&logoColor=61dafb" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.8-20232a?style=for-the-badge&logo=typescript&logoColor=3178c6" />
+  <img alt="Vite" src="https://img.shields.io/badge/Vite-6-20232a?style=for-the-badge&logo=vite&logoColor=646cff" />
+  <img alt="Electron" src="https://img.shields.io/badge/Electron-41-20232a?style=for-the-badge&logo=electron&logoColor=9feaf9" />
+</p>
 
-- Multi-session agent workspace with branchable conversations and per-topic runtime settings.
-- Local-first memory under `memory/agents/<agent-slug>/`, including daily notes, corrections, reflections, and agent-private skills.
-- SQLite-backed knowledge retrieval with document quality scoring, evidence feedback, rerank weights, and local search preferences.
-- LangGraph-oriented agent runtime with streaming output, tool calls, Responses API support, and model/provider compatibility controls.
-- Workflow task graph support for planner, dispatcher, worker, reviewer, retries, background execution, and review rollups.
-- Settings workspace inspired by modern desktop AI tools: full-screen settings, compact rows, light/dark themes, accent colors, and macOS-only glass styling.
-- Electron desktop shell with a bundled local API bridge, native dialogs, tray integration, notifications, global shortcuts, and packaged workspace bootstrapping.
+## What It Is
 
-## Status
+Vortex AI is a web-first, local-first AI workspace. It keeps the user-owned parts of the system in project-local files and rebuildable local indexes:
 
-Vortex is usable as a local development app and unsigned macOS desktop build. It is not production-distribution ready yet.
+- Markdown memory is the source of truth.
+- SQLite / OPFS is the rebuildable local retrieval layer.
+- The local API bridge powers desktop features without making the web UI depend on a packaged app.
+- Electron is optional: you can run Vortex as a local web app, or build a macOS app when you want a desktop shell.
 
-Before public release, review:
+## Visual Tour
 
-- macOS signing and notarization.
-- GitHub release packaging beyond the current `.app` directory target.
-- Safe defaults in `config.example.json`.
-- Private local state in `.gitignore`.
-- Any project-specific memory files before publishing.
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/vortex-chat.png" alt="Vortex chat workspace" width="100%" />
+    </td>
+    <td width="50%">
+      <img src="docs/assets/vortex-settings.png" alt="Vortex settings workspace" width="100%" />
+    </td>
+  </tr>
+  <tr>
+    <td><strong>Agent workspace</strong><br />Threaded sessions, model controls, tools, memory status, and a compact command composer.</td>
+    <td><strong>Desktop-style settings</strong><br />Full-screen settings, compact rows, theme presets, light/dark support, and macOS-only glass styling.</td>
+  </tr>
+</table>
 
-## Tech Stack
+## Core Capabilities
 
-- React 19, TypeScript, Vite, Tailwind CSS 4
-- Electron 41 and electron-builder
-- Express local API bridge
-- SQLite WASM / OPFS for local indexing
-- LangChain / LangGraph model runtime pieces
-- Motion for UI transitions
+| Area | What Vortex Provides |
+| --- | --- |
+| Agent workspace | Multi-session chat, branchable topics, per-topic runtime settings, model controls, tool visibility, and streaming output. |
+| Local memory | File-backed agent memory under `memory/agents/<agent-slug>/`, with daily notes, corrections, reflections, and agent-private skills. |
+| Retrieval | SQLite-backed local RAG with evidence feedback, rerank weights, document quality scoring, and provider-aware search settings. |
+| Workflows | Planner, dispatcher, worker, reviewer structure with retries, background execution, handoff, and review rollups. |
+| Runtime | LangGraph-oriented runtime pieces, OpenAI-compatible providers, Responses API support, and local API diagnostics. |
+| Desktop | Optional Electron shell with native dialogs, tray, notifications, global shortcuts, and a bundled local host bridge. |
 
-## Quick Start
+## Local Development
 
 ```bash
 npm install
@@ -44,8 +61,10 @@ npm run dev
 
 Default local services:
 
-- Web UI: `http://127.0.0.1:3000`
-- Local API server: `http://127.0.0.1:3850`
+```text
+Web UI:           http://127.0.0.1:3000
+Local API bridge: http://127.0.0.1:3850
+```
 
 Run only the web UI:
 
@@ -53,13 +72,33 @@ Run only the web UI:
 npm run dev:web
 ```
 
-Run only the local API server:
+Run only the local API bridge:
 
 ```bash
 npm run api-server
 ```
 
-## Desktop App
+## Build
+
+Build the web app:
+
+```bash
+npm run build
+```
+
+Type-check the project:
+
+```bash
+npm run lint
+```
+
+Build the host bridge bundle:
+
+```bash
+npm run build:host
+```
+
+## Optional Desktop App
 
 Preview the Electron app from source:
 
@@ -79,11 +118,7 @@ Current output:
 release/mac-arm64/Vortex.app
 ```
 
-Notes:
-
-- The packaged app starts the local host bridge automatically.
-- Packaged workspace data defaults to the app support workspace resolved by the Electron runtime.
-- The current macOS build is unsigned and not notarized. Gatekeeper behavior may vary outside local development machines.
+The current desktop build is unsigned and not notarized. It is intended for local development and internal testing, not public macOS distribution.
 
 ## Configuration
 
@@ -93,7 +128,7 @@ Private local config lives in:
 config.json
 ```
 
-The committed template is:
+The committed starter template is:
 
 ```text
 config.example.json
@@ -101,10 +136,12 @@ config.example.json
 
 Useful environment variables:
 
-- `VORTEX_API_PORT`: local API server port.
-- `VORTEX_PROJECT_ROOT`: project root used by the API server.
-- `VORTEX_API_TOKEN`: optional bearer token for local API requests.
-- `VORTEX_ELECTRON_MANAGE_HOST=false`: let Electron reuse an external API server during development.
+| Variable | Purpose |
+| --- | --- |
+| `VORTEX_API_PORT` | Local API bridge port. |
+| `VORTEX_PROJECT_ROOT` | Project root used by the API bridge. |
+| `VORTEX_API_TOKEN` | Optional bearer token for local API requests. |
+| `VORTEX_ELECTRON_MANAGE_HOST=false` | Let Electron reuse an external API bridge during development. |
 
 ## Memory Layout
 
@@ -123,14 +160,14 @@ memory/
             └── <skill-name>/SKILL.md
 ```
 
-These files are intentionally local/private by default.
+These files are intentionally local/private by default and are excluded from the repository.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
   UI["React UI"]
-  Electron["Electron shell"]
+  Electron["Optional Electron shell"]
   API["Local API bridge"]
   SQLite["SQLite / OPFS index"]
   Memory["Markdown memory files"]
@@ -147,9 +184,9 @@ flowchart LR
 ## Scripts
 
 ```bash
-npm run dev              # web UI + local API server
+npm run dev              # web UI + local API bridge
 npm run dev:web          # Vite only
-npm run api-server       # local API server only
+npm run api-server       # local API bridge only
 npm run lint             # TypeScript check
 npm run build            # web build
 npm run build:host       # host bridge bundle
@@ -161,10 +198,10 @@ npm run hooks:install    # install Vortex git hooks
 ## Repository Notes
 
 - `src/` contains the React application.
-- `electron/` contains the desktop shell and native bridge handlers.
-- `server/` contains the local API server.
-- `dist-host/` is generated by `npm run build:host`.
-- `release/` is generated by electron-builder.
+- `electron/` contains the optional desktop shell and native bridge handlers.
+- `server/` contains the local API bridge.
+- `docs/assets/` contains README screenshots.
+- `dist/`, `dist-host/`, and `release/` are generated outputs and are not committed.
 
 ## License
 
