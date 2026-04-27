@@ -45,7 +45,12 @@ interface MessageLike {
 
 function resolveAccentColor(input?: string) {
   if (!input) {
-    return '#60a5fa';
+    return '#8e8e93';
+  }
+
+  const normalized = input.trim().toLowerCase();
+  if (['#4f7cff', '#60a5fa', '#3b82f6', '#2563eb', '#6366f1', '#8b5cf6'].includes(normalized)) {
+    return '#8e8e93';
   }
 
   if (input.startsWith('#')) {
@@ -53,7 +58,7 @@ function resolveAccentColor(input?: string) {
   }
 
   if (input.includes('cyan')) {
-    return '#22d3ee';
+    return '#8e8e93';
   }
   if (input.includes('emerald') || input.includes('teal')) {
     return '#34d399';
@@ -62,9 +67,9 @@ function resolveAccentColor(input?: string) {
     return '#f59e0b';
   }
   if (input.includes('violet')) {
-    return '#8b5cf6';
+    return '#8e8e93';
   }
-  return '#60a5fa';
+  return '#8e8e93';
 }
 
 function supportTone(label: KnowledgeEvidenceSupportLabel) {
@@ -358,26 +363,26 @@ function AgentLaneColumnComponent({
 
   return (
     <section
-      className="flex min-w-0 w-full max-w-[980px] flex-1 flex-col overflow-hidden glass-panel"
+      className="agent-lane-card flex min-w-0 w-full max-w-[980px] flex-1 flex-col overflow-hidden glass-panel"
       style={{
-        boxShadow: `0 18px 45px color-mix(in srgb, ${accentColor} 18%, transparent)`,
+        boxShadow: 'none',
       }}
     >
-      <header className="border-b border-white/10 bg-black/20 px-4 py-3">
+      <header className="agent-lane-header border-b border-white/[0.06] bg-white/[0.02] px-3.5 py-2.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span
-                className="h-2.5 w-2.5 rounded-full"
+                className="h-2 w-2 rounded-sm"
                 style={{ backgroundColor: accentColor }}
               />
-              <h3 className="truncate text-sm font-semibold text-white">{lane.name}</h3>
+              <h3 className="truncate text-[13px] font-semibold text-white/90">{lane.name}</h3>
             </div>
-            <p className="mt-1 line-clamp-2 text-xs text-white/45">{lane.description}</p>
+            <p className="mt-0.5 line-clamp-2 text-[11px] text-white/35">{lane.description}</p>
           </div>
-          <div className="flex flex-col items-end gap-1 text-[10px] text-white/45">
+          <div className="flex flex-col items-end gap-1 text-[9px] text-white/30">
             {lane.model ? (
-              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
+              <span className="rounded-sm border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 tabular-nums">
                 {lane.model}
               </span>
             ) : null}
@@ -453,7 +458,7 @@ function AgentLaneColumnComponent({
                 >
                   <div className={`flex max-w-[92%] gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
                     <div
-                      className={`mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${
+                      className={`chat-avatar mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ${
                         isUser ? 'bg-white/10' : 'bg-white text-black'
                       }`}
                       style={!isUser ? { color: accentColor } : undefined}
@@ -505,7 +510,7 @@ function AgentLaneColumnComponent({
                       </div>
 
                       {!isUser && reasoningText ? (
-                        <div className="w-full rounded-2xl border border-fuchsia-400/20 bg-[#160a16]/60 backdrop-blur-md px-4 py-3 text-sm shadow-sm transition-all animate-slide-up">
+                        <div className="w-full rounded-2xl border border-white/10 bg-white/[0.045] px-4 py-3 text-sm shadow-sm transition-[border-color,background-color] animate-slide-up">
                           <button
                             onClick={() =>
                               setCollapsedReasoningById((previous) => ({
@@ -516,21 +521,21 @@ function AgentLaneColumnComponent({
                             className="flex w-full items-center justify-between gap-3 text-left"
                           >
                             <div className="flex items-center gap-2">
-                              <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] text-fuchsia-100">
+                              <span className="rounded-full border border-white/10 bg-white/[0.055] px-2 py-0.5 text-[10px] text-white/70">
                                 思考过程
                               </span>
                               {metrics?.reasoningDurationMs != null ? (
-                                <span className="text-[11px] text-fuchsia-100/70">
+                                <span className="text-[11px] text-white/45">
                                   总时长 {formatDuration(metrics.reasoningDurationMs)}
                                 </span>
                               ) : null}
                             </div>
-                            <span className="text-fuchsia-100/70">
+                            <span className="text-white/45">
                               {reasoningCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                             </span>
                           </button>
                           {!reasoningCollapsed ? (
-                            <div className="mt-3 max-h-[320px] overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-white/8 bg-black/20 p-3 text-[12px] leading-6 text-fuchsia-50/92 custom-scrollbar">
+                            <div className="mt-3 max-h-[320px] overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-white/8 bg-black/20 p-3 text-[12px] leading-6 text-white/72 custom-scrollbar">
                               {reasoningText}
                             </div>
                           ) : null}
@@ -542,7 +547,7 @@ function AgentLaneColumnComponent({
                           {message.tools.map((tool, index) => (
                             <div
                               key={`${message.id}_${tool.name}_${index}`}
-                              className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-300"
+                              className="rounded-xl border border-white/10 bg-white/[0.045] px-3 py-2 text-xs text-white/60"
                             >
                               <div className="flex items-center gap-2">
                                 <Zap size={12} />
@@ -551,7 +556,7 @@ function AgentLaneColumnComponent({
                                 </span>
                               </div>
                               {showToolResults && tool.result ? (
-                                <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[11px] text-blue-100/80">
+                                <pre className="mt-2 whitespace-pre-wrap break-words font-mono text-[11px] text-white/60">
                                   {tool.result}
                                 </pre>
                               ) : null}
@@ -574,7 +579,7 @@ function AgentLaneColumnComponent({
                               <img
                                 src={attachment.dataUrl}
                                 alt={attachment.name}
-                                className="h-40 w-full object-cover"
+                                className="h-40 w-full object-cover outline outline-1 outline-black/[0.1]"
                               />
                               <div className="flex items-center justify-between gap-3 px-3 py-2 text-[11px] text-white/55">
                                 <span className="truncate">{attachment.name}</span>
@@ -586,10 +591,10 @@ function AgentLaneColumnComponent({
                       ) : null}
 
                       <div
-                        className={`rounded-2xl border px-4 py-3 text-sm leading-relaxed ${
+                        className={`chat-message-bubble rounded-2xl border px-4 py-3 text-sm leading-relaxed ${
                           isUser
-                            ? 'rounded-tr-sm border-white/5 bg-white/10 text-white/90'
-                            : 'rounded-tl-sm border-white/10 bg-black/20 text-white/90'
+                            ? 'chat-message-user rounded-tr-sm border-white/5 bg-white/10 text-white/90'
+                            : 'chat-message-assistant rounded-tl-sm border-white/10 bg-black/20 text-white/90'
                         }`}
                         style={
                           isUser
@@ -758,28 +763,28 @@ function AgentLaneColumnComponent({
                   <div className="flex flex-col gap-2">
                     <div className="px-1 text-[11px] text-white/45">{lane.name}</div>
                     {reasoningContent?.trim() ? (
-                      <div className="max-w-[720px] rounded-2xl border border-fuchsia-400/15 bg-fuchsia-400/8 px-4 py-3 text-sm text-white/80">
+                      <div className="max-w-[720px] rounded-2xl border border-white/10 bg-white/[0.045] px-4 py-3 text-sm text-white/80">
                         <button
                           onClick={() => setLiveReasoningCollapsed((previous) => !previous)}
                           className="flex w-full items-center justify-between gap-3 text-left"
                         >
                           <div className="flex items-center gap-2">
-                            <span className="rounded-full border border-fuchsia-400/20 bg-fuchsia-400/10 px-2 py-0.5 text-[10px] text-fuchsia-100">
+                            <span className="rounded-full border border-white/10 bg-white/[0.055] px-2 py-0.5 text-[10px] text-white/70">
                               思考过程
                             </span>
-                            <span className="text-[11px] text-fuchsia-100/70">流式更新中</span>
+                            <span className="text-[11px] text-white/45">流式更新中</span>
                             {liveReasoningDurationMs != null ? (
-                              <span className="text-[11px] text-fuchsia-100/70">
+                              <span className="text-[11px] text-white/45">
                                 已思考 {formatDuration(liveReasoningDurationMs)}
                               </span>
                             ) : null}
                           </div>
-                          <span className="text-fuchsia-100/70">
+                          <span className="text-white/45">
                             {liveReasoningCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                           </span>
                         </button>
                         {!liveReasoningCollapsed ? (
-                          <div className="mt-3 max-h-[260px] overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-white/8 bg-black/20 p-3 text-[12px] leading-6 text-fuchsia-50/92 custom-scrollbar">
+                          <div className="mt-3 max-h-[260px] overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-white/8 bg-black/20 p-3 text-[12px] leading-6 text-white/72 custom-scrollbar">
                             {reasoningContent}
                           </div>
                         ) : null}

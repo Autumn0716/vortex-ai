@@ -34,7 +34,7 @@ export const TerminalPanel = ({
         cursor: '#8b5cf6',
         selectionBackground: 'rgba(139, 92, 246, 0.3)',
       },
-      fontFamily: '"JetBrains Mono", monospace',
+      fontFamily: '"Geist Mono", "JetBrains Mono", monospace',
       fontSize: 13,
       cursorBlink: true,
     });
@@ -123,39 +123,39 @@ export const TerminalPanel = ({
   }, [runtimeCapabilities.sandbox.webContainer]);
 
   return (
-    <div className="flex flex-col h-full bg-[#05050A] border-l border-white/10 w-80 md:w-[400px] flex-shrink-0 shadow-2xl z-20">
-      <div className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-white/[0.02]">
+    <div className="flex flex-col h-full bg-[var(--app-bg-modal-side)] border-l border-white/[0.06] w-80 md:w-[400px] flex-shrink-0 z-20" style={{ boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}>
+      <div className="h-12 border-b border-white/[0.06] flex items-center justify-between px-4 bg-white/[0.02]">
         <div className="flex items-center gap-2">
-          <TerminalIcon size={16} className="text-blue-400" />
+          <TerminalIcon size={15} strokeWidth={1.5} className="text-gray-500" />
           <div>
-            <span className="text-sm font-semibold tracking-tight">WebContainer Sandbox</span>
-            <div className="text-[10px] text-white/35">
+            <span className="text-[13px] font-semibold text-gray-900">WebContainer</span>
+            <div className="text-[10px] text-gray-500">
               {runtimeCapabilities.sandbox.hostShell
-                ? 'Host shell enabled'
-                : 'Pure sandbox · host shell disabled'}
+                ? 'Host shell'
+                : 'Sandbox'}
             </div>
           </div>
         </div>
-        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 text-white/60 hover:text-white transition-colors">
-          <X size={16} />
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-black/[0.06] text-gray-400 hover:text-gray-600 transition-colors">
+          <X size={15} />
         </button>
       </div>
       <div className="flex-1 p-2 relative">
         {!runtimeCapabilities.sandbox.webContainer ? (
-          <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-white/10 p-6 text-center">
+          <div className="flex h-full items-center justify-center rounded-xl border border-black/[0.06] bg-white p-6 text-center">
             <div>
-              <div className="text-sm font-semibold text-white/80">Sandbox unavailable</div>
-              <div className="mt-2 max-w-[28ch] text-xs leading-6 text-white/45">
-                This runtime has disabled WebContainer execution. Host shell access remains blocked.
+              <div className="text-sm font-semibold text-gray-900">Sandbox unavailable</div>
+              <div className="mt-2 max-w-[28ch] text-xs leading-6 text-gray-500">
+                This runtime has disabled WebContainer execution.
               </div>
             </div>
           </div>
         ) : null}
         {isBooting && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#05050A]/80 backdrop-blur-sm">
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 backdrop-blur-sm">
             <div className="flex flex-col items-center gap-3">
-              <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-              <span className="text-xs text-blue-400 font-mono">Initializing Sandbox...</span>
+              <div className="w-5 h-5 border-2 border-[#FF2D78] border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-xs text-gray-500 font-mono">Initializing...</span>
             </div>
           </div>
         )}

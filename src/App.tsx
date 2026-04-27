@@ -46,6 +46,8 @@ export default function App() {
     () => createRuntimeCapabilityProfile(desktopInfo),
     [desktopInfo],
   );
+  const isMacDesktop = desktopInfo?.mode === 'electron' && desktopInfo.platform === 'darwin';
+  const runtimeSurfaceClass = isMacDesktop ? 'macos-liquid-glass' : undefined;
 
   useEffect(() => {
     getAgentConfig()
@@ -68,7 +70,11 @@ export default function App() {
   return (
     <AppErrorBoundary>
       {currentView === 'chat' ? (
-        <div className="app-shell relative min-h-screen overflow-hidden">
+        <div
+          className={cn('app-shell relative min-h-screen overflow-hidden', runtimeSurfaceClass)}
+          data-runtime={runtimeCapabilities.mode}
+          data-platform={desktopInfo?.platform ?? 'web'}
+        >
           <div className="absolute inset-0 pointer-events-none opacity-30">
             <FlowingPixels />
           </div>
@@ -78,8 +84,14 @@ export default function App() {
           />
         </div>
       ) : (
-        <div className="relative min-h-screen overflow-x-hidden">
-          <FlowingPixels />
+        <div
+          className={cn('landing-shell relative min-h-screen overflow-x-hidden', runtimeSurfaceClass)}
+          data-runtime={runtimeCapabilities.mode}
+          data-platform={desktopInfo?.platform ?? 'web'}
+        >
+          <div className="landing-pixels">
+            <FlowingPixels />
+          </div>
       
       {/* Navigation */}
       <nav className="fixed top-0 w-full z-50 px-6 py-4 flex justify-between items-center glass border-b-0 bg-black/20">

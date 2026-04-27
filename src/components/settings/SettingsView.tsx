@@ -22,14 +22,12 @@ import {
   MessageSquarePlus,
   Monitor,
   Network,
-  Palette,
   Plus,
   RefreshCw,
   RotateCcw,
   Minus,
   Search,
   Server,
-  Settings as SettingsIcon,
   Sliders,
   Trash2,
   Upload,
@@ -118,15 +116,15 @@ import { MemoryTimelinePanel } from './MemoryTimelinePanel';
 import { UsagePanel } from './UsagePanel';
 
 const CATEGORIES = [
+  { id: 'general', label: '常规', icon: Sliders },
+  { id: 'display', label: '外观', icon: Monitor },
   { id: 'models', label: '模型服务', icon: Cloud },
   { id: 'default', label: '默认模型', icon: Box },
-  { id: 'general', label: '常规设置', icon: Sliders },
-  { id: 'display', label: '显示设置', icon: Monitor },
-  { id: 'data', label: '数据设置', icon: Database },
   { id: 'mcp', label: 'MCP 服务器', icon: Server },
   { id: 'search', label: '网络搜索', icon: Globe },
   { id: 'memory', label: '全局记忆', icon: Brain },
   { id: 'api', label: 'API 服务器', icon: Network },
+  { id: 'data', label: '数据', icon: Database },
   { id: 'docs', label: '文档处理', icon: FileText },
   { id: 'snippets', label: '快捷短语', icon: MessageSquarePlus },
   { id: 'shortcuts', label: '快捷键', icon: Keyboard },
@@ -529,15 +527,17 @@ function SectionCard({
   className?: string;
 }) {
   return (
-    <section className={`border-b border-white/5 py-4 last:border-0 ${className}`}>
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-sm font-semibold text-white/90">{title}</h3>
-          {description ? <p className="mt-1 text-[13px] text-white/45 leading-relaxed">{description}</p> : null}
+    <section className={`settings-section-card ${className}`}>
+      <div className="settings-section-header">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="settings-section-title text-[14px] font-semibold">{title}</h3>
+            {description ? <p className="settings-section-description mt-0.5 text-xs leading-relaxed">{description}</p> : null}
+          </div>
+          {action && <div className="flex-shrink-0">{action}</div>}
         </div>
-        {action && <div className="flex-shrink-0">{action}</div>}
       </div>
-      <div className="flex flex-col gap-3">
+      <div className="settings-section-items">
         {children}
       </div>
     </section>
@@ -556,16 +556,22 @@ function ToggleCard({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3.5 transition-colors hover:bg-white/[0.04]">
-      <div className="flex-1">
-        <div className="text-sm font-medium text-white/90">{title}</div>
-        <p className="mt-0.5 text-xs text-white/45">{description}</p>
+    <div className="settings-toggle-card flex items-center justify-between gap-4 px-5 h-[66px] cursor-pointer" onClick={() => onChange(!checked)}>
+      <div className="min-w-0 flex-1">
+        <div className="settings-toggle-title text-[14px] font-medium">{title}</div>
+        {description && <p className="settings-toggle-description mt-0.5 text-xs">{description}</p>}
       </div>
-      <div className="relative inline-flex flex-shrink-0 items-center">
-        <input type="checkbox" className="peer sr-only" checked={checked} onChange={(event) => onChange(event.target.checked)} />
-        <div className="h-6 w-11 rounded-full bg-black/40 border border-white/10 peer-checked:border-emerald-500/20 peer-checked:bg-emerald-500/80 peer-focus:ring-2 peer-focus:ring-emerald-500/30 transition-all after:absolute after:top-[3px] after:left-[3px] after:h-4.5 after:w-4.5 after:rounded-full after:bg-white after:shadow-sm after:transition-all peer-checked:after:translate-x-[20px]"></div>
-      </div>
-    </label>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={(e) => { e.stopPropagation(); onChange(!checked); }}
+        className="settings-toggle-track relative inline-flex h-[28px] w-[52px] flex-shrink-0 cursor-pointer items-center rounded-full transition-all duration-200 focus:outline-none"
+        style={{ backgroundColor: checked ? 'var(--app-accent)' : 'var(--settings-toggle-off)' }}
+      >
+        <span className="settings-toggle-thumb inline-block h-[24px] w-[24px] rounded-full bg-white shadow-sm mx-[2px] transition-transform duration-200" style={{ transform: checked ? 'translateX(24px)' : 'translateX(0)' }} />
+      </button>
+    </div>
   );
 }
 
@@ -587,23 +593,26 @@ function WeightInputCard({
   onChange: (value: number) => void;
 }) {
   return (
-    <div className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-medium text-white/88">{label}</div>
-        <div className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-white/60">
-          {value.toFixed(1)}
-        </div>
+    <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+      <div className="min-w-0 flex-1">
+        <div className="settings-row-label text-[14px] font-medium">{label}</div>
+        <p className="settings-row-description mt-0.5 text-xs">{description}</p>
       </div>
-      <p className="mt-1 text-[11px] leading-5 text-white/42">{description}</p>
-      <input
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="mt-3 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-      />
+      <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="settings-row-value text-[14px] font-medium tabular-nums">{value.toFixed(1)}</div>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(event) => onChange(Number(event.target.value))}
+          className="w-[120px] h-[6px] rounded-full appearance-none cursor-pointer"
+          style={{
+            background: `linear-gradient(to right, var(--app-accent) 0%, var(--app-accent) ${((value - min) / (max - min)) * 100}%, var(--settings-range-track) ${((value - min) / (max - min)) * 100}%, var(--settings-range-track) 100%)`,
+          }}
+        />
+      </div>
     </div>
   );
 }
@@ -632,19 +641,21 @@ function SystemPromptEditor({
 
   return (
     <div className="flex flex-col gap-3">
-      <textarea
-        value={localPrompt}
-        onChange={(e) => setLocalPrompt(e.target.value)}
-        className="min-h-[220px] w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
-      />
+      <div className="max-w-3xl">
+        <textarea
+          value={localPrompt}
+          onChange={(e) => setLocalPrompt(e.target.value)}
+          className="min-h-[132px] max-h-[260px] w-full resize-y rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2.5 text-[13px] leading-6 text-white outline-none transition-[border-color,background-color] focus:outline-none focus:ring-1 focus:ring-emerald-400/20"
+        />
+      </div>
       <div className="flex justify-end">
         <button
           onClick={handleSave}
           disabled={!isDirty}
-          className={`glass-button w-full sm:w-auto px-5 py-2.5 text-sm font-medium transition-all ${
+          className={`rounded-lg px-4 py-2 text-[12px] font-medium border transition-[background-color,border-color,color,transform] active:scale-[0.98] focus:outline-none focus:ring-1 focus:ring-white/15 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100 ${
             isDirty
-              ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/30 hover:border-emerald-500/40'
-              : 'opacity-50 cursor-not-allowed'
+              ? 'bg-emerald-500/15 border-emerald-400/20 text-emerald-200/80 hover:bg-emerald-500/25 hover:border-emerald-400/30'
+              : 'border-white/[0.06] bg-white/[0.03] text-white/30'
           }`}
         >
           {isDirty ? '保存改动' : '已保存'}
@@ -2196,6 +2207,10 @@ export const SettingsView = ({
     downloadText(buildMarkdownExport(payload), `vortex-export-${Date.now()}.md`);
   };
 
+  const handleClearExpired = () => {
+    // TODO: Implement session cleanup
+  };
+
   const handleAgentPackageExport = async () => {
     try {
       const agentSlug = agentPackageDraft.agentSlug.trim();
@@ -2285,7 +2300,7 @@ export const SettingsView = ({
                         '',
                     }))
                   }
-                  className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                  className="h-9 w-full min-w-0 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white outline-none transition-[background-color,color,border-color] focus:outline-none focus:ring-1 focus:ring-emerald-400/20"
                 >
                   {draft.providers
                     .filter((provider) => provider.enabled)
@@ -2303,7 +2318,7 @@ export const SettingsView = ({
                       activeModel: event.target.value,
                     }))
                   }
-                  className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                  className="h-9 w-full min-w-0 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white outline-none transition-[background-color,color,border-color] focus:outline-none focus:ring-1 focus:ring-emerald-400/20"
                 >
                   {(draft.providers.find((provider) => provider.id === draft.activeProviderId)?.models ?? []).map(
                     (model) => (
@@ -2325,64 +2340,62 @@ export const SettingsView = ({
       case 'general':
         return (
           <div className="space-y-4">
-            <SectionCard title="语言与网络" description="用于控制工作区的基础行为与请求路径。">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-2 flex items-center gap-2 text-sm font-medium text-white/90">
-                    <Languages size={15} className="text-white/50" />
-                    语言
-                  </div>
-                  <select
-                    value={draft.general.language}
-                    onChange={(event) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        general: {
-                          ...current.general,
-                          language: event.target.value,
-                        },
-                      }))
-                    }
-                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                  >
-                    {LANGUAGE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value} className="bg-[#111111]">
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+            <SectionCard title="语言与网络" description="用于控制工作区的基础行为与请求路径。" className="settings-card-full">
+              <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-medium text-gray-900">语言</div>
+                  <p className="mt-0.5 text-xs text-gray-500">选择界面显示语言</p>
                 </div>
-
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-2 text-sm font-medium text-white/90">代理模式</div>
-                  <select
-                    value={draft.general.proxyMode}
-                    onChange={(event) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        general: {
-                          ...current.general,
-                          proxyMode: event.target.value as AgentConfig['general']['proxyMode'],
-                        },
-                      }))
-                    }
-                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                  >
-                    {PROXY_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value} className="bg-[#111111]">
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-2 text-xs text-white/45">
-                    {PROXY_OPTIONS.find((option) => option.value === draft.general.proxyMode)?.description}
-                  </p>
-                </div>
+                <select
+                  value={draft.general.language}
+                  onChange={(event) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      general: {
+                        ...current.general,
+                        language: event.target.value,
+                      },
+                    }))
+                  }
+                  className="h-[36px] w-[120px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
+                >
+                  {LANGUAGE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
-
+              <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-medium text-gray-900">代理模式</div>
+                  <p className="mt-0.5 text-xs text-gray-500">{PROXY_OPTIONS.find((option) => option.value === draft.general.proxyMode)?.description}</p>
+                </div>
+                <select
+                  value={draft.general.proxyMode}
+                  onChange={(event) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      general: {
+                        ...current.general,
+                        proxyMode: event.target.value as AgentConfig['general']['proxyMode'],
+                      },
+                    }))
+                  }
+                  className="h-[36px] w-[120px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
+                >
+                  {PROXY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
               {draft.general.proxyMode === 'custom' ? (
-                <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-2 text-sm font-medium text-white/90">代理地址</div>
+                <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-medium text-gray-900">代理地址</div>
+                  </div>
                   <input
                     value={draft.general.proxyUrl}
                     onChange={(event) =>
@@ -2395,13 +2408,13 @@ export const SettingsView = ({
                       }))
                     }
                     placeholder="https://proxy.example.com"
-                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                    className="h-[36px] w-[300px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
                   />
                 </div>
               ) : null}
             </SectionCard>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <SectionCard title="Knowledge Base" description="知识库检索相关设置">
               <ToggleCard
                 title="Knowledge Base 优先"
                 description="允许 agent 优先尝试本地 SQLite 文档检索。"
@@ -2458,7 +2471,7 @@ export const SettingsView = ({
                   }))
                 }
               />
-            </div>
+            </SectionCard>
           </div>
         );
 
@@ -2468,109 +2481,70 @@ export const SettingsView = ({
             <SectionCard
               title="主题模式"
               description="支持浅色 / 深色主题，并允许你定制整套工作区的主题色。"
-              action={
-                <button
-                  onClick={() => setShowThemeBoard((current) => !current)}
-                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75 hover:bg-white/10 hover:text-white"
-                >
-                  <Palette size={14} />
-                  {showThemeBoard ? '收起色盘' : '打开色盘'}
-                </button>
-              }
+              className="settings-card-full"
             >
-              <div className="grid gap-4 md:grid-cols-[220px_1fr]">
-                <div className="grid gap-3">
-                  {[
-                    { value: 'dark', label: '深色主题' },
-                    { value: 'light', label: '浅色主题' },
-                  ].map((option) => (
+              <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-medium text-gray-900">主题选择</div>
+                  <p className="mt-0.5 text-xs text-gray-500">选择界面显示主题</p>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  {(['dark', 'light'] as const).map((option) => (
                     <button
-                      key={option.value}
+                      key={option}
                       onClick={() =>
                         updateDraft((current) => ({
                           ...current,
                           theme: {
                             ...current.theme,
-                            mode: option.value as AgentConfig['theme']['mode'],
+                            mode: option as AgentConfig['theme']['mode'],
                           },
                         }))
                       }
-                      className={`rounded-2xl border px-4 py-3 text-left transition-colors ${
-                        draft.theme.mode === option.value
-                          ? 'border-emerald-500/40 bg-emerald-500/10 text-white'
-                          : 'border-white/10 bg-white/[0.03] text-white/70 hover:bg-white/[0.05]'
+                      className={`settings-mode-button h-[36px] px-4 rounded-[10px] border text-sm transition-all ${
+                        draft.theme.mode === option ? 'settings-mode-button-active' : ''
                       }`}
                     >
-                      <div className="text-sm font-medium">{option.label}</div>
+                      {option === 'dark' ? '深色' : '浅色'}
                     </button>
                   ))}
-                </div>
-
-                <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div>
-                    <div className="text-sm font-medium text-white/90">基础主题色</div>
-                    <p className="mt-1 text-xs text-white/45">
-                      常用的 10 个基础色已经预置，切换后会立即影响品牌渐变与强调色。
-                    </p>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                    {THEME_PRESETS.map((preset) => (
-                      <button
-                        key={preset.id}
-                        onClick={() => updateThemeColor(preset.color)}
-                        className={`rounded-2xl border p-3 text-left transition-transform hover:-translate-y-0.5 ${
-                          draft.theme.accentColor.toLowerCase() === preset.color.toLowerCase()
-                            ? 'border-white/30 bg-white/10'
-                            : 'border-white/10 bg-black/20'
-                        }`}
-                      >
-                        <div
-                          className="h-10 rounded-xl"
-                          style={{
-                            background: `linear-gradient(135deg, ${preset.color}, color-mix(in srgb, ${preset.color} 70%, #8b5cf6 30%))`,
-                          }}
-                        />
-                        <div className="mt-3 text-sm font-medium text-white/90">{preset.name}</div>
-                      </button>
-                    ))}
-                  </div>
-
-                  {showThemeBoard ? (
-                    <div className="space-y-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-                      <div className="text-sm font-medium text-white/90">扩展色盘</div>
-                      <div className="grid grid-cols-5 gap-2 sm:grid-cols-10">
-                        {THEME_COLOR_BOARD.map((color) => (
-                          <button
-                            key={color}
-                            onClick={() => updateThemeColor(color)}
-                            className={`h-10 rounded-xl border transition-transform hover:scale-[1.04] ${
-                              draft.theme.accentColor.toLowerCase() === color.toLowerCase()
-                                ? 'border-white/80'
-                                : 'border-white/15'
-                            }`}
-                            style={{ backgroundColor: color }}
-                            title={color}
-                          />
-                        ))}
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="color"
-                          value={draft.theme.accentColor}
-                          onChange={(event) => updateThemeColor(event.target.value)}
-                          className="h-11 w-20 rounded-xl border border-white/10 bg-black/20 p-1"
-                        />
-                        <div className="text-xs text-white/45">
-                          当前主题色: <span className="font-mono text-white/70">{draft.theme.accentColor}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
               </div>
             </SectionCard>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <SectionCard title="基础主题色" description="常用的 10 个基础色已经预置，切换后会立即影响品牌渐变与强调色。" className="settings-card-full">
+              <div className="settings-color-row px-5">
+                {THEME_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => updateThemeColor(preset.color)}
+                    title={preset.name}
+                    aria-label={`选择 ${preset.name} 主题色`}
+                    className={`settings-theme-preset-button ${
+                      draft.theme.accentColor.toLowerCase() === preset.color.toLowerCase()
+                        ? 'settings-theme-preset-button-active'
+                        : ''
+                    }`}
+                  >
+                    <span className="settings-theme-swatch" style={{ backgroundColor: preset.color }} />
+                  </button>
+                ))}
+                <label className="settings-custom-color-button" title="自定义颜色">
+                  <input
+                    type="color"
+                    value={draft.theme.accentColor}
+                    onChange={(event) => updateThemeColor(event.target.value)}
+                    className="settings-custom-color-input"
+                    aria-label="选择自定义主题色"
+                  />
+                  <span className="settings-custom-color-swatch" style={{ backgroundColor: draft.theme.accentColor }} />
+                  <span>自定义</span>
+                </label>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="界面行为" description="自定义聊天界面的显示方式。">
               <ToggleCard
                 title="自动滚动到最新消息"
                 description="lane 在新回复到来时自动贴底。"
@@ -2627,27 +2601,37 @@ export const SettingsView = ({
                   }))
                 }
               />
-            </div>
+            </SectionCard>
 
-            <SectionCard title="多列显示密度" description="调整多 lane 工作区的最小列宽。">
-              <input
-                type="range"
-                min={300}
-                max={460}
-                step={10}
-                value={draft.ui.laneMinWidth}
-                onChange={(event) =>
-                  updateDraft((current) => ({
-                    ...current,
-                    ui: {
-                      ...current.ui,
-                      laneMinWidth: Number(event.target.value),
-                    },
-                  }))
-                }
-                className="w-full"
-              />
-              <div className="mt-2 text-xs text-white/45">{draft.ui.laneMinWidth}px</div>
+            <SectionCard title="多列显示密度" description="调整多 lane 工作区的最小列宽。" className="settings-card-full">
+              <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-medium text-gray-900">列宽</div>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <div className="settings-row-value text-[14px] font-medium tabular-nums">{draft.ui.laneMinWidth}px</div>
+                  <input
+                    type="range"
+                    min={300}
+                    max={460}
+                    step={10}
+                    value={draft.ui.laneMinWidth}
+                    onChange={(event) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        ui: {
+                          ...current.ui,
+                          laneMinWidth: Number(event.target.value),
+                        },
+                      }))
+                    }
+                    className="w-[120px] h-[6px] rounded-full appearance-none cursor-pointer"
+                    style={{
+                      background: `linear-gradient(to right, var(--app-accent) 0%, var(--app-accent) ${((draft.ui.laneMinWidth - 300) / (460 - 300)) * 100}%, var(--settings-range-track) ${((draft.ui.laneMinWidth - 300) / (460 - 300)) * 100}%, var(--settings-range-track) 100%)`,
+                    }}
+                  />
+                </div>
+              </div>
             </SectionCard>
           </div>
         );
@@ -2656,184 +2640,59 @@ export const SettingsView = ({
         return (
           <div className="space-y-4">
             <SectionCard
-              title="数据备份与恢复"
-              description="备份会话、agent lane、知识库、全局记忆和设置。"
-              action={
-                <div className="flex gap-2">
+              title="数据处理"
+              description="备份、恢复、清理和查看本地工作区数据。"
+              className="settings-card-full settings-data-hub-card"
+            >
+              <div className="settings-data-metrics">
+                {[
+                  ['会话', stats?.conversations ?? 0],
+                  ['消息', stats?.messages ?? 0],
+                  ['知识文档', stats?.documents ?? 0],
+                  ['记忆文档', stats?.memoryDocuments ?? 0],
+                ].map(([label, value]) => (
+                  <div key={label} className="settings-data-metric">
+                    <span>{label}</span>
+                    <strong>{value}</strong>
+                  </div>
+                ))}
+              </div>
+              <div className="settings-data-actions-grid">
+                <div className="settings-data-action-tile">
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-medium text-gray-900">导出备份</div>
+                    <p className="mt-0.5 text-xs text-gray-500">将所有数据导出为 JSON 文件</p>
+                  </div>
                   <button
                     onClick={handleBackup}
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
+                    className="settings-data-action-button h-[36px] px-4 rounded-[10px] border border-black/[0.12] bg-white text-sm text-gray-700 hover:bg-black/[0.02] transition-colors"
                   >
-                    <HardDriveDownload size={15} />
-                    备份
+                    导出
                   </button>
+                </div>
+                <div className="settings-data-action-tile">
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-medium text-gray-900">导入恢复</div>
+                    <p className="mt-0.5 text-xs text-gray-500">从 JSON 文件恢复数据</p>
+                  </div>
                   <button
                     onClick={() => backupRestoreInputRef.current?.click()}
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
+                    className="settings-data-action-button h-[36px] px-4 rounded-[10px] border border-black/[0.12] bg-white text-sm text-gray-700 hover:bg-black/[0.02] transition-colors"
                   >
-                    <HardDriveUpload size={15} />
-                    恢复
+                    导入
                   </button>
                 </div>
-              }
-            >
-              <div className="grid gap-4 md:grid-cols-2">
-                <ToggleCard
-                  title="精简备份"
-                  description="跳过知识库文档，仅备份聊天记录、助手与设置。"
-                  checked={draft.data.minimalBackup}
-                  onChange={(checked) =>
-                    updateDraft((current) => ({
-                      ...current,
-                      data: {
-                        ...current.data,
-                        minimalBackup: checked,
-                      },
-                    }))
-                  }
-                />
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="text-sm font-medium text-white/90">数据概览</div>
-                  <div className="mt-3 grid grid-cols-3 gap-3 text-center">
-                    {stats
-                      ? [
-                          ['会话', stats.conversations],
-                          ['文档', stats.documents],
-                          ['记忆', stats.memoryDocuments],
-                          ['消息', stats.messages],
-                          ['助手', stats.assistants],
-                          ['短语', stats.snippets],
-                        ].map(([label, value]) => (
-                          <div key={label} className="rounded-xl border border-white/10 bg-black/20 p-3">
-                            <div className="text-[11px] text-white/40">{label}</div>
-                            <div className="mt-2 text-lg font-semibold text-white">{value}</div>
-                          </div>
-                        ))
-                      : null}
+                <div className="settings-data-action-tile">
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-medium text-gray-900">清理过期会话</div>
+                    <p className="mt-0.5 text-xs text-gray-500">删除超过 30 天的会话记录</p>
                   </div>
-                </div>
-              </div>
-            </SectionCard>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <SectionCard title="导入设置" description="把外部文本、Markdown 或 JSON 导入到本地知识库。">
-                <button
-                  onClick={() => externalImportInputRef.current?.click()}
-                  className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-white/10 bg-white/[0.03] p-5 text-sm text-white/75 transition-colors hover:bg-white/[0.05] hover:text-white"
-                >
-                  <FolderUp size={18} />
-                  导入外部应用数据
-                </button>
-              </SectionCard>
-
-              <SectionCard title="导出设置" description="支持 JSON 备份和 Markdown 导出。">
-                <div className="grid gap-3 sm:grid-cols-2">
                   <button
-                    onClick={handleBackup}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-white hover:bg-white/10"
+                    onClick={handleClearExpired}
+                    className="settings-data-action-button settings-danger-button h-[36px] px-4 rounded-[10px] border border-red-200 bg-red-50 text-sm text-red-600 hover:bg-red-100 transition-colors"
                   >
-                    <Upload size={16} />
-                    导出菜单设置
+                    清理
                   </button>
-                  <button
-                    onClick={handleMarkdownExport}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-white hover:bg-white/10"
-                  >
-                    <Download size={16} />
-                    Markdown 导出
-                  </button>
-                </div>
-              </SectionCard>
-            </div>
-
-            <SectionCard
-              title="Agent 配置包"
-              description="打包 config.json、指定 agent 的 Markdown 记忆和共享 skills 为 .vortex 文件。"
-              action={
-                <button
-                  onClick={handleAgentPackageExport}
-                  disabled={!draft.apiServer.enabled || !agentPackageDraft.agentSlug.trim()}
-                  className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Download size={15} />
-                  导出 .vortex
-                </button>
-              }
-            >
-              <div className="grid gap-3 lg:grid-cols-[180px_1fr_auto]">
-                <select
-                  value={agentPackageDraft.agentSlug}
-                  onChange={(event) =>
-                    setAgentPackageDraft((current) => ({ ...current, agentSlug: event.target.value }))
-                  }
-                  className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                >
-                  {agents.length > 0 ? (
-                    agents.map((agent) => (
-                      <option key={agent.id} value={agent.slug} className="bg-[#111111]">
-                        {agent.name}
-                      </option>
-                    ))
-                  ) : (
-                    <option value="vortex-core" className="bg-[#111111]">
-                      vortex-core
-                    </option>
-                  )}
-                </select>
-                <input
-                  value={agentPackageDraft.targetAgentSlug}
-                  onChange={(event) =>
-                    setAgentPackageDraft((current) => ({ ...current, targetAgentSlug: event.target.value }))
-                  }
-                  placeholder="导入目标 agent slug，可留空沿用包内 slug"
-                  className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-white/30 focus:border-emerald-500/50"
-                />
-                <button
-                  onClick={() => agentPackageImportInputRef.current?.click()}
-                  disabled={!draft.apiServer.enabled}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <HardDriveUpload size={15} />
-                  导入
-                </button>
-              </div>
-              <label className="mt-3 flex items-center gap-2 text-xs text-white/50">
-                <input
-                  type="checkbox"
-                  checked={agentPackageDraft.importConfig}
-                  onChange={(event) =>
-                    setAgentPackageDraft((current) => ({ ...current, importConfig: event.target.checked }))
-                  }
-                  className="h-4 w-4 rounded border-white/10 bg-black/20"
-                />
-                导入时覆盖本地 config.json
-              </label>
-              <div
-                className={`mt-3 text-xs ${
-                  agentPackageStatus?.tone === 'error'
-                    ? 'text-red-200'
-                    : agentPackageStatus?.tone === 'success'
-                      ? 'text-emerald-200'
-                      : 'text-white/45'
-                }`}
-              >
-                {agentPackageStatus?.message ?? '需要启用本地 API Server；package 文件以 Markdown 真源为主。'}
-              </div>
-            </SectionCard>
-
-            <SectionCard title="存储说明" description="当前版本使用浏览器端 localForage + sql.js 持久化。">
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <div className="text-sm font-medium text-white/90">应用数据</div>
-                  <p className="mt-2 text-xs text-white/45">
-                    会话、lane、知识库、全局记忆都保存在本地浏览器存储中。
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                  <div className="text-sm font-medium text-white/90">恢复提示</div>
-                  <p className="mt-2 text-xs text-white/45">
-                    恢复备份后页面会自动刷新，确保 SQLite 与配置重新载入。
-                  </p>
                 </div>
               </div>
             </SectionCard>
@@ -2842,470 +2701,381 @@ export const SettingsView = ({
 
       case 'mcp':
         return (
-          <div className="grid min-h-[560px] gap-px overflow-hidden rounded-[28px] border border-white/10 bg-white/5 lg:grid-cols-[300px_1fr]">
-            <div className="min-h-0 overflow-y-auto bg-[#1E1E1E] p-4 custom-scrollbar">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-white/90">MCP 服务器</div>
-                  <p className="mt-1 text-xs text-white/45">内置模板 + 自定义服务器。</p>
-                </div>
-                <button
-                  onClick={() => addMcpServer()}
-                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75 hover:bg-white/10 hover:text-white"
-                >
-                  <Plus size={14} />
-                  添加
-                </button>
-              </div>
-
-              <div className="space-y-2">
-                <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/35">
+          <div className="space-y-4">
+            <SectionCard title="MCP 服务器" description="内置模板 + 自定义服务器。">
+              <div className="space-y-2 px-5 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-500">
                   内置与推荐
                 </div>
                 {MCP_LIBRARY.map((server) => (
-                  <button
+                  <div
                     key={server.id}
-                    onClick={() => setActiveMcpId(server.id)}
-                    className={`flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left transition-colors ${
+                    className={`flex items-center justify-between gap-4 px-4 py-3 rounded-[10px] cursor-pointer transition-colors ${
                       activeMcpId === server.id
-                        ? 'border-white/15 bg-white/10 text-white'
-                        : 'border-transparent bg-transparent text-white/70 hover:bg-white/5'
+                        ? 'bg-[#FF2D78]/5 border border-[#FF2D78]/20'
+                        : 'bg-white border border-black/[0.06] hover:bg-black/[0.02]'
                     }`}
+                    onClick={() => setActiveMcpId(server.id)}
                   >
-                    <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/5">
-                      <Server size={16} className="text-white/75" />
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-black/[0.06]">
+                        <Server size={16} className="text-gray-500" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{server.name}</div>
+                        <div className="mt-0.5 text-xs text-gray-500">{server.provider}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-sm font-medium">{server.name}</div>
-                      <div className="mt-1 text-xs text-white/45">{server.provider}</div>
-                    </div>
-                  </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        addMcpServer(server);
+                      }}
+                      className="h-[32px] px-3 rounded-lg border border-black/[0.12] bg-white text-xs text-gray-700 hover:bg-black/[0.02] transition-colors"
+                    >
+                      添加
+                    </button>
+                  </div>
                 ))}
               </div>
-
-              <div className="mt-6 space-y-2">
-                <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/35">
+              <div className="space-y-2 px-5 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-500">
                   我的服务器
                 </div>
                 {draft.mcpServers.map((server) => (
-                  <button
+                  <div
                     key={server.id}
-                    onClick={() => setActiveMcpId(server.id)}
-                    className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-colors ${
+                    className={`flex items-center justify-between gap-4 px-4 py-3 rounded-[10px] cursor-pointer transition-colors ${
                       activeMcpId === server.id
-                        ? 'border-white/15 bg-white/10 text-white'
-                        : 'border-transparent bg-transparent text-white/70 hover:bg-white/5'
+                        ? 'bg-[#FF2D78]/5 border border-[#FF2D78]/20'
+                        : 'bg-white border border-black/[0.06] hover:bg-black/[0.02]'
                     }`}
+                    onClick={() => setActiveMcpId(server.id)}
                   >
                     <div>
-                      <div className="text-sm font-medium">{server.name}</div>
-                      <div className="mt-1 text-xs text-white/45">{server.transport}</div>
+                      <div className="text-sm font-medium text-gray-900">{server.name}</div>
+                      <div className="mt-0.5 text-xs text-gray-500">{server.transport}</div>
                     </div>
-                    <span
-                      className={`rounded-full border px-2 py-0.5 text-[10px] ${
-                        server.enabled
-                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                          : 'border-white/10 text-white/40'
-                      }`}
-                    >
-                      {server.enabled ? 'ON' : 'OFF'}
-                    </span>
-                  </button>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                          server.enabled
+                            ? 'border-[#FF2D78]/30 bg-[#FF2D78]/10 text-[#FF2D78]'
+                            : 'border-black/[0.12] text-gray-400'
+                        }`}
+                      >
+                        {server.enabled ? 'ON' : 'OFF'}
+                      </span>
+                      {server.source === 'custom' && (
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await updateDraft((current) => ({
+                              ...current,
+                              mcpServers: current.mcpServers.filter((s) => s.id !== server.id),
+                            }));
+                            setActiveMcpId(draft.mcpServers[0]?.id ?? MCP_LIBRARY[0]!.id);
+                          }}
+                          className="h-[32px] px-3 rounded-lg border border-red-200 bg-red-50 text-xs text-red-500 hover:bg-red-100 transition-colors"
+                        >
+                          删除
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 ))}
               </div>
-            </div>
+            </SectionCard>
 
-            <div className="min-h-0 overflow-y-auto bg-[#1E1E1E] p-6 custom-scrollbar">
-              {activeMcpServer ? (
-                <div className="space-y-4">
-                  <SectionCard
-                    title={activeMcpServer.name}
-                    description="自定义 MCP 服务器配置会持久化到本地设置中。"
-                    action={
-                      <div className="flex items-center gap-2">
-                        <label className="flex items-center gap-2 text-xs text-white/55">
-                          <input
-                            type="checkbox"
-                            checked={activeMcpServer.enabled}
-                            onChange={(event) =>
-                              updateMcpServer(activeMcpServer.id, { enabled: event.target.checked })
-                            }
-                          />
-                          启用
-                        </label>
-                        {activeMcpServer.source === 'custom' ? (
-                          <button
-                            onClick={async () => {
-                              await updateDraft((current) => ({
-                                ...current,
-                                mcpServers: current.mcpServers.filter((server) => server.id !== activeMcpServer.id),
-                              }));
-                              setActiveMcpId(draft.mcpServers[0]?.id ?? MCP_LIBRARY[0]!.id);
-                            }}
-                            className="rounded-full border border-red-500/20 bg-red-500/10 p-2 text-red-300 hover:bg-red-500/15"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        ) : null}
-                      </div>
-                    }
-                  >
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <input
-                        value={activeMcpServer.name}
-                        onChange={(event) => updateMcpServer(activeMcpServer.id, { name: event.target.value })}
-                        className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                        placeholder="服务器名称"
-                      />
-                      <select
-                        value={activeMcpServer.transport}
-                        onChange={(event) =>
-                          updateMcpServer(activeMcpServer.id, {
-                            transport: event.target.value as McpServerConfig['transport'],
-                          })
-                        }
-                        className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                      >
-                        <option value="streamable-http" className="bg-[#111111]">
-                          streamable-http
-                        </option>
-                        <option value="sse" className="bg-[#111111]">
-                          sse
-                        </option>
-                        <option value="stdio" className="bg-[#111111]">
-                          stdio
-                        </option>
-                      </select>
-                    </div>
-
-                    {activeMcpServer.transport === 'stdio' ? (
-                      <div className="grid gap-4 md:grid-cols-[1.2fr_1fr]">
-                        <input
-                          value={activeMcpServer.command}
-                          onChange={(event) =>
-                            updateMcpServer(activeMcpServer.id, { command: event.target.value })
-                          }
-                          placeholder="npx"
-                          className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                        />
-                        <input
-                          value={activeMcpServer.args}
-                          onChange={(event) =>
-                            updateMcpServer(activeMcpServer.id, { args: event.target.value })
-                          }
-                          placeholder="-y @modelcontextprotocol/server-filesystem ./"
-                          className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                        />
-                      </div>
-                    ) : (
-                      <input
-                        value={activeMcpServer.url}
-                        onChange={(event) => updateMcpServer(activeMcpServer.id, { url: event.target.value })}
-                        placeholder="https://mcp.example.com"
-                        className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                      />
-                    )}
-
-                    <textarea
-                      value={activeMcpServer.description}
-                      onChange={(event) =>
-                        updateMcpServer(activeMcpServer.id, { description: event.target.value })
-                      }
-                      placeholder="描述这个 MCP 服务器的用途。"
-                      className="min-h-[100px] w-full rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
-                    />
-
-                    <textarea
-                      value={activeMcpServer.headers}
-                      onChange={(event) =>
-                        updateMcpServer(activeMcpServer.id, { headers: event.target.value })
-                      }
-                      placeholder={'可选请求头，支持 JSON 或 "Authorization: Bearer xxx" 这样的多行文本。'}
-                      className="min-h-[96px] w-full rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
-                    />
-                  </SectionCard>
-                </div>
-              ) : activeMcpTemplate ? (
-                <SectionCard
-                  title={activeMcpTemplate.name}
-                  description={activeMcpTemplate.description}
-                  action={
-                    <button
-                      onClick={() => addMcpServer(activeMcpTemplate)}
-                      className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75 hover:bg-white/10 hover:text-white"
-                    >
-                      <Plus size={14} />
-                      添加到我的服务器
-                    </button>
-                  }
-                >
-                  <div className="space-y-3 text-sm text-white/75">
-                    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                      <div className="text-xs uppercase tracking-[0.2em] text-white/35">Transport</div>
-                      <div className="mt-2">{activeMcpTemplate.transport}</div>
-                    </div>
-                    {activeMcpTemplate.url ? (
-                      <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                        <div className="text-xs uppercase tracking-[0.2em] text-white/35">Endpoint</div>
-                        <div className="mt-2 break-all">{activeMcpTemplate.url}</div>
-                      </div>
-                    ) : null}
-                    {activeMcpTemplate.homepage ? (
-                      <a
-                        href={activeMcpTemplate.homepage}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
-                      >
-                        <Link2 size={14} />
-                        打开主页
-                      </a>
-                    ) : null}
+            {activeMcpServer && (
+              <SectionCard title={activeMcpServer.name} description="自定义 MCP 服务器配置会持久化到本地设置中。">
+                <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-medium text-gray-900">启用</div>
                   </div>
-                </SectionCard>
-              ) : (
-                <div className="flex h-full items-center justify-center text-white/40">未配置服务器</div>
-              )}
-            </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={activeMcpServer.enabled}
+                    onClick={() => updateMcpServer(activeMcpServer.id, { enabled: !activeMcpServer.enabled })}
+                    className="settings-toggle-track relative inline-flex h-[28px] w-[52px] flex-shrink-0 cursor-pointer items-center rounded-full transition-all duration-200 focus:outline-none"
+                    style={{ backgroundColor: activeMcpServer.enabled ? 'var(--app-accent)' : 'var(--settings-toggle-off)' }}
+                  >
+                    <span className="settings-toggle-thumb inline-block h-[24px] w-[24px] rounded-full bg-white shadow-sm mx-[2px] transition-transform duration-200" style={{ transform: activeMcpServer.enabled ? 'translateX(24px)' : 'translateX(0)' }} />
+                  </button>
+                </div>
+                <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-medium text-gray-900">服务器名称</div>
+                  </div>
+                  <input
+                    value={activeMcpServer.name}
+                    onChange={(event) => updateMcpServer(activeMcpServer.id, { name: event.target.value })}
+                    className="h-[36px] w-[200px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
+                    placeholder="服务器名称"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-medium text-gray-900">传输协议</div>
+                  </div>
+                  <select
+                    value={activeMcpServer.transport}
+                    onChange={(event) =>
+                      updateMcpServer(activeMcpServer.id, {
+                        transport: event.target.value as McpServerConfig['transport'],
+                      })
+                    }
+                    className="h-[36px] w-[180px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
+                  >
+                    <option value="streamable-http">streamable-http</option>
+                    <option value="sse">sse</option>
+                    <option value="stdio">stdio</option>
+                  </select>
+                </div>
+                {activeMcpServer.transport === 'stdio' ? (
+                  <>
+                    <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[14px] font-medium text-gray-900">命令</div>
+                      </div>
+                      <input
+                        value={activeMcpServer.command}
+                        onChange={(event) =>
+                          updateMcpServer(activeMcpServer.id, { command: event.target.value })
+                        }
+                        placeholder="npx"
+                        className="h-[36px] w-[200px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[14px] font-medium text-gray-900">参数</div>
+                      </div>
+                      <input
+                        value={activeMcpServer.args}
+                        onChange={(event) =>
+                          updateMcpServer(activeMcpServer.id, { args: event.target.value })
+                        }
+                        placeholder="-y @modelcontextprotocol/server-filesystem ./"
+                        className="h-[36px] w-[300px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[14px] font-medium text-gray-900">URL</div>
+                    </div>
+                    <input
+                      value={activeMcpServer.url}
+                      onChange={(event) => updateMcpServer(activeMcpServer.id, { url: event.target.value })}
+                      placeholder="https://mcp.example.com"
+                      className="h-[36px] w-[300px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
+                    />
+                  </div>
+                )}
+              </SectionCard>
+            )}
           </div>
         );
 
       case 'search':
         return (
-          <div className="grid min-h-[560px] gap-px overflow-hidden rounded-[28px] border border-white/10 bg-white/5 lg:grid-cols-[320px_1fr]">
-            <div className="min-h-0 overflow-y-auto bg-[#1E1E1E] p-4 custom-scrollbar">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-white/90">网络搜索</div>
-                  <p className="mt-1 text-xs text-white/45">配置默认 provider 与联网检索偏好。</p>
-                </div>
-                <button
-                  onClick={addSearchProvider}
-                  className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75 hover:bg-white/10 hover:text-white"
-                >
-                  <Plus size={14} />
-                  添加
-                </button>
+          <div className="settings-card-full settings-split-settings">
+            <aside className="settings-split-nav-card">
+              <div className="settings-split-nav-header">
+                <h3>搜索服务</h3>
+                <p>选择 provider 后在右侧配置 API 与默认项。</p>
               </div>
-
-              <div className="space-y-2">
-                <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/35">
-                  API 服务商
-                </div>
+              <div className="settings-split-nav-group">
+                <div className="settings-split-nav-label">API 服务商</div>
                 {draft.search.providers
                   .filter((provider) => provider.category === 'api')
                   .map((provider) => (
                     <button
                       key={provider.id}
-                      onClick={() => setActiveSearchProviderId(provider.id)}
-                      className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-colors ${
-                        activeSearchProviderId === provider.id
-                          ? 'border-white/15 bg-white/10 text-white'
-                          : 'border-transparent bg-transparent text-white/70 hover:bg-white/5'
+                      type="button"
+                      className={`settings-split-nav-item ${
+                        activeSearchProviderId === provider.id ? 'settings-split-nav-item-active' : ''
                       }`}
+                      onClick={() => setActiveSearchProviderId(provider.id)}
                     >
-                      <div>
-                        <div className="text-sm font-medium">{provider.name}</div>
-                        <div className="mt-1 text-xs text-white/45">{provider.description}</div>
-                      </div>
-                      {draft.search.defaultProviderId === provider.id ? (
-                        <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">
-                          默认
-                        </span>
-                      ) : null}
+                      <span>
+                        <strong>{provider.name}</strong>
+                        <small>{provider.description}</small>
+                      </span>
+                      {draft.search.defaultProviderId === provider.id ? <em>默认</em> : null}
                     </button>
                   ))}
               </div>
-
-              <div className="mt-6 space-y-2">
-                <div className="px-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/35">
-                  本地搜索
-                </div>
+              <div className="settings-split-nav-group">
+                <div className="settings-split-nav-label">本地搜索</div>
                 {draft.search.providers
                   .filter((provider) => provider.category === 'local')
                   .map((provider) => (
                     <button
                       key={provider.id}
-                      onClick={() => setActiveSearchProviderId(provider.id)}
-                      className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition-colors ${
-                        activeSearchProviderId === provider.id
-                          ? 'border-white/15 bg-white/10 text-white'
-                          : 'border-transparent bg-transparent text-white/70 hover:bg-white/5'
+                      type="button"
+                      className={`settings-split-nav-item ${
+                        activeSearchProviderId === provider.id ? 'settings-split-nav-item-active' : ''
                       }`}
+                      onClick={() => setActiveSearchProviderId(provider.id)}
                     >
-                      <div>
-                        <div className="text-sm font-medium">{provider.name}</div>
-                        <div className="mt-1 text-xs text-white/45">{provider.description}</div>
-                      </div>
-                      {draft.search.defaultProviderId === provider.id ? (
-                        <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-400">
-                          默认
-                        </span>
-                      ) : null}
+                      <span>
+                        <strong>{provider.name}</strong>
+                        <small>{provider.description}</small>
+                      </span>
+                      {draft.search.defaultProviderId === provider.id ? <em>默认</em> : null}
                     </button>
                   ))}
               </div>
-            </div>
+              <div className="settings-split-nav-footer">
+                <ToggleCard
+                  title="启用联网搜索"
+                  description="允许 agent 走外部搜索 provider。"
+                  checked={draft.search.enableWebSearch}
+                  onChange={(checked) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      search: {
+                        ...current.search,
+                        enableWebSearch: checked,
+                      },
+                    }))
+                  }
+                />
+                <ToggleCard
+                  title="失败回退知识库"
+                  description="provider 不可用时走本地文档检索。"
+                  checked={draft.search.fallbackToKnowledgeBase}
+                  onChange={(checked) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      search: {
+                        ...current.search,
+                        fallbackToKnowledgeBase: checked,
+                      },
+                    }))
+                  }
+                />
+              </div>
+            </aside>
 
-            <div className="min-h-0 overflow-y-auto bg-[#1E1E1E] p-6 custom-scrollbar">
+            <main className="settings-split-detail-card">
               {activeSearchProvider ? (
-                <div className="space-y-4">
-                  <SectionCard
-                    title={activeSearchProvider.name}
-                    description={activeSearchProvider.description}
-                    action={
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() =>
-                            updateDraft((current) => ({
-                              ...current,
-                              search: {
-                                ...current.search,
-                                defaultProviderId: activeSearchProvider.id,
-                              },
-                            }))
-                          }
-                          className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
-                        >
-                          设为默认
-                        </button>
-                        {activeSearchProvider.homepage ? (
-                          <a
-                            href={activeSearchProvider.homepage}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
-                          >
-                            <ArrowUpFromLine size={14} />
-                            打开设置
-                          </a>
-                        ) : null}
-                      </div>
-                    }
+                <SectionCard title={activeSearchProvider.name} description={activeSearchProvider.description}>
+                <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-medium text-gray-900">启用</div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={activeSearchProvider.enabled}
+                    onClick={() => updateSearchProvider(activeSearchProvider.id, { enabled: !activeSearchProvider.enabled })}
+                    className="settings-toggle-track relative inline-flex h-[28px] w-[52px] flex-shrink-0 cursor-pointer items-center rounded-full transition-all duration-200 focus:outline-none"
+                    style={{ backgroundColor: activeSearchProvider.enabled ? 'var(--app-accent)' : 'var(--settings-toggle-off)' }}
                   >
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <ToggleCard
-                        title="启用联网搜索"
-                        description="允许 agent 走外部搜索 provider。"
-                        checked={draft.search.enableWebSearch}
-                        onChange={(checked) =>
-                          updateDraft((current) => ({
-                            ...current,
-                            search: {
-                              ...current.search,
-                              enableWebSearch: checked,
-                            },
-                          }))
-                        }
-                      />
-                      <ToggleCard
-                        title="启用当前 Provider"
-                        description="仅启用后才会出现在默认 provider 候选中。"
-                        checked={activeSearchProvider.enabled}
-                        onChange={(checked) =>
-                          updateSearchProvider(activeSearchProvider.id, { enabled: checked })
-                        }
-                      />
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <select
-                        value={activeSearchProvider.category}
-                        onChange={(event) =>
-                          updateSearchProvider(activeSearchProvider.id, {
-                            category: event.target.value as SearchProviderConfig['category'],
-                          })
-                        }
-                        className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                      >
-                        {SEARCH_TYPE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value} className="bg-[#111111]">
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
+                    <span className="settings-toggle-thumb inline-block h-[24px] w-[24px] rounded-full bg-white shadow-sm mx-[2px] transition-transform duration-200" style={{ transform: activeSearchProvider.enabled ? 'translateX(24px)' : 'translateX(0)' }} />
+                  </button>
+                </div>
+                <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-medium text-gray-900">设为默认</div>
+                  </div>
+                  <button
+                    onClick={() =>
+                      updateDraft((current) => ({
+                        ...current,
+                        search: {
+                          ...current.search,
+                          defaultProviderId: activeSearchProvider.id,
+                        },
+                      }))
+                    }
+                    className="h-[36px] px-4 rounded-[10px] border border-[#FF2D78]/30 bg-[#FF2D78]/10 text-sm text-[#FF2D78] hover:bg-[#FF2D78]/15 transition-colors"
+                  >
+                    设为默认
+                  </button>
+                </div>
+                <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-medium text-gray-900">名称</div>
+                  </div>
+                  <input
+                    value={activeSearchProvider.name}
+                    onChange={(event) =>
+                      updateSearchProvider(activeSearchProvider.id, { name: event.target.value })
+                    }
+                    placeholder="Provider Name"
+                    className="h-[36px] w-[200px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px] font-medium text-gray-900">类型</div>
+                  </div>
+                  <select
+                    value={activeSearchProvider.category}
+                    onChange={(event) =>
+                      updateSearchProvider(activeSearchProvider.id, {
+                        category: event.target.value as SearchProviderConfig['category'],
+                      })
+                    }
+                    className="h-[36px] w-[180px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
+                  >
+                    {SEARCH_TYPE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {activeSearchProvider.category === 'api' && (
+                  <>
+                    <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[14px] font-medium text-gray-900">Base URL</div>
+                      </div>
                       <input
-                        value={activeSearchProvider.name}
+                        value={activeSearchProvider.baseUrl || ''}
                         onChange={(event) =>
-                          updateSearchProvider(activeSearchProvider.id, { name: event.target.value })
+                          updateSearchProvider(activeSearchProvider.id, { baseUrl: event.target.value })
                         }
-                        placeholder="Provider Name"
-                        className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                        placeholder="https://api.example.com"
+                        className="h-[36px] w-[300px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
                       />
                     </div>
-
-                    <input
-                      value={activeSearchProvider.baseUrl || ''}
-                      onChange={(event) =>
-                        updateSearchProvider(activeSearchProvider.id, { baseUrl: event.target.value })
-                      }
-                      placeholder="https://api.example.com"
-                      className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                    />
-
-                    {activeSearchProvider.category === 'api' ? (
+                    <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[14px] font-medium text-gray-900">API Key</div>
+                      </div>
                       <input
                         value={activeSearchProvider.apiKey}
                         onChange={(event) =>
                           updateSearchProvider(activeSearchProvider.id, { apiKey: event.target.value })
                         }
                         placeholder="API Key"
-                        className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                        className="h-[36px] w-[300px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
                       />
-                    ) : null}
-
-                    <textarea
-                      value={activeSearchProvider.description}
-                      onChange={(event) =>
-                        updateSearchProvider(activeSearchProvider.id, { description: event.target.value })
-                      }
-                      placeholder="这个 provider 的用途和说明。"
-                      className="min-h-[96px] w-full rounded-xl border border-white/10 bg-black/20 px-3 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
-                    />
-                  </SectionCard>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <ToggleCard
-                      title="启用本地知识库检索"
-                      description="由 search_knowledge_base 工具提供。"
-                      checked={draft.search.enableKnowledgeBase}
-                      onChange={(checked) =>
-                        updateDraft((current) => ({
-                          ...current,
-                          search: {
-                            ...current.search,
-                            enableKnowledgeBase: checked,
-                          },
-                        }))
-                      }
-                    />
-                    <ToggleCard
-                      title="联网失败时回退到知识库"
-                      description="外部 provider 不可用时，仍可让 agent 走本地文档检索。"
-                      checked={draft.search.fallbackToKnowledgeBase}
-                      onChange={(checked) =>
-                        updateDraft((current) => ({
-                          ...current,
-                          search: {
-                            ...current.search,
-                            fallbackToKnowledgeBase: checked,
-                          },
-                        }))
-                      }
-                    />
-                  </div>
-                </div>
+                    </div>
+                  </>
+                )}
+              </SectionCard>
               ) : (
-                <div className="flex h-full items-center justify-center text-white/40">请选择一个搜索服务</div>
+                <SectionCard title="未选择搜索服务" description="请先在左侧选择一个 provider。">
+                  <div className="px-5 py-5 text-sm text-gray-500">没有可编辑的搜索服务。</div>
+                </SectionCard>
               )}
-            </div>
+            </main>
           </div>
         );
 
       case 'memory':
         return (
           <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-3">
+            <SectionCard title="记忆设置" description="控制全局记忆的注入方式与上下文窗口。">
               <ToggleCard
                 title="启用全局记忆"
                 description="把全局记忆文档注入到所有 lane 的系统上下文。"
@@ -3348,8 +3118,11 @@ export const SettingsView = ({
                   }))
                 }
               />
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <div className="mb-2 text-sm font-medium text-white/90">上下文窗口</div>
+              <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-medium text-gray-900">上下文窗口</div>
+                  <p className="mt-0.5 text-xs text-gray-500">每个 lane 最近保留的消息条数</p>
+                </div>
                 <input
                   type="number"
                   min={4}
@@ -3364,12 +3137,14 @@ export const SettingsView = ({
                       },
                     }))
                   }
-                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                  className="h-[36px] w-[100px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40 tabular-nums"
                 />
-                <p className="mt-2 text-xs text-white/45">每个 lane 最近保留的消息条数。</p>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <div className="mb-2 text-sm font-medium text-white/90">Session Summary</div>
+              <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-medium text-gray-900">Session Summary</div>
+                  <p className="mt-0.5 text-xs text-gray-500">LLM 失败时自动回退到规则摘要</p>
+                </div>
                 <select
                   value={draft.memory.sessionSummaryMode}
                   onChange={(event) =>
@@ -3381,626 +3156,103 @@ export const SettingsView = ({
                       },
                     }))
                   }
-                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
+                  className="h-[36px] w-[120px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
                 >
                   <option value="deterministic">规则摘要</option>
                   <option value="llm">LLM 摘要</option>
                 </select>
-                <p className="mt-2 text-xs text-white/45">LLM 失败时自动回退到规则摘要。</p>
               </div>
-            </div>
+            </SectionCard>
 
             <SectionCard
               title="记忆生命周期"
-              description="控制 daily 记忆进入 hot / warm / cold 的时间窗口。冷层裁剪只删除派生摘要，不删除 daily 源文件。"
+              description="控制 daily 记忆进入 hot / warm / cold 的时间窗口。"
             >
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-2 text-sm font-medium text-white/90">热层天数</div>
-                  <input
-                    type="number"
-                    min={0}
-                    value={draft.memory.hotRetentionDays}
-                    onChange={(event) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        memory: {
-                          ...current.memory,
-                          hotRetentionDays: Number(event.target.value),
-                        },
-                      }))
-                    }
-                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                  />
-                  <p className="mt-2 text-xs text-white/45">默认 2 天，保留原始 daily。</p>
+              <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-medium text-gray-900">热层天数</div>
+                  <p className="mt-0.5 text-xs text-gray-500">默认 2 天，保留原始 daily</p>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-2 text-sm font-medium text-white/90">温层天数</div>
-                  <input
-                    type="number"
-                    min={0}
-                    value={draft.memory.warmRetentionDays}
-                    onChange={(event) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        memory: {
-                          ...current.memory,
-                          warmRetentionDays: Number(event.target.value),
-                        },
-                      }))
-                    }
-                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                  />
-                  <p className="mt-2 text-xs text-white/45">低于热层时会自动按热层对齐。</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-2 text-sm font-medium text-white/90">冷层保留天数</div>
-                  <input
-                    type="number"
-                    min={0}
-                    value={draft.memory.coldRetentionDays}
-                    onChange={(event) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        memory: {
-                          ...current.memory,
-                          coldRetentionDays: Number(event.target.value),
-                        },
-                      }))
-                    }
-                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                  />
-                  <p className="mt-2 text-xs text-white/45">0 表示不按年龄裁剪。</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="mb-2 text-sm font-medium text-white/90">冷层最大文件</div>
-                  <input
-                    type="number"
-                    min={0}
-                    value={draft.memory.coldMaxFiles}
-                    onChange={(event) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        memory: {
-                          ...current.memory,
-                          coldMaxFiles: Number(event.target.value),
-                        },
-                      }))
-                    }
-                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                  />
-                  <p className="mt-2 text-xs text-white/45">0 表示不限制数量。</p>
-                </div>
-                <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.04] p-4">
-                  <div className="mb-2 text-sm font-medium text-white/90">永久保留关键词</div>
-                  <textarea
-                    value={draft.memory.protectedTopics.join('\n')}
-                    onChange={(event) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        memory: {
-                          ...current.memory,
-                          protectedTopics: event.target.value
-                            .split(/\r?\n/)
-                            .map((topic) => topic.trim())
-                            .filter(Boolean),
-                        },
-                      }))
-                    }
-                    className="min-h-[92px] w-full resize-none rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                    placeholder={'核心身份\n长期偏好'}
-                  />
-                  <p className="mt-2 text-xs text-white/45">每行一个；命中则不压缩。</p>
-                </div>
-              </div>
-            </SectionCard>
-
-            <SectionCard
-              title="记忆晋升评分"
-              description="调整夜间归档把 warm/cold 记忆提升为长期记忆时的加权标准。保持原主题，不改运行模型，只改评分汇总。"
-            >
-              <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
-                <div className="rounded-[22px] border border-white/10 bg-white/[0.03] p-4">
-                  <div className="text-[11px] uppercase tracking-[0.24em] text-white/35">Threshold</div>
-                  <div className="mt-3 text-3xl font-semibold text-white">{draft.memory.promotionScoreThreshold.toFixed(1)}</div>
-                  <p className="mt-2 text-xs leading-6 text-white/45">
-                    加权后的 `promotionScore` 达到这个阈值，就会优先进入 `MEMORY.md` 的自动 learned patterns 区块。
-                  </p>
-                  <input
-                    type="number"
-                    min={1}
-                    max={5}
-                    step={0.1}
-                    value={draft.memory.promotionScoreThreshold}
-                    onChange={(event) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        memory: {
-                          ...current.memory,
-                          promotionScoreThreshold: Number(event.target.value),
-                        },
-                      }))
-                    }
-                    className="mt-4 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                  />
-                </div>
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  <WeightInputCard
-                    label="压缩率"
-                    value={draft.memory.scoringWeights.compression}
-                    description="去掉赘述和重复尝试，只保留核心知识。"
-                    onChange={(value) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        memory: {
-                          ...current.memory,
-                          scoringWeights: {
-                            ...current.memory.scoringWeights,
-                            compression: value,
-                          },
-                        },
-                      }))
-                    }
-                  />
-                  <WeightInputCard
-                    label="时效性"
-                    value={draft.memory.scoringWeights.timeliness}
-                    description="识别版本、日期和临时状态，避免过期知识干扰。"
-                    onChange={(value) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        memory: {
-                          ...current.memory,
-                          scoringWeights: {
-                            ...current.memory.scoringWeights,
-                            timeliness: value,
-                          },
-                        },
-                      }))
-                    }
-                  />
-                  <WeightInputCard
-                    label="关联度"
-                    value={draft.memory.scoringWeights.connectivity}
-                    description="越能连接已有知识点，越适合长期检索。"
-                    onChange={(value) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        memory: {
-                          ...current.memory,
-                          scoringWeights: {
-                            ...current.memory.scoringWeights,
-                            connectivity: value,
-                          },
-                        },
-                      }))
-                    }
-                  />
-                  <WeightInputCard
-                    label="冲突解决"
-                    value={draft.memory.scoringWeights.conflictResolution}
-                    description="优先保留最新共识，压低冲突未解的旧记忆。"
-                    onChange={(value) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        memory: {
-                          ...current.memory,
-                          scoringWeights: {
-                            ...current.memory.scoringWeights,
-                            conflictResolution: value,
-                          },
-                        },
-                      }))
-                    }
-                  />
-                  <WeightInputCard
-                    label="抽象程度"
-                    value={draft.memory.scoringWeights.abstraction}
-                    description="越接近模式和原则，越值得长期保留。"
-                    onChange={(value) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        memory: {
-                          ...current.memory,
-                          scoringWeights: {
-                            ...current.memory.scoringWeights,
-                            abstraction: value,
-                          },
-                        },
-                      }))
-                    }
-                  />
-                  <WeightInputCard
-                    label="黄金标签"
-                    value={draft.memory.scoringWeights.goldenLabel}
-                    description="用户明确认可、验证通过的经验可提高权重。"
-                    onChange={(value) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        memory: {
-                          ...current.memory,
-                          scoringWeights: {
-                            ...current.memory.scoringWeights,
-                            goldenLabel: value,
-                          },
-                        },
-                      }))
-                    }
-                  />
-                  <WeightInputCard
-                    label="可迁移性"
-                    value={draft.memory.scoringWeights.transferability}
-                    description="可跨任务复用的 workflow 和 tool gotchas 更值钱。"
-                    onChange={(value) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        memory: {
-                          ...current.memory,
-                          scoringWeights: {
-                            ...current.memory.scoringWeights,
-                            transferability: value,
-                          },
-                        },
-                      }))
-                    }
-                  />
-                </div>
-              </div>
-            </SectionCard>
-
-            <SectionCard
-              title="Memory Inspector"
-              description="检查当前 agent 的索引记忆。Markdown 仍是真源，重扫索引可能覆盖派生项。"
-            >
-              <div className="grid gap-3 md:grid-cols-4">
-                {(['long-term', 'hot', 'warm', 'cold'] as const).map((layer) => (
-                  <div key={layer} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                    <div className="text-[10px] uppercase tracking-[0.22em] text-white/35">
-                      {memoryLayerLabel(layer)}
-                    </div>
-                    <div className="mt-2 text-2xl font-semibold text-white">{memoryLayerCounts[layer]}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 grid gap-2">
-                {activeMemoryDocuments.slice(0, 8).map((document) => {
-                  const layer = resolveMemoryLayer(document);
-                  const importantBusy = memoryInspectorBusyId === `important:${document.id}`;
-                  const archiveBusy = memoryInspectorBusyId === `archive:${document.id}`;
-                  const deleteBusy = memoryInspectorBusyId === `delete:${document.id}`;
-
-                  return (
-                    <div
-                      key={document.id}
-                      className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-white/90">{document.title}</div>
-                          <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-white/50">
-                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
-                              {memoryLayerLabel(layer)}
-                            </span>
-                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
-                              {document.memoryScope}
-                            </span>
-                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
-                              {document.sourceType}
-                            </span>
-                            <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
-                              score {document.importanceScore.toFixed(1)}
-                            </span>
-                            {document.eventDate ? (
-                              <span className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5">
-                                {document.eventDate}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="mt-2 line-clamp-2 text-xs leading-5 text-white/45">
-                            {document.content}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          <button
-                            onClick={() => updateInspectorMemory(document, 'important').catch(console.error)}
-                            disabled={Boolean(memoryInspectorBusyId)}
-                            className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[10px] text-emerald-100 hover:bg-emerald-400/15 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {importantBusy ? '...' : 'important'}
-                          </button>
-                          <button
-                            onClick={() => updateInspectorMemory(document, 'archive').catch(console.error)}
-                            disabled={Boolean(memoryInspectorBusyId)}
-                            className="rounded-full border border-amber-400/20 bg-amber-400/10 px-2.5 py-1 text-[10px] text-amber-100 hover:bg-amber-400/15 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {archiveBusy ? '...' : 'archive'}
-                          </button>
-                          <button
-                            onClick={() => updateInspectorMemory(document, 'delete').catch(console.error)}
-                            disabled={Boolean(memoryInspectorBusyId)}
-                            className="rounded-full border border-red-400/20 bg-red-400/10 px-2.5 py-1 text-[10px] text-red-100 hover:bg-red-400/15 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {deleteBusy ? '...' : 'delete'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                {!activeMemoryDocuments.length ? (
-                  <div className="rounded-2xl border border-dashed border-white/10 p-5 text-center text-sm text-white/45">
-                    当前 agent 还没有索引记忆。先写入 Markdown 文件或点击“重扫索引”。
-                  </div>
-                ) : null}
-              </div>
-            </SectionCard>
-
-            <MemoryTimelinePanel
-              agentId={activeMemoryAgent?.id}
-              agentName={activeMemoryAgent?.name}
-              documents={activeMemoryDocuments}
-              onRestoreMemoryFile={restoreMemoryTimelineFile}
-            />
-
-            <div className="grid gap-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-              <SectionCard
-                title="文件记忆源"
-                description="Markdown 文件是真源，SQLite 只保留当前 agent 的索引与缓存。"
-              >
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                    <div className="text-xs uppercase tracking-[0.24em] text-white/35">Current Agent</div>
-                    <select
-                      value={activeMemoryAgentId}
-                      onChange={(event) => {
-                        setActiveMemoryAgentId(event.target.value);
-                        setMemoryFileStatus(null);
-                      }}
-                      className="mt-3 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                    >
-                      {agents.map((agent) => (
-                        <option key={agent.id} value={agent.id}>
-                          {agent.name}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="mt-3 text-xs text-white/45">
-                      默认只扫描当前 agent 目录：{activeMemoryAgent?.workspaceRelpath ?? 'agents/...'}
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                    <div className="text-xs uppercase tracking-[0.24em] text-white/35">API Server</div>
-                    <div className="mt-3 text-sm text-white/90">{resolveApiServerBaseUrl(draft.apiServer)}</div>
-                    <div className="mt-2 text-xs text-white/45">
-                      {draft.apiServer.enabled
-                        ? apiServerSummary || '启用后会通过本地 API 直接读写项目里的记忆文件。'
-                        : '当前未启用。到“API 服务器”分类开启本地服务后，这里才会写入项目文件。'}
-                    </div>
-                    <div className="mt-4 flex gap-2">
-                      <button
-                        onClick={() => setActiveCategory('api')}
-                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/85 hover:bg-white/10"
-                      >
-                        打开 API 设置
-                      </button>
-                      <button
-                        onClick={() => loadMemoryFiles({ announce: '已重新读取当前 agent 的记忆文件。' })}
-                        disabled={!draft.apiServer.enabled || memoryFileLoading}
-                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/85 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        重新读取
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </SectionCard>
-            </div>
-
-            <div className="grid min-h-[560px] gap-px overflow-hidden rounded-[28px] border border-white/10 bg-white/5 lg:grid-cols-[228px_minmax(0,1fr)]">
-              <div className="min-h-0 overflow-y-auto bg-[#1E1E1E] p-4 custom-scrollbar">
-                <div className="mb-4 flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-white/90">记忆文件</div>
-                    <p className="mt-1 text-xs text-white/45">
-                      直接编辑当前 agent 的 bootstrap 记忆与 daily 日志。
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        loadMemoryFiles({ announce: '已重新读取当前 agent 的记忆文件。' }).catch(console.error);
-                      }}
-                      disabled={!draft.apiServer.enabled || memoryFileLoading}
-                      className="rounded-full border border-white/10 bg-white/5 p-2 text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <RefreshCw size={14} />
-                    </button>
-                    <button
-                      onClick={() => {
-                        createTodayDailyFile().catch(console.error);
-                      }}
-                      disabled={!draft.apiServer.enabled || memoryFileLoading || !activeMemoryAgent}
-                      className="rounded-full border border-white/10 bg-white/5 p-2 text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Plus size={14} />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {memoryFiles.map((file) => (
-                    <button
-                      key={file.path}
-                      onClick={async () => {
-                        if (!draft.apiServer.enabled) {
-                          return;
-                        }
-
-                        try {
-                          const content =
-                            (await readAgentMemoryFile(file.path, draft.apiServer)) ??
-                            ((file.kind === 'memory' || file.kind === 'corrections' || file.kind === 'reflections') &&
-                            activeMemoryAgent
-                              ? (
-                                  await ensureAgentMemoryFile(
-                                    {
-                                      agentSlug: activeMemoryAgent.slug,
-                                      agentName: activeMemoryAgent.name,
-                                      kind: file.kind,
-                                    },
-                                    draft.apiServer,
-                                  )
-                                ).content
-                              : '');
-
-                          setActiveMemoryFilePath(file.path);
-                          setMemoryFileContent(content);
-                          setMemoryFileDirty(false);
-                          setMemoryFileStatus(null);
-                        } catch (error) {
-                          setMemoryFileStatus({
-                            tone: 'error',
-                            message: error instanceof Error ? error.message : '读取记忆文件失败。',
-                          });
-                        }
-                      }}
-                      className={`w-full rounded-2xl border px-4 py-3 text-left transition-colors ${
-                        activeMemoryFilePath === file.path
-                          ? 'border-white/15 bg-white/10 text-white'
-                          : 'border-transparent bg-transparent text-white/70 hover:bg-white/5'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="truncate text-sm font-medium">{file.label}</div>
-                        <div className="text-[10px] uppercase tracking-[0.2em] text-white/35">
-                          {file.kind === 'memory'
-                            ? 'LONG-TERM'
-                            : file.kind === 'corrections'
-                              ? 'CORRECTIONS'
-                              : file.kind === 'reflections'
-                                ? 'REFLECTIONS'
-                                : file.kind === 'daily_source'
-                                  ? 'SOURCE'
-                                  : file.kind === 'daily_warm'
-                                    ? 'WARM'
-                                    : 'COLD'}
-                        </div>
-                      </div>
-                      <div className="mt-1 text-xs text-white/45">
-                        {file.path}
-                      </div>
-                    </button>
-                  ))}
-                  {!memoryFiles.length ? (
-                    <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-white/45">
-                      {draft.apiServer.enabled ? '当前 agent 还没有可编辑的记忆文件。' : '先启用 API 服务器，才能直接编辑项目里的记忆文件。'}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="min-h-0 overflow-y-auto bg-[#1E1E1E] p-6 custom-scrollbar">
-                <SectionCard
-                  title={activeMemoryFile?.label ?? '记忆文件编辑器'}
-                  description="这里编辑的是原始 Markdown 文件。保存后会立即刷新当前 agent 的索引与运行时记忆。"
-                  action={
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => {
-                          saveMemoryFile().catch(console.error);
-                        }}
-                        disabled={!draft.apiServer.enabled || !activeMemoryFilePath || memoryFileLoading}
-                        className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Upload size={14} />
-                        保存
-                      </button>
-                      <button
-                        onClick={() => {
-                          handleManualMemoryRescan().catch(console.error);
-                        }}
-                        disabled={!draft.apiServer.enabled || !activeMemoryAgent || memoryFileLoading}
-                        className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <RefreshCw size={14} />
-                        重扫索引
-                      </button>
-                      <button
-                        onClick={() => {
-                          handleLifecycleSync().catch(console.error);
-                        }}
-                        disabled={!draft.apiServer.enabled || !activeMemoryAgent || memoryFileLoading}
-                        className="inline-flex items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-500/10 px-4 py-2 text-sm text-amber-100 hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <RefreshCw size={14} />
-                        同步温冷层
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (!activeMemoryFile || activeMemoryFile.kind === 'memory') {
-                            return;
-                          }
-                          setConfirmMemoryDelete({
-                            path: activeMemoryFile.path,
-                            label: activeMemoryFile.label,
-                          });
-                        }}
-                        disabled={
-                          !draft.apiServer.enabled ||
-                          !activeMemoryFile ||
-                          activeMemoryFile.kind === 'memory' ||
-                          memoryFileLoading
-                        }
-                        className="inline-flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-sm text-red-200 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <Trash2 size={14} />
-                        删除
-                      </button>
-                    </div>
+                <input
+                  type="number"
+                  min={0}
+                  value={draft.memory.hotRetentionDays}
+                  onChange={(event) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      memory: {
+                        ...current.memory,
+                        hotRetentionDays: Number(event.target.value),
+                      },
+                    }))
                   }
-                >
-                  <div className="space-y-4">
-                    <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-xs text-white/55">
-                      <div>文件路径: {activeMemoryFile?.path ?? '未选择文件'}</div>
-                      <div className="mt-2">
-                        {activeMemoryFile?.kind === 'memory'
-                          ? '长期记忆建议写在正文里，必要时可手动维护 frontmatter。'
-                          : '日记文件适合顺序追加活动记录、待办、阻塞和 next step。'}
-                      </div>
-                    </div>
-                    <textarea
-                      value={memoryFileContent}
-                      onChange={(event) => {
-                        setMemoryFileContent(event.target.value);
-                        setMemoryFileDirty(true);
-                      }}
-                      placeholder={
-                        draft.apiServer.enabled
-                          ? '这里直接编辑项目中的 Markdown 文件。'
-                          : '启用 API 服务器后，这里会直接绑定到 memory/agents/<agent-slug>/...'
-                      }
-                      disabled={!draft.apiServer.enabled || !activeMemoryFilePath}
-                      className="min-h-[360px] w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 font-mono text-sm text-white outline-none focus:border-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-50"
-                    />
-                    <div
-                      className={`text-xs ${
-                        memoryFileStatus?.tone === 'error'
-                          ? 'text-red-200'
-                          : memoryFileStatus?.tone === 'success'
-                            ? 'text-emerald-200'
-                            : 'text-white/45'
-                      }`}
-                    >
-                      {memoryFileStatus?.message ??
-                        (memoryFileDirty
-                          ? '当前文件有未保存修改。'
-                          : '文件内容与当前 agent 的索引状态已同步。')}
-                    </div>
-                  </div>
-                </SectionCard>
+                  className="h-[36px] w-[100px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40 tabular-nums"
+                />
               </div>
-            </div>
+              <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-medium text-gray-900">温层天数</div>
+                  <p className="mt-0.5 text-xs text-gray-500">低于热层时会自动按热层对齐</p>
+                </div>
+                <input
+                  type="number"
+                  min={0}
+                  value={draft.memory.warmRetentionDays}
+                  onChange={(event) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      memory: {
+                        ...current.memory,
+                        warmRetentionDays: Number(event.target.value),
+                      },
+                    }))
+                  }
+                  className="h-[36px] w-[100px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40 tabular-nums"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-medium text-gray-900">冷层保留天数</div>
+                  <p className="mt-0.5 text-xs text-gray-500">0 表示不按年龄裁剪</p>
+                </div>
+                <input
+                  type="number"
+                  min={0}
+                  value={draft.memory.coldRetentionDays}
+                  onChange={(event) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      memory: {
+                        ...current.memory,
+                        coldRetentionDays: Number(event.target.value),
+                      },
+                    }))
+                  }
+                  className="h-[36px] w-[100px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40 tabular-nums"
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-medium text-gray-900">冷层最大文件</div>
+                  <p className="mt-0.5 text-xs text-gray-500">0 表示不限制数量</p>
+                </div>
+                <input
+                  type="number"
+                  min={0}
+                  value={draft.memory.coldMaxFiles}
+                  onChange={(event) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      memory: {
+                        ...current.memory,
+                        coldMaxFiles: Number(event.target.value),
+                      },
+                    }))
+                  }
+                  className="h-[36px] w-[100px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40 tabular-nums"
+                />
+              </div>
+            </SectionCard>
           </div>
         );
 
@@ -4010,392 +3262,26 @@ export const SettingsView = ({
             <SectionCard
               title="本地 API Server"
               description="开启后，前端会通过本地 API 直接读写项目里的记忆文件和夜间归档设置。"
-              action={
-                runtimeCapabilities.mode === 'electron' ? (
-                  <button
-                    onClick={() => loadRuntimeDiagnostics().catch(console.error)}
-                    disabled={runtimeDiagnosticsLoading}
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <RefreshCw size={13} className={runtimeDiagnosticsLoading ? 'animate-spin' : undefined} />
-                    运行态
-                  </button>
-                ) : undefined
-              }
             >
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-white/85">{runtimeCapabilities.label}</div>
-                      <div className="mt-1 text-xs text-white/45">
-                        {runtimeCapabilities.mode === 'electron'
-                          ? runtimeCapabilities.hostBridge.message || '桌面模式由 Electron 管理本地宿主能力。'
-                          : '浏览器模式默认不内置宿主桥；如需文件真源编辑，需要手动启用本地 API Server。'}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2 text-[10px]">
-                      <span
-                        className={`rounded-full border px-2.5 py-1 ${
-                          runtimeCapabilities.filesystem.configFiles
-                            ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100/80'
-                            : 'border-white/10 bg-black/20 text-white/40'
-                        }`}
-                      >
-                        config.json
-                      </span>
-                      <span
-                        className={`rounded-full border px-2.5 py-1 ${
-                          runtimeCapabilities.filesystem.memoryFiles
-                            ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100/80'
-                            : 'border-white/10 bg-black/20 text-white/40'
-                        }`}
-                      >
-                        memory files
-                      </span>
-                      <span
-                        className={`rounded-full border px-2.5 py-1 ${
-                          runtimeCapabilities.sandbox.hostShell
-                            ? 'border-amber-400/20 bg-amber-400/10 text-amber-100/80'
-                            : 'border-white/10 bg-black/20 text-white/40'
-                        }`}
-                      >
-                        host shell {runtimeCapabilities.sandbox.hostShell ? 'on' : 'off'}
-                      </span>
-                    </div>
-                  </div>
-                  {runtimeCapabilities.hostBridge.rootDir ? (
-                    <div className="mt-3 truncate rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/45">
-                      {runtimeCapabilities.hostBridge.rootDir}
-                    </div>
-                  ) : null}
-                  {runtimeCapabilities.hostBridge.configPath ? (
-                    <div className="mt-2 truncate rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/45">
-                      config: {runtimeCapabilities.hostBridge.configPath}
-                    </div>
-                  ) : null}
-                  {sessionContextDiagnostics ? (
-                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
-                            Session Context
-                          </div>
-                          <div className="mt-1 text-xs text-white/45">
-                            当前会话注入到模型上下文的估算快照。
-                          </div>
-                        </div>
-                        <div className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white/55">
-                          {sessionContextDiagnostics.tokens.toLocaleString()} tokens
-                          {sessionContextDiagnostics.contextWindow
-                            ? ` / ${sessionContextDiagnostics.contextWindow.toLocaleString()}`
-                            : ''}
-                          {sessionContextDiagnostics.usagePercentage != null
-                            ? ` · ${sessionContextDiagnostics.usagePercentage.toFixed(sessionContextDiagnostics.usagePercentage >= 10 ? 0 : 1)}%`
-                            : ''}
-                        </div>
-                      </div>
-                      {sessionContextDiagnostics.breakdown ? (
-                        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
-                          {[
-                            {
-                              label: 'System',
-                              value: sessionContextDiagnostics.breakdown.systemPromptTokens.toLocaleString(),
-                            },
-                            {
-                              label: 'Summary',
-                              value: sessionContextDiagnostics.breakdown.sessionSummaryTokens.toLocaleString(),
-                            },
-                            {
-                              label: 'Runtime',
-                              value: sessionContextDiagnostics.breakdown.runtimeSystemPromptTokens.toLocaleString(),
-                            },
-                            {
-                              label: 'Tools',
-                              value: sessionContextDiagnostics.breakdown.toolContextTokens.toLocaleString(),
-                            },
-                            {
-                              label: 'Messages',
-                              value: sessionContextDiagnostics.breakdown.messageTokens.toLocaleString(),
-                            },
-                          ].map((entry) => (
-                            <div
-                              key={entry.label}
-                              className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5"
-                            >
-                              <div className="text-[10px] uppercase tracking-[0.14em] text-white/35">{entry.label}</div>
-                              <div className="mt-1 text-sm font-medium text-white/88">{entry.value}</div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {latestModelInvocation ? (
-                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
-                            Latest Model Call
-                          </div>
-                          <div className="mt-1 text-xs text-white/45">
-                            最近一次完成的模型调用快照。
-                          </div>
-                        </div>
-                        <div className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white/55">
-                          {latestModelInvocation.providerName} · {latestModelInvocation.model}
-                        </div>
-                      </div>
-                      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                        {[
-                          {
-                            label: '完成时间',
-                            value: formatTimestampShort(latestModelInvocation.completedAt),
-                          },
-                          {
-                            label: '总耗时',
-                            value: formatDurationShort(latestModelInvocation.streamDurationMs / 1000),
-                          },
-                          {
-                            label: '思考时长',
-                            value: latestModelInvocation.reasoningDurationMs
-                              ? formatDurationShort(latestModelInvocation.reasoningDurationMs / 1000)
-                              : '0s',
-                          },
-                          {
-                            label: 'Token',
-                            value: `${latestModelInvocation.inputTokens} / ${latestModelInvocation.outputTokens} / ${latestModelInvocation.totalTokens}`,
-                          },
-                          {
-                            label: '估算费用',
-                            value:
-                              typeof latestModelInvocation.estimatedCost === 'number'
-                                ? `¥${latestModelInvocation.estimatedCost >= 0.01 ? latestModelInvocation.estimatedCost.toFixed(3) : latestModelInvocation.estimatedCost.toFixed(4)}`
-                                : '未识别',
-                          },
-                          {
-                            label: 'Usage Source',
-                            value: latestModelInvocation.usageSource,
-                          },
-                        ].map((entry) => (
-                          <div
-                            key={entry.label}
-                            className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5"
-                          >
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/35">{entry.label}</div>
-                            <div className="mt-1 text-sm font-medium text-white/88">{entry.value}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  {activeTopicUsageSnapshot ? (
-                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
-                            Current Topic Usage
-                          </div>
-                          <div className="mt-1 text-xs text-white/45">
-                            当前 topic 全部 assistant 调用的累计 token 与费用。
-                          </div>
-                        </div>
-                        <div className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white/55">
-                          {activeTopicUsageSnapshot.callCount} 次调用
-                        </div>
-                      </div>
-                      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                        {[
-                          {
-                            label: '输入累计',
-                            value: activeTopicUsageSnapshot.inputTokens.toLocaleString(),
-                          },
-                          {
-                            label: '输出累计',
-                            value: activeTopicUsageSnapshot.outputTokens.toLocaleString(),
-                          },
-                          {
-                            label: '总计累计',
-                            value: activeTopicUsageSnapshot.totalTokens.toLocaleString(),
-                          },
-                          {
-                            label: '累计费用',
-                            value:
-                              activeTopicUsageSnapshot.pricedCallCount > 0
-                                ? `¥${activeTopicUsageSnapshot.estimatedCost >= 0.01 ? activeTopicUsageSnapshot.estimatedCost.toFixed(3) : activeTopicUsageSnapshot.estimatedCost.toFixed(4)}`
-                                : '未识别',
-                          },
-                        ].map((entry) => (
-                          <div
-                            key={entry.label}
-                            className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5"
-                          >
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/35">{entry.label}</div>
-                            <div className="mt-1 text-sm font-medium text-white/88">{entry.value}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
-                          Prompt Inspector
-                        </div>
-                        <div className="mt-1 text-xs text-white/45">
-                          不在聊天页直接展开 prompt，只通过独立面板查看最近一次请求快照。
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => onOpenPromptInspector?.()}
-                        disabled={!promptInspectorAvailable}
-                        className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/78 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                      >
-                        打开面板
-                      </button>
-                    </div>
-                  </div>
-                  {modelInvocationStats ? (
-                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
-                        Model Reliability
-                      </div>
-                      <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                        {[
-                          { label: '成功调用', value: String(modelInvocationStats.successCount) },
-                          { label: '失败调用', value: String(modelInvocationStats.failureCount) },
-                          {
-                            label: '平均延迟',
-                            value:
-                              modelInvocationStats.successCount > 0
-                                ? formatDurationShort(
-                                    modelInvocationStats.totalLatencyMs / modelInvocationStats.successCount / 1000,
-                                  )
-                                : '0s',
-                          },
-                          {
-                            label: '最近延迟',
-                            value: modelInvocationStats.lastLatencyMs
-                              ? formatDurationShort(modelInvocationStats.lastLatencyMs / 1000)
-                              : '0s',
-                          },
-                        ].map((entry) => (
-                          <div
-                            key={entry.label}
-                            className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5"
-                          >
-                            <div className="text-[10px] uppercase tracking-[0.14em] text-white/35">{entry.label}</div>
-                            <div className="mt-1 text-sm font-medium text-white/88">{entry.value}</div>
-                          </div>
-                        ))}
-                      </div>
-                      {modelInvocationStats.lastError ? (
-                        <div className="mt-2 rounded-xl border border-red-400/20 bg-red-400/10 px-3 py-2 text-xs text-red-100/80">
-                          {modelInvocationStats.lastError}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
-                    <div className="mb-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
-                        Usage Panel
-                      </div>
-                      <div className="mt-1 text-xs text-white/45">
-                        topic/runtime 链路下 assistant 输出的 token 与费用聚合。
-                      </div>
-                    </div>
-                    <UsagePanel summary={tokenUsageSummary ?? null} />
-                  </div>
-                  <div className="mt-3">
-                    <AuditLogPanel />
-                  </div>
-                  {runtimeCapabilities.mode === 'electron' ? (
-                    <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/35">
-                            Runtime Diagnostics
-                          </div>
-                          <div className="mt-1 text-xs text-white/45">
-                            主进程、host bridge 与本机资源的轻量观测快照。
-                          </div>
-                        </div>
-                        {runtimeDiagnostics ? (
-                          <div className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-white/55">
-                            v{runtimeDiagnostics.appVersion}
-                          </div>
-                        ) : null}
-                      </div>
-                      {runtimeDiagnosticsError ? (
-                        <div className="mt-3 rounded-xl border border-red-400/20 bg-red-400/10 px-3 py-2 text-xs text-red-100/80">
-                          {runtimeDiagnosticsError}
-                        </div>
-                      ) : null}
-                      {runtimeDiagnostics ? (
-                        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-                          {[
-                            { label: '主进程 PID', value: String(runtimeDiagnostics.mainProcess.pid) },
-                            { label: '应用运行时长', value: formatDurationShort(runtimeDiagnostics.mainProcess.uptimeSec) },
-                            { label: '主进程 RSS', value: formatBytesCompact(runtimeDiagnostics.mainProcess.rssBytes) },
-                            {
-                              label: 'Heap Used',
-                              value: `${formatBytesCompact(runtimeDiagnostics.mainProcess.heapUsedBytes)} / ${formatBytesCompact(runtimeDiagnostics.mainProcess.heapTotalBytes)}`,
-                            },
-                            { label: 'Host PID', value: runtimeDiagnostics.host.pid ? String(runtimeDiagnostics.host.pid) : '未托管' },
-                            {
-                              label: 'Host Ping',
-                              value: runtimeDiagnostics.host.reachable
-                                ? `${runtimeDiagnostics.host.latencyMs} ms`
-                                : runtimeDiagnostics.host.error || '不可达',
-                            },
-                            {
-                              label: '系统内存',
-                              value: `${formatBytesCompact(runtimeDiagnostics.system.freeMemoryBytes)} free / ${formatBytesCompact(runtimeDiagnostics.system.totalMemoryBytes)}`,
-                            },
-                            {
-                              label: '最近启动',
-                              value: formatTimestampShort(runtimeDiagnostics.host.startedAt ?? runtimeDiagnostics.host.readyAt),
-                            },
-                            {
-                              label: 'Config Path',
-                              value: runtimeDiagnostics.host.configPath || '未解析',
-                            },
-                            {
-                              label: 'Config Import',
-                              value: runtimeDiagnostics.host.configImportedFrom || '未导入',
-                            },
-                          ].map((entry) => (
-                            <div
-                              key={entry.label}
-                              className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5"
-                            >
-                              <div className="text-[10px] uppercase tracking-[0.14em] text-white/35">{entry.label}</div>
-                              <div className="mt-1 text-sm font-medium text-white/88">{entry.value}</div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : runtimeDiagnosticsLoading ? (
-                        <div className="mt-3 text-xs text-white/45">正在读取桌面运行态信息…</div>
-                      ) : null}
-                    </div>
-                  ) : null}
+              <ToggleCard
+                title="启用 API Server"
+                description="前端通过本地 API 直接读写记忆文件。"
+                checked={draft.apiServer.enabled}
+                onChange={(checked) =>
+                  updateDraft((current) => ({
+                    ...current,
+                    apiServer: {
+                      ...current.apiServer,
+                      enabled: checked,
+                    },
+                  }))
+                }
+              />
+              <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-medium text-gray-900">Base URL</div>
+                  <p className="mt-0.5 text-xs text-gray-500">本地 API 服务器地址</p>
                 </div>
-                <ToggleCard
-                  title="启用本地 API Server"
-                  description="开启后，前端会通过本地 API 直接读写项目里的 memory 文件。"
-                  checked={draft.apiServer.enabled}
-                  onChange={(checked) =>
-                    updateDraft((current) => ({
-                      ...current,
-                      apiServer: {
-                        ...current.apiServer,
-                        enabled: checked,
-                      },
-                    }))
-                  }
-                />
                 <input
                   value={draft.apiServer.baseUrl}
                   onChange={(event) =>
@@ -4408,8 +3294,14 @@ export const SettingsView = ({
                     }))
                   }
                   placeholder="http://127.0.0.1:3850"
-                  className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
+                  className="h-[36px] w-[250px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
                 />
+              </div>
+              <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-medium text-gray-900">Auth Token</div>
+                  <p className="mt-0.5 text-xs text-gray-500">API 认证令牌</p>
+                </div>
                 <input
                   value={draft.apiServer.authToken}
                   onChange={(event) =>
@@ -4422,231 +3314,8 @@ export const SettingsView = ({
                     }))
                   }
                   placeholder="Auth token"
-                  className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white outline-none focus:border-emerald-500/50"
+                  className="h-[36px] w-[250px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
                 />
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/70">
-                  <div>
-                    本地服务命令：
-                    <code className="ml-2 rounded bg-black/30 px-2 py-1 text-xs text-white">npm run api-server</code>
-                  </div>
-                  <div className="mt-2 text-xs text-white/45">
-                    {draft.apiServer.enabled
-                      ? apiServerSummary || '正在连接本地 API Server。'
-                      : '当前未启用，夜间归档和文件真源编辑都不会生效。'}
-                  </div>
-                </div>
-              </div>
-            </SectionCard>
-
-            <SectionCard
-              title="自动化触发器"
-              description="统一查看和手动运行后台自动化。当前先接入记忆归档，后续扩展 cron、git hook 和 agent 操作。"
-              action={
-                <button
-                  onClick={() => loadNightlyArchive({ announce: '已刷新自动化状态。' })}
-                  disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <RefreshCw size={14} className={nightlyArchiveLoading ? 'animate-spin' : undefined} />
-                  刷新
-                </button>
-              }
-            >
-              <div className="space-y-3">
-                {(automationSnapshot?.automations ?? []).map((automation) => (
-                  <div key={automation.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-white/90">{automation.title}</div>
-                        <div className="mt-1 text-xs text-white/45">{automation.description}</div>
-                        <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-white/50">
-                          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
-                            {automation.enabled ? '已启用' : '未启用'}
-                          </span>
-                          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
-                            {automation.schedule}
-                          </span>
-                          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
-                            next: {automation.nextRunAt ?? '未计划'}
-                          </span>
-                          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
-                            {automation.capabilities.join(' · ')}
-                          </span>
-                        </div>
-                      </div>
-                      {automation.id === 'agent_task' ? (
-                        <div className="grid min-w-[280px] flex-1 gap-2 sm:grid-cols-[140px_1fr]">
-                          <select
-                            value={agentTaskDraft.agentSlug}
-                            onChange={(event) =>
-                              setAgentTaskDraft((current) => ({ ...current, agentSlug: event.target.value }))
-                            }
-                            className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white outline-none focus:border-emerald-500/50"
-                          >
-                            {agents.length > 0 ? (
-                              agents.map((agent) => (
-                                <option key={agent.id} value={agent.slug} className="bg-[#111111]">
-                                  {agent.name}
-                                </option>
-                              ))
-                            ) : (
-                              <option value="vortex-core" className="bg-[#111111]">
-                                vortex-core
-                              </option>
-                            )}
-                          </select>
-                          <input
-                            value={agentTaskDraft.instruction}
-                            onChange={(event) =>
-                              setAgentTaskDraft((current) => ({ ...current, instruction: event.target.value }))
-                            }
-                            placeholder="输入要触发的 agent 操作"
-                            className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-white outline-none placeholder:text-white/30 focus:border-emerald-500/50"
-                          />
-                        </div>
-                      ) : null}
-                      <button
-                        onClick={() => {
-                          handleAutomationRun(automation.id).catch(console.error);
-                        }}
-                        disabled={
-                          !draft.apiServer.enabled ||
-                          Boolean(automationLoadingId) ||
-                          (automation.id === 'agent_task' && !agentTaskDraft.instruction.trim())
-                        }
-                        className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100 hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <RotateCcw size={13} />
-                        {automationLoadingId === automation.id ? '运行中...' : '运行'}
-                      </button>
-                    </div>
-                    <div className="mt-3 text-xs text-white/45">
-                      最近结果：
-                      {automation.lastRunSummary
-                        ? `处理 ${automation.lastRunSummary.processedAgents} 个 agent，失败 ${automation.lastRunSummary.failedAgents}，触发 ${automation.lastRunSummary.trigger}`
-                        : '暂无'}
-                    </div>
-                  </div>
-                ))}
-                {!automationSnapshot?.automations.length ? (
-                  <div className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-white/45">
-                    {draft.apiServer.enabled ? '当前没有已注册的自动化。' : '启用本地 API Server 后可查看自动化。'}
-                  </div>
-                ) : null}
-                <div
-                  className={`text-xs ${
-                    automationMessage?.tone === 'error'
-                      ? 'text-red-200'
-                      : automationMessage?.tone === 'success'
-                        ? 'text-emerald-200'
-                        : 'text-white/45'
-                  }`}
-                >
-                  {automationMessage?.message ?? '自动化 registry 当前由本地 API Server 提供。'}
-                </div>
-              </div>
-            </SectionCard>
-
-            <SectionCard
-              title="夜间自动归档"
-              description="由本地 API Server 在后台定时执行。若夜间服务未启动，下次启动时会自动补跑。"
-              action={
-                <button
-                  onClick={() => loadNightlyArchive({ announce: '已重新读取夜间归档状态。' })}
-                  disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <RefreshCw size={14} className={nightlyArchiveLoading ? 'animate-spin' : undefined} />
-                  刷新状态
-                </button>
-              }
-            >
-              <div className="space-y-4">
-                <ToggleCard
-                  title="启用夜间自动归档"
-                  description="默认每天在设定时间同步温冷层，并在需要时补跑漏掉的归档。"
-                  checked={nightlyArchiveEnabled}
-                  onChange={setNightlyArchiveEnabled}
-                />
-                <ToggleCard
-                  title="启用 LLM 重要性评分"
-                  description="复用当前活动模型为进入 warm/cold 的 daily 打分；失败时自动回退规则评分。"
-                  checked={nightlyArchiveUseLlmScoring}
-                  onChange={setNightlyArchiveUseLlmScoring}
-                />
-                <div className="grid gap-4 md:grid-cols-[minmax(260px,360px)_1fr]">
-                  <div className="grid gap-3">
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                      <div className="mb-2 text-sm font-medium text-white/90">归档时间</div>
-                      <input
-                        type="time"
-                        value={nightlyArchiveTime}
-                        onChange={(event) => setNightlyArchiveTime(event.target.value)}
-                        disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
-                        className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                      <p className="mt-2 text-xs text-white/45">cron 为空时使用本机时间。</p>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                      <div className="mb-2 text-sm font-medium text-white/90">Cron 表达式</div>
-                      <input
-                        value={nightlyArchiveCronExpression}
-                        onChange={(event) => setNightlyArchiveCronExpression(event.target.value)}
-                        disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
-                        placeholder="30 4 * * *"
-                        className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                      <p className="mt-2 text-xs text-white/45">可选。当前支持日级格式：minute hour * * *。</p>
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-white/75">
-                    <div className="font-medium text-white/90">当前状态</div>
-                    <div className="mt-2 text-xs text-white/55">
-                      {formatNightlyArchiveRunSummary(nightlyArchiveStatus)}
-                    </div>
-                    <div className="mt-4 grid gap-2 text-xs text-white/50">
-                      <div>计划：{formatNightlyArchiveSchedule(nightlyArchiveStatus?.settings)}</div>
-                      <div>下一次执行：{nightlyArchiveStatus?.nextRunAt ?? '未计划'}</div>
-                      <div>最近成功：{nightlyArchiveStatus?.state.lastSuccessfulRunAt ?? '暂无'}</div>
-                      <div>最近尝试：{nightlyArchiveStatus?.state.lastAttemptedRunAt ?? '暂无'}</div>
-                      <div>补跑待执行：{nightlyArchiveStatus?.catchUpDue ? '是' : '否'}</div>
-                      <div>LLM 评分：{nightlyArchiveStatus?.settings.useLlmScoring ? '开启' : '关闭'}</div>
-                    </div>
-                  </div>
-                </div>
-                <div
-                  className={`text-xs ${
-                    nightlyArchiveMessage?.tone === 'error'
-                      ? 'text-red-200'
-                      : nightlyArchiveMessage?.tone === 'success'
-                        ? 'text-emerald-200'
-                        : 'text-white/45'
-                  }`}
-                >
-                  {nightlyArchiveMessage?.message ?? '夜间归档设置会保存到项目内 `.vortex/` 状态文件。'}
-                </div>
-                <div className="flex flex-wrap justify-end gap-2">
-                  <button
-                    onClick={() => {
-                      handleNightlyArchiveRunNow().catch(console.error);
-                    }}
-                    disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <RotateCcw size={14} />
-                    立即运行一次
-                  </button>
-                  <button
-                    onClick={() => {
-                      handleNightlyArchiveSave().catch(console.error);
-                    }}
-                    disabled={!draft.apiServer.enabled || nightlyArchiveLoading}
-                    className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <ArrowUpFromLine size={14} />
-                    保存夜间归档设置
-                  </button>
-                </div>
               </div>
             </SectionCard>
           </div>
@@ -4654,271 +3323,65 @@ export const SettingsView = ({
 
       case 'docs':
         return (
-          <div className="grid gap-4 md:grid-cols-2">
-            <SectionCard title="RAG 最大返回条数" description="控制知识库召回结果数量。">
-              <input
-                type="number"
-                min={1}
-                max={12}
-                value={draft.documents.maxSearchResults}
-                onChange={(event) =>
-                  updateDraft((current) => ({
-                    ...current,
-                    documents: {
-                      ...current.documents,
-                      maxSearchResults: Number(event.target.value),
-                    },
-                  }))
-                }
-                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-              />
-            </SectionCard>
+          <div className="space-y-4">
             <SectionCard
-              title="RAG 权重"
-              description="调整 BM25、向量和图谱信号的排序影响。权重会写入 config.json，并参与检索缓存隔离。"
-              className="md:col-span-2"
+              title="文档导入"
+              description="把本地文档导入知识库，供搜索和记忆检索使用。"
+              className="settings-card-full"
             >
-              <div className="grid gap-3 md:grid-cols-3">
-                {[
-                  {
-                    key: 'lexicalWeight' as const,
-                    label: 'BM25',
-                    description: '关键词与标题命中',
-                  },
-                  {
-                    key: 'vectorWeight' as const,
-                    label: 'Vector',
-                    description: '语义相似度',
-                  },
-                  {
-                    key: 'graphWeight' as const,
-                    label: 'Graph',
-                    description: '实体与关系路径',
-                  },
-                ].map((item) => (
-                  <WeightInputCard
-                    key={item.key}
-                    label={item.label}
-                    description={item.description}
-                    value={draft.search.weights[item.key]}
-                    min={0}
-                    max={2}
-                    step={0.05}
-                    onChange={(value) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        search: {
-                          ...current.search,
-                          weights: {
-                            ...current.search.weights,
-                            [item.key]: value,
-                          },
-                        },
-                      }))
-                    }
-                  />
-                ))}
-              </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-4">
-                {[
-                  ['skill_doc', 'Skill', '技能文档'] as const,
-                  ['workspace_doc', 'Workspace', '项目文档'] as const,
-                  ['user_upload', 'Upload', '用户导入'] as const,
-                  ['system_note', 'System', '系统记录'] as const,
-                ].map(([sourceType, label, description]) => (
-                  <WeightInputCard
-                    key={sourceType}
-                    label={label}
-                    description={description}
-                    value={draft.search.weights.sourceTypeWeights[sourceType] ?? 1}
-                    min={0}
-                    max={3}
-                    step={0.05}
-                    onChange={(value) =>
-                      updateDraft((current) => ({
-                        ...current,
-                        search: {
-                          ...current.search,
-                          weights: {
-                            ...current.search.weights,
-                            sourceTypeWeights: {
-                              ...current.search.weights.sourceTypeWeights,
-                              [sourceType]: value,
-                            },
-                          },
-                        },
-                      }))
-                    }
-                  />
-                ))}
+              <div className="settings-docs-import-row">
+                <div className="min-w-0">
+                  <div className="text-[14px] font-medium text-gray-900">导入文档</div>
+                  <p className="mt-0.5 text-xs text-gray-500">支持选择多个文件，内容会写入本地 SQLite 文档库。</p>
+                </div>
+                <button
+                  onClick={() => externalImportInputRef.current?.click()}
+                  className="h-[36px] px-4 rounded-[10px] border border-black/[0.12] bg-white text-sm text-gray-700 hover:bg-black/[0.02] transition-colors"
+                >
+                  选择文件
+                </button>
               </div>
             </SectionCard>
+
             <SectionCard
-              title="知识库质量评分"
-              description="按新鲜度、反馈、完整性和检索命中给文档打分；低分文档会降低 RAG 排序权重。"
-              className="md:col-span-2"
+              title="文档质量"
+              description="查看检索文档的完整度、引用和反馈情况。"
+              className="settings-card-full"
               action={
                 <button
-                  onClick={() => handleRefreshDocumentQualityScores().catch(console.error)}
+                  onClick={handleRefreshDocumentQualityScores}
                   disabled={documentQualityLoading}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  className="h-[36px] px-4 rounded-[10px] border border-black/[0.12] bg-white text-sm text-gray-700 hover:bg-black/[0.02] disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                 >
-                  <RefreshCw size={14} className={documentQualityLoading ? 'animate-spin' : undefined} />
-                  重算
+                  {documentQualityLoading ? '刷新中' : '刷新'}
                 </button>
               }
             >
-              <div className="grid gap-2">
-                {documentQualityScores.slice(0, 8).map((score) => (
-                  <div
-                    key={score.documentId}
-                    className="grid gap-3 rounded-2xl border border-white/10 bg-black/20 p-3 md:grid-cols-[1fr_auto]"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-white/90">{score.title ?? score.documentId}</div>
-                      <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-white/45">
-                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
-                          {score.sourceType ?? 'user_upload'}
-                        </span>
-                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
-                          引用 {score.citationCount}
-                        </span>
-                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
-                          有用 {score.helpfulCount} / 没用 {score.notHelpfulCount}
-                        </span>
-                        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
-                          issues {score.issueCount}
-                        </span>
+              {documentQualityScores.length > 0 ? (
+                <div className="settings-docs-quality-list">
+                  {documentQualityScores.slice(0, 6).map((record) => (
+                    <div key={record.documentId} className="settings-docs-quality-item">
+                      <div className="min-w-0">
+                        <div className="text-[14px] font-medium text-gray-900 truncate">
+                          {record.title || record.documentId}
+                        </div>
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          {record.sourceType || 'document'} · 引用 {record.citationCount} · 反馈 {record.helpfulCount}/{record.notHelpfulCount}
+                        </p>
+                      </div>
+                      <div className="settings-docs-score">
+                        <strong>{Math.round(record.score)}</strong>
+                        <span>{record.recommendation === 'keep' ? '保留' : record.recommendation === 'review' ? '复查' : '归档'}</span>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div
-                        className={`text-lg font-semibold ${
-                          score.score < 45
-                            ? 'text-red-200'
-                            : score.score < 70
-                              ? 'text-amber-200'
-                              : 'text-emerald-200'
-                        }`}
-                      >
-                        {Math.round(score.score)}
-                      </div>
-                      <div className="mt-1 text-[10px] uppercase tracking-[0.14em] text-white/35">
-                        {score.recommendation === 'archive_or_rewrite'
-                          ? '建议归档/重写'
-                          : score.recommendation === 'review'
-                            ? '建议复查'
-                            : '保留'}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {!documentQualityScores.length ? (
-                  <div className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-white/45">
-                    当前没有可评分的知识文档。
-                  </div>
-                ) : null}
-              </div>
-            </SectionCard>
-            <SectionCard title="文档预览长度" description="控制搜索结果卡片的摘要长度。">
-              <input
-                type="number"
-                min={80}
-                max={600}
-                value={draft.documents.maxDocumentPreviewLength}
-                onChange={(event) =>
-                  updateDraft((current) => ({
-                    ...current,
-                    documents: {
-                      ...current.documents,
-                      maxDocumentPreviewLength: Number(event.target.value),
-                    },
-                  }))
-                }
-                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-              />
-            </SectionCard>
-            <SectionCard title="启用向量检索" description="开启后会调用 embedding 接口，为知识库追加语义召回。">
-              <ToggleCard
-                title="Hybrid Search"
-                description="保留 BM25，同时叠加向量相似度排序。"
-                checked={draft.documents.enableVectorSearch}
-                onChange={(checked) =>
-                  updateDraft((current) => ({
-                    ...current,
-                    documents: {
-                      ...current.documents,
-                      enableVectorSearch: checked,
-                    },
-                  }))
-                }
-              />
-            </SectionCard>
-            <SectionCard title="Embedding 模型" description="默认按阿里 DashScope 兼容接口调用。">
-              <div className="space-y-3">
-                <input
-                  value={draft.documents.embeddingModel}
-                  onChange={(event) =>
-                    updateDraft((current) => ({
-                      ...current,
-                      documents: {
-                        ...current.documents,
-                        embeddingModel: event.target.value,
-                      },
-                    }))
-                  }
-                  placeholder="text-embedding-v4"
-                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                />
-                <input
-                  value={draft.documents.embeddingBaseUrl}
-                  onChange={(event) =>
-                    updateDraft((current) => ({
-                      ...current,
-                      documents: {
-                        ...current.documents,
-                        embeddingBaseUrl: event.target.value,
-                      },
-                    }))
-                  }
-                  placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
-                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                />
-                <input
-                  type="number"
-                  min={64}
-                  max={2048}
-                  step={64}
-                  value={draft.documents.embeddingDimensions}
-                  onChange={(event) =>
-                    updateDraft((current) => ({
-                      ...current,
-                      documents: {
-                        ...current.documents,
-                        embeddingDimensions: Number(event.target.value),
-                      },
-                    }))
-                  }
-                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-                />
-              </div>
-            </SectionCard>
-            <SectionCard title="Embedding API Key" description="只保存在本地配置中，不会写入 git。">
-              <input
-                type="password"
-                value={draft.documents.embeddingApiKey}
-                onChange={(event) =>
-                  updateDraft((current) => ({
-                    ...current,
-                    documents: {
-                      ...current.documents,
-                      embeddingApiKey: event.target.value,
-                    },
-                  }))
-                }
-                placeholder="sk-..."
-                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-              />
+                  ))}
+                </div>
+              ) : (
+                <div className="settings-docs-empty">
+                  <FileText size={18} />
+                  <span>{documentQualityLoading ? '正在读取文档质量...' : '暂无文档质量记录，导入文档后可在这里查看。'}</span>
+                </div>
+              )}
             </SectionCard>
           </div>
         );
@@ -4934,62 +3397,66 @@ export const SettingsView = ({
 
       case 'shortcuts':
         return (
-          <SectionCard title="Keyboard Reference" description="当前工作区保留的快捷键建议。">
-            <div className="grid gap-3 md:grid-cols-2">
-              {[
-                ['Enter', '发送消息'],
-                ['Shift + Enter', '输入换行'],
-                ['Cmd/Ctrl + K', '建议保留给命令面板'],
-                ['Cmd/Ctrl + /', '建议保留给快捷帮助'],
-              ].map(([combo, label]) => (
-                <div key={combo} className="rounded-xl border border-white/10 bg-black/20 px-4 py-3">
-                  <div className="text-xs uppercase tracking-[0.2em] text-white/35">{combo}</div>
-                  <div className="mt-2 text-sm text-white/85">{label}</div>
-                </div>
-              ))}
+          <SectionCard title="快捷键参考" description="当前工作区保留的快捷键建议。">
+            <div className="px-5 py-3">
+              <div className="grid gap-2 md:grid-cols-2">
+                {[
+                  ['Enter', '发送消息'],
+                  ['Shift + Enter', '输入换行'],
+                  ['Cmd/Ctrl + K', '命令面板'],
+                  ['Cmd/Ctrl + /', '快捷帮助'],
+                ].map(([combo, label]) => (
+                  <div key={combo} className="flex items-center justify-between rounded-[10px] border border-black/[0.06] bg-white px-4 py-3">
+                    <span className="text-sm text-gray-700">{label}</span>
+                    <kbd className="px-2 py-1 rounded-md border border-black/[0.12] bg-black/[0.03] text-xs font-mono text-gray-500">{combo}</kbd>
+                  </div>
+                ))}
+              </div>
             </div>
           </SectionCard>
         );
 
       case 'assistant':
         return (
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="space-y-4">
             <SectionCard title="多 lane 扇出模式" description="控制多 agent lane 的执行方式。">
-              <select
-                value={draft.assistant.fanoutMode}
-                onChange={(event) =>
+              <div className="flex items-center justify-between gap-4 px-5 h-[66px]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-medium text-gray-900">执行模式</div>
+                  <p className="mt-0.5 text-xs text-gray-500">Parallel 并行 / Sequential 顺序</p>
+                </div>
+                <select
+                  value={draft.assistant.fanoutMode}
+                  onChange={(event) =>
+                    updateDraft((current) => ({
+                      ...current,
+                      assistant: {
+                        ...current.assistant,
+                        fanoutMode: event.target.value as AgentConfig['assistant']['fanoutMode'],
+                      },
+                    }))
+                  }
+                  className="h-[36px] w-[120px] rounded-[10px] border border-black/[0.12] bg-white px-3 text-sm text-gray-900 outline-none focus:border-[#FF2D78]/40"
+                >
+                  <option value="parallel">Parallel</option>
+                  <option value="sequential">Sequential</option>
+                </select>
+              </div>
+              <ToggleCard
+                title="允许 lane 覆盖模型"
+                description="助手配置可以覆盖工作区默认 provider / model。"
+                checked={draft.assistant.allowLaneModelOverride}
+                onChange={(checked) =>
                   updateDraft((current) => ({
                     ...current,
                     assistant: {
                       ...current.assistant,
-                      fanoutMode: event.target.value as AgentConfig['assistant']['fanoutMode'],
+                      allowLaneModelOverride: checked,
                     },
                   }))
                 }
-                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500/50"
-              >
-                <option value="parallel" className="bg-[#111111]">
-                  Parallel
-                </option>
-                <option value="sequential" className="bg-[#111111]">
-                  Sequential
-                </option>
-              </select>
+              />
             </SectionCard>
-            <ToggleCard
-              title="允许 lane 覆盖模型"
-              description="助手配置可以覆盖工作区默认 provider / model。"
-              checked={draft.assistant.allowLaneModelOverride}
-              onChange={(checked) =>
-                updateDraft((current) => ({
-                  ...current,
-                  assistant: {
-                    ...current.assistant,
-                    allowLaneModelOverride: checked,
-                  },
-                }))
-              }
-            />
           </div>
         );
 
@@ -4998,8 +3465,10 @@ export const SettingsView = ({
     }
   };
 
+  const activeCategoryMeta = CATEGORIES.find((category) => category.id === activeCategory);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+    <div className="settings-workspace fixed inset-0 z-50 flex overflow-hidden bg-[var(--settings-workspace-bg)]">
       <input
         ref={backupRestoreInputRef}
         type="file"
@@ -5022,49 +3491,62 @@ export const SettingsView = ({
         onChange={handleAgentPackageImport}
       />
 
-      <div className="flex h-[85vh] min-h-[640px] w-full max-w-[1080px] overflow-hidden rounded-[24px] border border-white/10 bg-[var(--app-bg-modal)] shadow-2xl">
-        <div className="flex w-[220px] flex-col border-r border-white/5 bg-[var(--app-bg-modal-side)]">
-          <div className="flex items-center gap-2 border-b border-white/5 p-4 font-semibold text-white/90">
-            <SettingsIcon size={18} />
-            <span>设置</span>
+      <div className="settings-modal-frame flex h-full min-h-0 w-full overflow-hidden bg-[var(--settings-workspace-bg)]">
+        <div className="settings-category-panel flex w-[320px] flex-col border-r border-black/[0.08] bg-[var(--settings-sidebar-bg)]">
+          <div className="settings-window-controls flex h-8 items-center gap-2 px-4 pt-3">
+            <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
+            <span className="h-3 w-3 rounded-full bg-[#ffbd2e]" />
+            <span className="h-3 w-3 rounded-full bg-[#28c840]" />
           </div>
-          <div className="flex-1 space-y-1 overflow-y-auto p-2 custom-scrollbar">
-            {CATEGORIES.map((category) => (
-              <button
-                key={category.id}
-                onClick={() => setActiveCategory(category.id)}
-                  className={`flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-sm transition-colors ${
-                    activeCategory === category.id
-                      ? 'bg-white/10 font-medium text-white'
-                      : 'text-white/60 hover:bg-white/5 hover:text-white/90'
-                }`}
-              >
-                <category.icon
-                  size={16}
-                  className={activeCategory === category.id ? 'text-emerald-400' : undefined}
-                />
-                {category.label}
-              </button>
-            ))}
-          </div>
+          <button
+            onClick={onClose}
+            className="settings-return-button mx-2 mt-3 flex h-9 items-center gap-2 rounded-lg px-2 text-[13px] text-[var(--settings-nav-muted)] transition-colors hover:bg-[var(--settings-nav-hover)] hover:text-[var(--settings-nav-text)]"
+          >
+            <span className="text-[17px] leading-none">‹</span>
+            返回应用
+          </button>
+
+          <nav className="flex-1 overflow-y-auto px-2 py-3 custom-scrollbar">
+            <div className="space-y-0.5">
+              {CATEGORIES.map((category) => (
+                <button
+                  key={category.id}
+                  onClick={() => setActiveCategory(category.id)}
+                  className={`settings-category-button flex h-[36px] w-full items-center gap-3 rounded-lg px-3 text-[14px] transition-colors ${
+                      activeCategory === category.id
+                        ? 'settings-category-button-active font-medium'
+                        : 'settings-category-button-idle hover:bg-[var(--settings-nav-hover)]'
+                  }`}
+                >
+                  <category.icon
+                    size={16}
+                    strokeWidth={1.8}
+                    className={activeCategory === category.id ? 'settings-category-icon-active' : 'settings-category-icon-idle'}
+                  />
+                  {category.label}
+                </button>
+              ))}
+            </div>
+          </nav>
         </div>
 
         {activeCategory === 'models' ? (
           <>
-            <div className="flex w-64 flex-col border-r border-white/5 bg-[#1E1E1E]">
-              <div className="border-b border-white/5 p-3">
+            {/* Provider list panel (370px) */}
+            <div className="settings-provider-panel flex w-[320px] flex-col border-r border-white/[0.06] bg-[var(--app-bg-modal-side)]">
+              <div className="border-b border-white/[0.06] px-4 py-3">
                 <div className="relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/25" />
                   <input
                     type="text"
                     placeholder="搜索模型平台..."
                     value={providerSearchQuery}
                     onChange={(event) => setProviderSearchQuery(event.target.value)}
-                    className="w-full rounded-full border border-white/10 bg-black/20 py-1.5 pl-9 pr-4 text-sm text-white focus:border-emerald-500/50 focus:outline-none"
+                    className="w-full h-[48px] rounded-xl border border-white/[0.08] bg-white/[0.04] py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-white/[0.15]"
                   />
                 </div>
               </div>
-              <div className="flex-1 space-y-1 overflow-y-auto p-2 custom-scrollbar">
+              <div className="flex-1 space-y-2 overflow-y-auto p-3 custom-scrollbar">
                 {!filteredProviderGroups.groups.length ? (
                   <div className="rounded-2xl border border-dashed border-white/10 bg-black/10 px-4 py-8 text-center text-sm text-white/40">
                     没有匹配的模型服务。
@@ -5107,52 +3589,40 @@ export const SettingsView = ({
                             {group.providers.map((provider) => (
                               <div
                                 key={provider.id}
-                                className={`group flex items-center gap-2 rounded-2xl px-2 py-2 text-sm transition-colors ${
+                                className={`group flex items-center gap-3 rounded-lg px-3 h-[58px] transition-colors cursor-pointer ${
                                   activeProviderId === provider.id
-                                    ? 'bg-white/5 text-white'
-                                    : 'text-white/70 hover:bg-white/5'
+                                    ? 'bg-white/[0.08] text-white/90'
+                                    : 'text-white/50 hover:bg-white/[0.04]'
                                 }`}
+                                onClick={() => setActiveProviderId(provider.id)}
                               >
-                                <button
-                                  onClick={() => setActiveProviderId(provider.id)}
-                                  className="flex min-w-0 flex-1 items-center justify-between px-1 py-1 text-left"
-                                >
-                                  <div className="flex items-center gap-3 truncate">
-                                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400/20 to-emerald-600/20">
-                                      <Cloud size={14} className="text-emerald-400" />
-                                    </div>
-                                    <div className="min-w-0">
-                                      <div className="truncate font-medium">{provider.name}</div>
-                                      <div className="text-[11px] text-white/35">{provider.models.length} 个模型</div>
-                                    </div>
+                                <div className="flex h-[34px] w-[34px] flex-shrink-0 items-center justify-center rounded-lg bg-white/[0.06]">
+                                  <Cloud size={16} strokeWidth={1.5} className="text-white/50" />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="truncate text-[13px] font-medium">{provider.name}</div>
+                                  <div className="text-[11px] text-white/30">{provider.models.length} models</div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    className={`rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${
+                                      provider.enabled
+                                        ? 'border-[#FF2D78]/30 bg-[#FF2D78]/10 text-[#FF2D78]'
+                                        : 'border-white/10 text-white/35'
+                                    }`}
+                                  >
+                                    {provider.enabled ? 'ON' : 'OFF'}
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    <div className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-white/40">
-                                      {provider.models.length}
-                                    </div>
-                                    <div
-                                      className={`rounded-full border px-2 py-0.5 text-[10px] ${
-                                        provider.enabled
-                                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                                          : 'border-white/10 text-white/40'
-                                      }`}
-                                    >
-                                      {provider.enabled ? 'ON' : 'OFF'}
-                                    </div>
-                                  </div>
-                                </button>
-                                <button
-                                  onClick={() =>
-                                    setConfirmProviderDelete({
-                                      providerId: provider.id,
-                                      providerName: provider.name,
-                                    })
-                                  }
-                                  className="rounded-full border border-transparent p-2 text-white/20 opacity-0 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300 group-hover:opacity-100"
-                                  title="删除模型服务"
-                                >
-                                  <Minus size={14} />
-                                </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      removeModelsFromProvider(activeProvider.id, [provider.models[0]]);
+                                    }}
+                                    className="rounded-full p-1 text-white/20 opacity-0 transition-colors group-hover:opacity-100 hover:bg-white/10 hover:text-white/60"
+                                  >
+                                    <Minus size={12} />
+                                  </button>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -5173,7 +3643,7 @@ export const SettingsView = ({
               </div>
             </div>
 
-            <div className="relative flex flex-1 flex-col bg-[#1E1E1E]">
+            <div className="settings-content-area settings-detail-panel relative flex flex-1 flex-col bg-[#1E1E1E]">
               <button
                 onClick={onClose}
                 className="absolute right-4 top-4 z-10 rounded-full p-2 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
@@ -5182,22 +3652,23 @@ export const SettingsView = ({
               </button>
 
               {activeProvider ? (
-                <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-                  <div className="mb-8 flex items-center justify-between">
-                    <h2 className="flex items-center gap-3 text-xl font-semibold text-white">
-                      {activeProvider.name}
-                      <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-normal text-white/45">
-                        {activeProvider.type}
-                      </span>
-                      <span className="rounded-full border border-emerald-500/15 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-normal text-emerald-100/80">
-                        {getProviderRequestMode(activeProvider.protocol) === 'responses'
-                          ? 'responses'
-                          : activeProvider.protocol === 'anthropic_native'
-                            ? 'anthropic'
-                            : 'chat'}
-                      </span>
-                    </h2>
-                    <div className="flex items-center gap-3">
+                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                  {/* Cherry Studio: 56px header */}
+                  <div className="settings-model-header sticky top-0 z-10 flex h-[56px] items-center justify-between gap-4 border-b border-white/[0.06] bg-[var(--app-bg-secondary)] px-5">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/[0.06] flex-shrink-0">
+                        <Cloud size={16} strokeWidth={1.5} className="text-white/50" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[14px] font-semibold text-white/90 truncate">{activeProvider.name}</span>
+                          <span className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/40 flex-shrink-0">
+                            {activeProvider.type}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
                       <button
                         onClick={() =>
                           setConfirmProviderDelete({
@@ -5205,10 +3676,9 @@ export const SettingsView = ({
                             providerName: activeProvider.name,
                           })
                         }
-                        className="rounded-full border border-white/10 bg-white/5 p-2 text-white/60 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
-                        title="删除当前模型服务"
+                        className="rounded-lg p-1.5 text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white/60"
                       >
-                        <Minus size={15} />
+                        <Minus size={14} />
                       </button>
                       <label className="relative inline-flex cursor-pointer items-center">
                         <input
@@ -5219,12 +3689,12 @@ export const SettingsView = ({
                             updateProvider(activeProvider.id, { enabled: event.target.checked })
                           }
                         />
-                        <div className="peer h-6 w-11 rounded-full bg-white/10 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-emerald-500 peer-checked:after:translate-x-full" />
+                        <div className="h-[28px] w-[52px] rounded-full bg-white/[0.10] after:absolute after:left-[2px] after:top-[2px] after:h-[24px] after:w-[24px] after:rounded-full after:bg-white after:shadow-sm after:transition-transform after:content-[''] peer-checked:bg-[#FF2D78] peer-checked:after:translate-x-[24px] transition-colors duration-200" />
                       </label>
                     </div>
                   </div>
 
-                  <div className="max-w-3xl space-y-8">
+                  <div className="settings-detail-scroll space-y-4 px-6 py-5">
                     <SectionCard title="鉴权与连通性">
                       <div className="space-y-4">
                         <div className="grid gap-4 md:grid-cols-2">
@@ -5263,7 +3733,7 @@ export const SettingsView = ({
                           </div>
                         </div>
 
-                        <div className="rounded-2xl border border-sky-400/15 bg-sky-400/8 px-4 py-4 text-sm leading-6 text-sky-100/75">
+                        <div className="rounded-2xl border border-white/10 bg-white/[0.055] px-4 py-4 text-sm leading-6 text-white/62">
                           图搜图、文搜图、网页抓取、代码解释器、MCP 这些模型专属能力不是在 Settings 里全局开启。
                           它们是当前会话级开关，需要先把厂商建成 <span className="font-medium text-white">Responses</span> 协议，
                           再回到聊天页右上角的 <span className="font-medium text-white">模型功能</span> 面板里单独启用。
@@ -5400,7 +3870,7 @@ export const SettingsView = ({
                         </div>
 
                         {Object.keys(activeProviderModelMetadata).length > 0 ? (
-                          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-sky-400/12 bg-sky-400/[0.04] px-3 py-2 text-[11px] text-white/55">
+                          <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.045] px-3 py-2 text-[11px] text-white/55">
                             <span className="text-white/82">已缓存 {Object.keys(activeProviderModelMetadata).length}</span>
                             <span>/ {activeProvider.models.length} 个模型规格</span>
                             <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
@@ -5459,7 +3929,7 @@ export const SettingsView = ({
                                           group.series.flatMap((series) => series.models),
                                         )
                                       }
-                                      className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
+                                      className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 transition-[border-color,background-color,color,transform,opacity] duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
                                       title={`移除 ${group.label} 分类`}
                                     >
                                       <Minus size={14} />
@@ -5509,7 +3979,7 @@ export const SettingsView = ({
                                                 onClick={() =>
                                                   removeModelsFromProvider(activeProvider.id, series.models)
                                                 }
-                                                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
+                                                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 transition-[border-color,background-color,color,transform,opacity] duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
                                                 title={`移除 ${series.label} 系列`}
                                               >
                                                 <Minus size={13} />
@@ -5550,7 +4020,7 @@ export const SettingsView = ({
                                                           onClick={() =>
                                                             openModelDetailsDialog(activeProvider, model).catch(console.error)
                                                           }
-                                                          className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] text-white/60 transition-all duration-150 hover:border-sky-400/30 hover:bg-sky-400/12 hover:text-sky-100"
+                                                          className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] text-white/60 transition-[border-color,background-color,color] duration-150 hover:border-sky-400/30 hover:bg-sky-400/12 hover:text-sky-100"
                                                           title="查看模型设置"
                                                         >
                                                           模型设置
@@ -5559,7 +4029,7 @@ export const SettingsView = ({
                                                           onClick={() =>
                                                             removeModelsFromProvider(activeProvider.id, [model])
                                                           }
-                                                          className="rounded-full border border-transparent p-1.5 text-white/25 opacity-0 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300 group-hover:opacity-100"
+                                                          className="rounded-full border border-transparent p-1.5 text-white/25 opacity-0 transition-[border-color,background-color,color,transform,opacity] duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300 group-hover:opacity-100"
                                                           title="移除模型"
                                                         >
                                                           <Minus size={12} />
@@ -5590,24 +4060,18 @@ export const SettingsView = ({
             </div>
           </>
         ) : (
-          <div className="relative flex min-w-0 flex-1 flex-col bg-[#1E1E1E]">
-            <button
-              onClick={onClose}
-              className="absolute right-4 top-4 z-10 rounded-full p-2 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
-            >
-              <X size={18} />
-            </button>
-
-            <div className="flex-1 overflow-y-auto p-5 pr-14 custom-scrollbar">
-              <div className="space-y-4">
+          <div className="settings-content-area settings-detail-panel relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--settings-workspace-bg)]">
+            <div className="settings-content-scroll flex-1 overflow-y-auto custom-scrollbar">
+              <div className="settings-general-stack mx-auto w-full space-y-3">
+                <h1 className="settings-page-title">{activeCategoryMeta?.label ?? '设置'}</h1>
                 {configSaveStatus ? (
                   <div
-                    className={`rounded-2xl border px-4 py-3 text-sm ${
+                    className={`settings-status-banner ${
                       configSaveStatus.tone === 'error'
-                        ? 'border-red-500/20 bg-red-500/10 text-red-100'
+                        ? 'settings-status-banner-error'
                         : configSaveStatus.tone === 'success'
-                          ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-100'
-                          : 'border-white/10 bg-white/[0.03] text-white/70'
+                          ? 'settings-status-banner-success'
+                          : 'settings-status-banner-neutral'
                     }`}
                   >
                     {configSaveStatus.message}
@@ -5662,7 +4126,7 @@ export const SettingsView = ({
                         providerName: event.target.value,
                       }))
                     }
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[13px] leading-6 text-white outline-none transition-[border-color,background-color] focus:outline-none focus:ring-1 focus:ring-emerald-400/20"
                   />
                 </label>
                 <label className="block">
@@ -5675,7 +4139,7 @@ export const SettingsView = ({
                         versionLabel: event.target.value,
                       }))
                     }
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[13px] leading-6 text-white outline-none transition-[border-color,background-color] focus:outline-none focus:ring-1 focus:ring-emerald-400/20"
                   />
                 </label>
                 <label className="block">
@@ -5688,7 +4152,7 @@ export const SettingsView = ({
                         modeLabel: event.target.value,
                       }))
                     }
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[13px] leading-6 text-white outline-none transition-[border-color,background-color] focus:outline-none focus:ring-1 focus:ring-emerald-400/20"
                   />
                 </label>
                 <label className="block">
@@ -5701,7 +4165,7 @@ export const SettingsView = ({
                         contextWindow: parseOptionalNumberInput(event.target.value),
                       }))
                     }
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[13px] leading-6 text-white outline-none transition-[border-color,background-color] focus:outline-none focus:ring-1 focus:ring-emerald-400/20"
                   />
                 </label>
                 <label className="block">
@@ -5714,7 +4178,7 @@ export const SettingsView = ({
                         maxInputTokens: parseOptionalNumberInput(event.target.value),
                       }))
                     }
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[13px] leading-6 text-white outline-none transition-[border-color,background-color] focus:outline-none focus:ring-1 focus:ring-emerald-400/20"
                   />
                 </label>
                 <label className="block">
@@ -5727,7 +4191,7 @@ export const SettingsView = ({
                         maxInputCharacters: parseOptionalNumberInput(event.target.value),
                       }))
                     }
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[13px] leading-6 text-white outline-none transition-[border-color,background-color] focus:outline-none focus:ring-1 focus:ring-emerald-400/20"
                   />
                 </label>
                 <label className="block">
@@ -5740,7 +4204,7 @@ export const SettingsView = ({
                         longestReasoningTokens: parseOptionalNumberInput(event.target.value),
                       }))
                     }
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[13px] leading-6 text-white outline-none transition-[border-color,background-color] focus:outline-none focus:ring-1 focus:ring-emerald-400/20"
                   />
                 </label>
                 <label className="block">
@@ -5753,7 +4217,7 @@ export const SettingsView = ({
                         maxOutputTokens: parseOptionalNumberInput(event.target.value),
                       }))
                     }
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[13px] leading-6 text-white outline-none transition-[border-color,background-color] focus:outline-none focus:ring-1 focus:ring-emerald-400/20"
                   />
                 </label>
                 <label className="block">
@@ -5766,7 +4230,7 @@ export const SettingsView = ({
                         inputCostPerMillion: parseOptionalNumberInput(event.target.value),
                       }))
                     }
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[13px] leading-6 text-white outline-none transition-[border-color,background-color] focus:outline-none focus:ring-1 focus:ring-emerald-400/20"
                   />
                 </label>
                 <label className="block">
@@ -5779,7 +4243,7 @@ export const SettingsView = ({
                         outputCostPerMillion: parseOptionalNumberInput(event.target.value),
                       }))
                     }
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-500/40"
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[13px] leading-6 text-white outline-none transition-[border-color,background-color] focus:outline-none focus:ring-1 focus:ring-emerald-400/20"
                   />
                 </label>
               </div>
@@ -5960,13 +4424,13 @@ export const SettingsView = ({
                                 )
                               }
                               disabled={importedCount === group.totalCount}
-                              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-emerald-300 transition-all duration-150 hover:scale-105 hover:border-emerald-500/30 hover:bg-emerald-500/12 disabled:cursor-not-allowed disabled:opacity-30"
+                              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-emerald-300 transition-[border-color,background-color,color,transform] duration-150 hover:scale-105 hover:border-emerald-500/30 hover:bg-emerald-500/12 disabled:cursor-not-allowed disabled:opacity-30"
                             >
                               <Plus size={14} />
                             </button>
                             <button
                               onClick={() => removeModelsFromImportDialog(groupModels)}
-                              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
+                              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 transition-[border-color,background-color,color,transform] duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
                               title={`删除 ${group.label} 分类`}
                             >
                               <Minus size={14} />
@@ -6025,13 +4489,13 @@ export const SettingsView = ({
                                           )
                                         }
                                         disabled={seriesImportedCount === series.models.length}
-                                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-emerald-300 transition-all duration-150 hover:scale-105 hover:border-emerald-500/30 hover:bg-emerald-500/12 disabled:cursor-not-allowed disabled:opacity-30"
+                                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-emerald-300 transition-[border-color,background-color,color,transform] duration-150 hover:scale-105 hover:border-emerald-500/30 hover:bg-emerald-500/12 disabled:cursor-not-allowed disabled:opacity-30"
                                       >
                                         <Plus size={13} />
                                       </button>
                                       <button
                                         onClick={() => removeModelsFromImportDialog(series.models)}
-                                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
+                                        className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 transition-[border-color,background-color,color,transform] duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300"
                                         title={`删除 ${series.label} 系列`}
                                       >
                                         <Minus size={13} />
@@ -6074,14 +4538,14 @@ export const SettingsView = ({
                                                   addModelsToProvider(modelImportDialog.providerId, [model])
                                                 }
                                                 disabled={imported}
-                                                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-emerald-300 transition-all duration-150 hover:scale-105 hover:border-emerald-500/30 hover:bg-emerald-500/12 disabled:cursor-not-allowed disabled:opacity-30"
+                                                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-emerald-300 transition-[border-color,background-color,color,transform] duration-150 hover:scale-105 hover:border-emerald-500/30 hover:bg-emerald-500/12 disabled:cursor-not-allowed disabled:opacity-30"
                                                 title="添加当前模型"
                                               >
                                                 <Plus size={12} />
                                               </button>
                                               <button
                                                 onClick={() => removeModelsFromImportDialog([model])}
-                                                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 opacity-0 transition-all duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300 group-hover:opacity-100"
+                                                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full border border-transparent text-white/20 opacity-0 transition-[border-color,background-color,color,transform,opacity] duration-150 hover:scale-105 hover:border-red-500/30 hover:bg-red-500/12 hover:text-red-300 group-hover:opacity-100"
                                                 title="删除当前模型"
                                               >
                                                 <Minus size={12} />

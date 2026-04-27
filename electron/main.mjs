@@ -246,7 +246,15 @@ function createMainWindow() {
     minWidth: 1040,
     minHeight: 720,
     title: 'Vortex',
-    backgroundColor: '#05050A',
+    ...(process.platform === 'darwin'
+      ? {
+          backgroundColor: '#00000000',
+          vibrancy: 'under-window',
+          visualEffectState: 'active',
+        }
+      : {
+          backgroundColor: '#05050A',
+        }),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 18, y: 18 },
     webPreferences: {

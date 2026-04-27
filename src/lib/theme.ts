@@ -43,39 +43,43 @@ export const THEME_COLOR_BOARD = [
 ];
 
 const DARK_TOKENS = {
-  '--app-bg': '#030308',
-  '--app-bg-secondary': '#05050A',
-  '--app-bg-sidebar': '#0A0A0F',
-  '--app-bg-modal': '#1E1E1E',
-  '--app-bg-modal-side': '#181818',
-  '--app-surface': 'rgba(255,255,255,0.05)',
-  '--app-surface-strong': 'rgba(255,255,255,0.1)',
-  '--app-surface-soft': 'rgba(255,255,255,0.03)',
+  '--app-bg': '#0f0f10',
+  '--app-bg-secondary': '#121213',
+  '--app-bg-sidebar': '#0d0d0e',
+  '--app-bg-modal': '#151516',
+  '--app-bg-modal-side': '#111112',
+  '--app-card-bg': 'rgba(255,255,255,0.035)',
+  '--app-surface': 'rgba(255,255,255,0.045)',
+  '--app-surface-strong': 'rgba(255,255,255,0.09)',
+  '--app-surface-soft': 'rgba(255,255,255,0.02)',
   '--app-input': 'rgba(0,0,0,0.22)',
   '--app-border': 'rgba(255,255,255,0.1)',
   '--app-border-soft': 'rgba(255,255,255,0.05)',
   '--app-text': 'rgba(255,255,255,0.96)',
   '--app-text-muted': 'rgba(255,255,255,0.78)',
   '--app-text-subtle': 'rgba(255,255,255,0.45)',
-  '--app-shadow': '0 20px 60px rgba(0,0,0,0.35)',
+  '--app-shadow': '0 18px 45px rgba(0,0,0,0.30)',
 };
 
 const LIGHT_TOKENS = {
-  '--app-bg': '#eef3fb',
-  '--app-bg-secondary': '#f7f9fd',
-  '--app-bg-sidebar': '#f4f7fb',
-  '--app-bg-modal': '#f6f8fc',
-  '--app-bg-modal-side': '#edf2f8',
-  '--app-surface': 'rgba(255,255,255,0.78)',
-  '--app-surface-strong': 'rgba(226,232,240,0.9)',
-  '--app-surface-soft': 'rgba(255,255,255,0.62)',
-  '--app-input': 'rgba(255,255,255,0.92)',
-  '--app-border': 'rgba(15,23,42,0.1)',
-  '--app-border-soft': 'rgba(15,23,42,0.06)',
-  '--app-text': 'rgba(15,23,42,0.96)',
-  '--app-text-muted': 'rgba(15,23,42,0.78)',
-  '--app-text-subtle': 'rgba(15,23,42,0.52)',
-  '--app-shadow': '0 20px 60px rgba(15,23,42,0.12)',
+  '--app-bg': '#eceef2',
+  '--app-bg-secondary': '#f3f4f6',
+  '--app-bg-sidebar': '#e4e6eb',
+  '--app-bg-modal': '#f3f4f6',
+  '--app-bg-modal-side': '#e9ebef',
+  '--app-card-bg': '#f7f7f8',
+  '--app-surface': 'rgba(32,35,43,0.055)',
+  '--app-surface-strong': 'rgba(32,35,43,0.09)',
+  '--app-surface-soft': 'rgba(32,35,43,0.035)',
+  '--app-input': '#ffffff',
+  '--app-border': 'rgba(32,35,43,0.11)',
+  '--app-border-soft': 'rgba(32,35,43,0.07)',
+  '--app-text': '#2f3238',
+  '--app-text-muted': '#626772',
+  '--app-text-subtle': '#8b909b',
+  '--app-shadow': '0 18px 60px rgba(25,28,36,0.12)',
+  '--landing-primary-bg': '#30343b',
+  '--landing-primary-fg': '#ffffff',
 };
 
 export function getThemePresetByColor(color: string) {
@@ -96,11 +100,11 @@ export function applyThemePreferences(config: Pick<AgentConfig, 'theme'> | null 
   root.style.setProperty('--app-accent', accentColor);
   root.style.setProperty(
     '--app-accent-strong',
-    `color-mix(in srgb, ${accentColor} 70%, #8b5cf6 30%)`,
+    `color-mix(in srgb, ${accentColor} 64%, #f2f2f3 36%)`,
   );
   root.style.setProperty(
     '--app-accent-soft',
-    `color-mix(in srgb, ${accentColor} 16%, transparent)`,
+    `color-mix(in srgb, ${accentColor} 7%, transparent)`,
   );
 
   Object.entries(tokens).forEach(([token, value]) => {

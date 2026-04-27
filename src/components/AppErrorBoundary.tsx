@@ -48,8 +48,8 @@ export class AppErrorBoundary extends React.Component<AppErrorBoundaryProps, App
               <div className="text-xs font-semibold uppercase tracking-[0.28em] text-rose-300/80">
                 Frontend Runtime Error
               </div>
-              <h1 className="mt-2 text-2xl font-semibold text-white">页面渲染失败</h1>
-              <p className="mt-2 text-sm leading-6 text-white/70">
+              <h1 className="mt-2 text-2xl font-semibold text-white text-balance">页面渲染失败</h1>
+              <p className="mt-2 text-sm leading-6 text-white/70 text-pretty">
                 Vortex 前端在渲染阶段抛出了异常。下面是原始错误信息和组件堆栈。
               </p>
             </div>

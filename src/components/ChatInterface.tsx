@@ -1,6 +1,8 @@
 import React, { Suspense, lazy, startTransition, useEffect, useMemo, useRef, useState } from 'react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
+  Compass,
+  ExternalLink,
   House,
   BarChart3,
   ChevronDown,
@@ -18,6 +20,7 @@ import {
   Sparkles,
   Sun,
   Terminal,
+  RotateCw,
   X,
   Zap,
 } from 'lucide-react';
@@ -132,7 +135,7 @@ const SettingsView = lazy(() =>
   import('./settings/SettingsView').then((module) => ({ default: module.SettingsView })),
 );
 
-type ChatTab = 'chat' | 'prompts' | 'knowledge' | 'sandbox';
+type ChatTab = 'chat' | 'prompts' | 'knowledge' | 'browser' | 'sandbox';
 type SettingsCategory =
   | 'models'
   | 'default'
@@ -713,6 +716,111 @@ type TopicModeFilter = 'all' | 'agent' | 'quick';
 
 const WORKSPACE_BOOT_SOFT_TIMEOUT_MS = 8000;
 const WORKSPACE_BOOT_HARD_TIMEOUT_MS = 45000;
+const DEFAULT_BROWSER_URL = 'http://localhost:3000/';
+
+function normalizeBrowserUrl(input: string) {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return DEFAULT_BROWSER_URL;
+  }
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  if (trimmed.includes('.') || trimmed.includes(':')) {
+    return `https://${trimmed}`;
+  }
+  return `https://www.google.com/search?q=${encodeURIComponent(trimmed)}`;
+}
+
+function InAppBrowserPanel({
+  url,
+  inputValue,
+  frameKey,
+  onInputChange,
+  onNavigate,
+  onReload,
+  onClose,
+}: {
+  url: string;
+  inputValue: string;
+  frameKey: number;
+  onInputChange: (value: string) => void;
+  onNavigate: (url: string) => void;
+  onReload: () => void;
+  onClose: () => void;
+}) {
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onNavigate(normalizeBrowserUrl(inputValue));
+  };
+
+  return (
+    <div className="in-app-browser flex h-full min-w-0 flex-1 flex-col bg-[var(--app-bg-secondary)]">
+      <header className="app-topbar flex h-12 flex-shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <Compass size={16} strokeWidth={1.5} className="text-white/45" />
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-semibold text-white/90">Browser</div>
+            <div className="truncate text-[10px] text-white/35">{url}</div>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white/70"
+          title="Close Browser"
+        >
+          <X size={15} />
+        </button>
+      </header>
+
+      <form onSubmit={handleSubmit} className="browser-toolbar flex flex-shrink-0 items-center gap-2 border-b border-white/[0.06] px-4 py-3">
+        <button
+          type="button"
+          onClick={onReload}
+          className="browser-icon-button flex h-9 w-9 items-center justify-center rounded-lg text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white/75"
+          title="Reload"
+        >
+          <RotateCw size={15} strokeWidth={1.5} />
+        </button>
+        <div className="relative min-w-0 flex-1">
+          <Globe size={14} strokeWidth={1.5} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+          <input
+            value={inputValue}
+            onChange={(event) => onInputChange(event.target.value)}
+            className="browser-url-input h-10 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] pl-9 pr-3 text-[13px] text-white outline-none transition-[background-color,border-color] placeholder:text-white/25 focus:border-white/[0.16] focus:bg-white/[0.06]"
+            placeholder="Open a URL or search"
+          />
+        </div>
+        <button
+          type="submit"
+          className="browser-go-button inline-flex h-9 items-center gap-2 rounded-lg bg-white px-3 text-[12px] font-medium text-black transition-[background-color,transform] hover:bg-white/90 active:scale-[0.98]"
+        >
+          Open
+        </button>
+        <button
+          type="button"
+          onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
+          className="browser-icon-button flex h-9 w-9 items-center justify-center rounded-lg text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white/75"
+          title="Open externally"
+        >
+          <ExternalLink size={15} strokeWidth={1.5} />
+        </button>
+      </form>
+
+      <div className="min-h-0 flex-1 p-4">
+        <div className="browser-frame-shell h-full overflow-hidden rounded-xl border border-white/[0.08] bg-white shadow-[0_18px_50px_rgba(0,0,0,0.22)]">
+          <iframe
+            key={frameKey}
+            title="In-app browser"
+            src={url}
+            className="h-full w-full bg-white"
+            referrerPolicy="no-referrer"
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export const ChatInterface: React.FC<{
   onBack: () => void;
@@ -744,6 +852,9 @@ export const ChatInterface: React.FC<{
   const [modelPickerTarget, setModelPickerTarget] = useState<ModelPickerTarget>('global');
   const [settingsInitialCategory, setSettingsInitialCategory] =
     useState<SettingsCategory>('models');
+  const [browserUrl, setBrowserUrl] = useState(DEFAULT_BROWSER_URL);
+  const [browserInput, setBrowserInput] = useState(DEFAULT_BROWSER_URL);
+  const [browserFrameKey, setBrowserFrameKey] = useState(0);
   const [workspace, setWorkspace] = useState<TopicWorkspace | null>(null);
   const [topics, setTopics] = useState<TopicSummary[]>([]);
   const [agents, setAgents] = useState<AgentProfile[]>([]);
@@ -2920,7 +3031,7 @@ export const ChatInterface: React.FC<{
   }, [showSettings]);
 
   return (
-    <div className="app-shell relative z-10 flex h-screen w-full overflow-hidden font-sans text-white">
+    <div className="app-shell relative z-10 flex h-screen w-full overflow-hidden bg-[var(--app-bg)] font-sans text-white">
       <input
         ref={fileInputRef}
         type="file"
@@ -2941,22 +3052,23 @@ export const ChatInterface: React.FC<{
         <motion.div
           initial={{ width: 0, opacity: 0 }}
           animate={{ width: 260, opacity: 1 }}
-          className="z-30 flex flex-shrink-0 flex-col border-r border-white/5 bg-[var(--app-bg-sidebar)]"
+          transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+          className="app-sidebar z-30 flex flex-shrink-0 flex-col border-r border-white/[0.06] bg-[var(--app-bg-sidebar)]"
         >
-          <div className="flex items-center justify-between px-3.5 py-3">
+          <div className="flex items-center justify-between px-4 py-3.5">
             <button
               onClick={onBack}
-              className="flex items-center gap-2 text-white/90 transition-opacity hover:opacity-80"
+              className="flex items-center gap-2.5 text-white/70 transition-colors hover:text-white"
               title="Return to Home"
             >
-              <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-brand shadow-sm">
-                <Zap size={13} className="text-white" />
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-black">
+                <Zap size={13} />
               </div>
-              <span className="text-[14px] font-semibold tracking-wide">Vortex</span>
+              <span className="text-sm font-semibold tracking-tight text-white">Vortex</span>
             </button>
             <button
               onClick={() => setSidebarOpen(false)}
-              className="rounded-lg p-1.5 text-white/40 hover:bg-white/5 hover:text-white/90"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/[0.06] hover:text-white/70"
               title="Collapse Sidebar"
             >
               <X size={15} />
@@ -2966,27 +3078,27 @@ export const ChatInterface: React.FC<{
           <div className="px-3">
             <button
               onClick={handleCreateTopic}
-              className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-white/10"
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-white/[0.06] py-2 text-[12px] font-medium text-white/70 border border-white/[0.06] transition-[background-color,color,transform] hover:bg-white/[0.10] hover:text-white active:scale-[0.98] focus:outline-none focus:ring-1 focus:ring-white/20"
             >
-              <Plus size={15} /> New Chat
+              <Plus size={14} strokeWidth={1.5} /> New Chat
             </button>
           </div>
 
           <div className="mt-3 flex-1 overflow-y-auto px-2 custom-scrollbar">
             {activeTab === 'chat' && (
-              <div className="mb-2 space-y-1">
-                <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-white/40">
-                  Recent Topics
+              <div className="mb-2 space-y-0.5">
+                <div className="mb-1.5 px-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/25">
+                  Recent
                 </div>
                 {visibleTopics.length > 0 ? (
                   visibleTopics.map((topic) => (
                     <button
                       key={topic.id}
                       onClick={() => activateTopic(topic.id).catch(console.error)}
-                      className={`w-full group rounded-xl px-2.5 py-2 text-left transition-colors ${
+                      className={`w-full group rounded-lg px-2.5 py-2 text-left transition-colors ${
                         activeTopicId === topic.id
-                          ? 'bg-white/10 text-white'
-                          : 'text-white/60 hover:bg-white/5 hover:text-white/90'
+                          ? 'bg-white/[0.08] text-white'
+                          : 'text-white/45 hover:bg-white/[0.04] hover:text-white/70'
                       }`}
                     >
                       <div className="flex min-w-0 items-center justify-between gap-2">
@@ -3005,59 +3117,62 @@ export const ChatInterface: React.FC<{
 
           <div className="space-y-1 border-t border-white/5 p-2">
             {[
-              { id: 'chat', icon: MessageSquare, label: 'Chat View' },
-              { id: 'prompts', icon: Sparkles, label: 'Prompt Library' },
-              { id: 'knowledge', icon: Globe, label: 'Knowledge Base' },
-              { id: 'sandbox', icon: Terminal, label: 'Web Sandbox', disabled: !runtimeCapabilities.sandbox.webContainer },
+              { id: 'chat', icon: MessageSquare, label: 'Chat' },
+              { id: 'prompts', icon: Sparkles, label: 'Prompts' },
+              { id: 'knowledge', icon: Globe, label: 'Knowledge' },
+              { id: 'browser', icon: Compass, label: 'Browser' },
+              { id: 'sandbox', icon: Terminal, label: 'Sandbox', disabled: !runtimeCapabilities.sandbox.webContainer },
             ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
                 disabled={tab.disabled}
-                className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] transition-colors ${
+                className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12px] transition-colors ${
                   activeTab === tab.id
-                    ? 'bg-white/10 font-medium text-white'
+                    ? 'bg-white/[0.08] font-medium text-white/90'
                     : tab.disabled
-                      ? 'cursor-not-allowed opacity-30 text-white'
-                      : 'text-white/60 hover:bg-white/5 hover:text-white/90'
+                      ? 'cursor-not-allowed opacity-30 text-white/25'
+                      : 'text-white/35 hover:bg-white/[0.04] hover:text-white/60'
                 }`}
               >
-                <tab.icon size={16} />
+                <tab.icon size={15} strokeWidth={1.5} />
                 {tab.label}
               </button>
             ))}
-            <div className="my-1 border-t border-white/5" />
+            <div className="my-1.5 border-t border-white/[0.04]" />
             <button
-              onClick={() => openSettings('models')}
-              className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] text-white/60 transition-colors hover:bg-white/5 hover:text-white/90"
+              onClick={() => openSettings('general')}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12px] text-white/35 transition-colors hover:bg-white/[0.04] hover:text-white/60"
             >
-              <Settings size={16} /> Settings
+              <Settings size={15} strokeWidth={1.5} /> Settings
             </button>
           </div>
         </motion.div>
       ) : (
-        <div className="z-30 flex w-12 flex-shrink-0 flex-col items-center border-r border-white/5 bg-[var(--app-bg-sidebar)] py-3">
+        <div className="app-sidebar z-30 flex w-12 flex-shrink-0 flex-col items-center border-r border-white/[0.06] bg-[var(--app-bg-sidebar)] py-3">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="group flex h-8 w-8 items-center justify-center rounded-lg text-white/40 transition-colors hover:bg-white/5 hover:text-white"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/[0.06] hover:text-white/70"
             title="Expand Sidebar"
           >
-            <PanelLeft size={18} />
+            <PanelLeft size={17} />
           </button>
-          <div className="my-2 border-t border-white/5 w-6" />
-          <button onClick={() => setActiveTab('chat')} className={`rounded-lg p-2 ${activeTab === 'chat' ? 'bg-white/10 text-white' : 'text-white/40 hover:bg-white/5 hover:text-white/90'}`}><MessageSquare size={16}/></button>
-          <button onClick={() => setActiveTab('prompts')} className={`rounded-lg p-2 ${activeTab === 'prompts' ? 'bg-white/10 text-white' : 'text-white/40 hover:bg-white/5 hover:text-white/90'}`}><Sparkles size={16}/></button>
-          <button onClick={() => setActiveTab('knowledge')} className={`rounded-lg p-2 ${activeTab === 'knowledge' ? 'bg-white/10 text-white' : 'text-white/40 hover:bg-white/5 hover:text-white/90'}`}><Globe size={16}/></button>
+          <div className="my-2 border-t border-white/[0.04] w-5" />
+          <button onClick={() => setActiveTab('chat')} className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${activeTab === 'chat' ? 'bg-white/[0.08] text-white/80' : 'text-white/25 hover:bg-white/[0.06] hover:text-white/50'}`}><MessageSquare size={15} strokeWidth={1.5}/></button>
+          <button onClick={() => setActiveTab('prompts')} className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${activeTab === 'prompts' ? 'bg-white/[0.08] text-white/80' : 'text-white/25 hover:bg-white/[0.06] hover:text-white/50'}`}><Sparkles size={15} strokeWidth={1.5}/></button>
+          <button onClick={() => setActiveTab('knowledge')} className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${activeTab === 'knowledge' ? 'bg-white/[0.08] text-white/80' : 'text-white/25 hover:bg-white/[0.06] hover:text-white/50'}`}><Globe size={15} strokeWidth={1.5}/></button>
+          <button onClick={() => setActiveTab('browser')} className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${activeTab === 'browser' ? 'bg-white/[0.08] text-white/80' : 'text-white/25 hover:bg-white/[0.06] hover:text-white/50'}`}><Compass size={15} strokeWidth={1.5}/></button>
 
           <div className="flex-1" />
-          <button onClick={() => openSettings('models')} className="rounded-lg p-2 text-white/40 hover:bg-white/5 hover:text-white/90"><Settings size={16}/></button>
+          <button onClick={() => openSettings('general')} className="flex h-9 w-9 items-center justify-center rounded-lg text-white/25 hover:bg-white/[0.06] hover:text-white/50 transition-colors"><Settings size={15} strokeWidth={1.5}/></button>
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col bg-[var(--app-bg-secondary)] relative">
+      <div className="app-main-panel relative flex min-w-0 flex-1 flex-col bg-[var(--app-bg-secondary)]">
         {activeTab === 'chat' ? (
           <>
-            <header className="flex h-13 flex-shrink-0 items-center justify-between border-b border-white/10 px-3.5">
+                <header className="app-topbar relative flex h-12 flex-shrink-0 items-center justify-between border-b border-white/[0.06] px-4">
+              <div className="app-topbar-accent absolute inset-x-0 top-0 h-0.5 bg-[var(--app-accent)] opacity-60" />
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => setSidebarOpen((previous) => !previous)}
@@ -3155,17 +3270,17 @@ export const ChatInterface: React.FC<{
                     }
                     openGlobalModelPicker();
                   }}
-                  className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[13px] text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+                  className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] text-white/50 border border-white/[0.06] bg-white/[0.03] transition-[background-color,color,transform] hover:bg-white/[0.06] hover:text-white/70 active:scale-[0.98] focus:outline-none focus:ring-1 focus:ring-white/15"
                 >
-                  <span className="max-w-[220px] truncate">
+                  <span className="max-w-[200px] truncate">
                     {activeProviderName}
                     {' · '}
                     {activeModel}
                   </span>
-                  <span className="rounded-full border border-white/10 bg-black/20 px-1.5 py-0.5 text-[9px] text-white/55">
+                  <span className="rounded-sm border border-white/[0.06] bg-white/[0.04] px-1.5 py-0.5 text-[9px] text-white/35 tabular-nums">
                     {activeProviderProtocolLabel}
                   </span>
-                  <ChevronDown size={14} className="text-white/45" />
+                  <ChevronDown size={12} strokeWidth={1.5} className="text-white/30" />
                 </button>
                 <button
                   onClick={handleOpenModelFeaturesDialog}
@@ -3198,19 +3313,19 @@ export const ChatInterface: React.FC<{
             </header>
 
             {workspace && (activeParentTopic || activeChildBranches.length > 0 || activeSiblingBranches.length > 0) ? (
-              <div className="border-b border-white/5 bg-white/[0.02] px-4 py-2.5">
-                <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center gap-2">
+              <div className="border-b border-white/[0.06] bg-white/[0.01] px-4 py-2">
+                <div className="mx-auto flex w-full max-w-4xl flex-wrap items-center gap-1.5">
                   {activeParentTopic ? (
                     <button
                       onClick={() => activateTopic(activeParentTopic.id).catch(console.error)}
-                      className="inline-flex items-center gap-2 rounded-full border border-sky-400/15 bg-sky-400/10 px-3 py-1.5 text-[11px] text-sky-100/85 transition-colors hover:bg-sky-400/16"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-sky-400/12 bg-sky-400/8 px-2 py-1 text-[10px] text-sky-100/70 transition-[background-color,color] hover:bg-sky-400/14"
                     >
-                      <GitBranch size={12} />
+                      <GitBranch size={11} strokeWidth={1.5} />
                       Parent · {activeParentTopic.title}
                     </button>
                   ) : null}
                   {activeChildBranches.length > 0 ? (
-                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] text-white/55">
+                    <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] text-white/35 tabular-nums">
                       Branches {activeChildBranches.length}
                     </span>
                   ) : null}
@@ -3218,18 +3333,18 @@ export const ChatInterface: React.FC<{
                     <button
                       key={topic.id}
                       onClick={() => activateTopic(topic.id).catch(console.error)}
-                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] transition-colors ${
+                      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] transition-[background-color,color] ${
                         topicRunStates[topic.id]?.isGenerating
-                          ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100/85'
-                          : 'border-white/10 bg-black/20 text-white/65 hover:bg-white/10 hover:text-white'
+                          ? 'border-emerald-400/15 bg-emerald-400/8 text-emerald-100/70'
+                          : 'border-white/[0.06] bg-white/[0.03] text-white/45 hover:bg-white/[0.06] hover:text-white/70'
                       }`}
                     >
-                      <span className="max-w-[180px] truncate">{topic.title}</span>
+                      <span className="max-w-[160px] truncate">{topic.title}</span>
                       {topicRunStates[topic.id]?.isGenerating ? <span>Running</span> : null}
                     </button>
                   ))}
                   {activeSiblingBranches.length > 0 ? (
-                    <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] text-white/55">
+                    <span className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1 text-[10px] text-white/35 tabular-nums">
                       Siblings {activeSiblingBranches.length}
                     </span>
                   ) : null}
@@ -3237,13 +3352,13 @@ export const ChatInterface: React.FC<{
                     <button
                       key={topic.id}
                       onClick={() => activateTopic(topic.id).catch(console.error)}
-                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] transition-colors ${
+                      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] transition-[background-color,color] ${
                         topicRunStates[topic.id]?.isGenerating
-                          ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100/85'
-                          : 'border-white/10 bg-black/20 text-white/65 hover:bg-white/10 hover:text-white'
+                          ? 'border-emerald-400/15 bg-emerald-400/8 text-emerald-100/70'
+                          : 'border-white/[0.06] bg-white/[0.03] text-white/45 hover:bg-white/[0.06] hover:text-white/70'
                       }`}
                     >
-                      <span className="max-w-[180px] truncate">{topic.title}</span>
+                      <span className="max-w-[160px] truncate">{topic.title}</span>
                       {topicRunStates[topic.id]?.isGenerating ? <span>Running</span> : null}
                     </button>
                   ))}
@@ -3418,6 +3533,20 @@ export const ChatInterface: React.FC<{
               <KnowledgePanel onClose={() => setActiveTab('chat')} />
             </div>
           </Suspense>
+        ) : activeTab === 'browser' ? (
+          <InAppBrowserPanel
+            url={browserUrl}
+            inputValue={browserInput}
+            frameKey={browserFrameKey}
+            onInputChange={setBrowserInput}
+            onNavigate={(nextUrl) => {
+              setBrowserUrl(nextUrl);
+              setBrowserInput(nextUrl);
+              setBrowserFrameKey((current) => current + 1);
+            }}
+            onReload={() => setBrowserFrameKey((current) => current + 1)}
+            onClose={() => setActiveTab('chat')}
+          />
         ) : (
           <Suspense
             fallback={
@@ -3436,39 +3565,50 @@ export const ChatInterface: React.FC<{
         )}
       </div>
 
-      {showSettings ? (
-        <Suspense fallback={null}>
-          <SettingsView
-            config={config}
-            agents={agents}
-            memoryDocuments={memoryDocuments}
-            activeAgentId={activeAgentId}
-            initialCategory={settingsInitialCategory}
-            sessionContextDiagnostics={
-              currentContextTokens != null
-                ? {
-                    tokens: currentContextTokens,
-                    contextWindow: currentContextWindow,
-                    usagePercentage: currentContextUsagePercentage,
-                    breakdown: activeRunState?.isGenerating ? null : currentContextBreakdown,
-                  }
-                : undefined
-            }
-            latestModelInvocation={latestModelInvocation}
-            activeTopicUsageSnapshot={activeTopicUsage}
-            tokenUsageSummary={tokenUsageSummary}
-            modelInvocationStats={modelInvocationStats}
-            onClose={() => setShowSettings(false)}
-            onConfigSaved={(nextConfig) => setConfig(nextConfig)}
-            runtimeCapabilities={runtimeCapabilities}
-            onOpenPromptInspector={() => setShowPromptInspector(true)}
-            promptInspectorAvailable={Boolean(activePromptInspectorSnapshot)}
-            onMemoryFilesChanged={(agentId) => {
-              void handleMemoryFilesChanged(agentId);
-            }}
-          />
-        </Suspense>
-	      ) : null}
+      <AnimatePresence initial={false}>
+        {showSettings ? (
+          <motion.div
+            key="settings-workspace"
+            className="fixed inset-0 z-50"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6 }}
+            transition={{ duration: 0.22, ease: [0.2, 0, 0, 1] }}
+          >
+            <Suspense fallback={null}>
+              <SettingsView
+                config={config}
+                agents={agents}
+                memoryDocuments={memoryDocuments}
+                activeAgentId={activeAgentId}
+                initialCategory={settingsInitialCategory}
+                sessionContextDiagnostics={
+                  currentContextTokens != null
+                    ? {
+                        tokens: currentContextTokens,
+                        contextWindow: currentContextWindow,
+                        usagePercentage: currentContextUsagePercentage,
+                        breakdown: activeRunState?.isGenerating ? null : currentContextBreakdown,
+                      }
+                    : undefined
+                }
+                latestModelInvocation={latestModelInvocation}
+                activeTopicUsageSnapshot={activeTopicUsage}
+                tokenUsageSummary={tokenUsageSummary}
+                modelInvocationStats={modelInvocationStats}
+                onClose={() => setShowSettings(false)}
+                onConfigSaved={(nextConfig) => setConfig(nextConfig)}
+                runtimeCapabilities={runtimeCapabilities}
+                onOpenPromptInspector={() => setShowPromptInspector(true)}
+                promptInspectorAvailable={Boolean(activePromptInspectorSnapshot)}
+                onMemoryFilesChanged={(agentId) => {
+                  void handleMemoryFilesChanged(agentId);
+                }}
+              />
+            </Suspense>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       <PromptInspectorDialog
         open={showPromptInspector}
@@ -3523,7 +3663,7 @@ export const ChatInterface: React.FC<{
                     setShowQuickTopicDialog(false);
                     setQuickTopicDraft(null);
                   }}
-                  className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                  className="rounded-lg p-2.5 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
                 >
                   <X size={16} />
                 </button>
@@ -3736,7 +3876,7 @@ export const ChatInterface: React.FC<{
                     setShowBranchTopicDialog(false);
                     setBranchTopicDraft(null);
                   }}
-                  className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                  className="rounded-lg p-2.5 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
                 >
                   <X size={16} />
                 </button>
@@ -3869,7 +4009,7 @@ export const ChatInterface: React.FC<{
                     setShowBranchHandoffDialog(false);
                     setBranchHandoffDraft(null);
                   }}
-                  className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                  className="rounded-lg p-2.5 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
                 >
                   <X size={16} />
                 </button>
@@ -3956,7 +4096,7 @@ export const ChatInterface: React.FC<{
                     setShowModelFeaturesDialog(false);
                     setModelFeaturesDraft(null);
                   }}
-                  className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                  className="rounded-lg p-2.5 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
                 >
                   <X size={16} />
                 </button>
@@ -4071,9 +4211,9 @@ export const ChatInterface: React.FC<{
                                       : current,
                                   )
                                 }
-                                className={`rounded-[20px] border p-4 text-left transition-all ${
+                                className={`rounded-[20px] border p-4 text-left transition-[border-color,background-color,box-shadow] ${
                                   checked
-                                    ? 'border-emerald-500/25 bg-emerald-500/10 shadow-[0_10px_28px_rgba(16,185,129,0.12)]'
+                                    ? 'border-emerald-500/25 bg-emerald-500/10'
                                     : 'border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.05]'
                                 }`}
                               >
@@ -4081,7 +4221,7 @@ export const ChatInterface: React.FC<{
                                   <div className="text-sm font-medium text-white/90">{item.label}</div>
                                   <div
                                     className={`h-2.5 w-2.5 rounded-full ${
-                                      checked ? 'bg-emerald-300 shadow-[0_0_16px_rgba(52,211,153,0.6)]' : 'bg-white/20'
+                                      checked ? 'bg-emerald-300' : 'bg-white/20'
                                     }`}
                                   />
                                 </div>
@@ -4120,9 +4260,9 @@ export const ChatInterface: React.FC<{
                                       : current,
                                   )
                                 }
-                                className={`rounded-[20px] border p-4 text-left transition-all ${
+                                className={`rounded-[20px] border p-4 text-left transition-[border-color,background-color,box-shadow] ${
                                   checked
-                                    ? 'border-sky-400/25 bg-sky-400/10 shadow-[0_10px_28px_rgba(56,189,248,0.12)]'
+                                    ? 'border-sky-400/25 bg-sky-400/10'
                                     : 'border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.05]'
                                 }`}
                               >
@@ -4130,7 +4270,7 @@ export const ChatInterface: React.FC<{
                                   <div className="text-sm font-medium text-white/90">{label}</div>
                                   <div
                                     className={`h-2.5 w-2.5 rounded-full ${
-                                      checked ? 'bg-sky-300 shadow-[0_0_16px_rgba(125,211,252,0.6)]' : 'bg-white/20'
+                                      checked ? 'bg-sky-300' : 'bg-white/20'
                                     }`}
                                   />
                                 </div>
@@ -4171,9 +4311,9 @@ export const ChatInterface: React.FC<{
                                   : current,
                               )
                             }
-                            className={`w-full rounded-[20px] border p-4 text-left transition-all ${
+                            className={`w-full rounded-[20px] border p-4 text-left transition-[border-color,background-color,box-shadow] ${
                               modelFeaturesDraft.enableThinking
-                                ? 'border-emerald-500/25 bg-emerald-500/10 shadow-[0_10px_28px_rgba(16,185,129,0.12)]'
+                                ? 'border-emerald-500/25 bg-emerald-500/10'
                                 : 'border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.05]'
                             }`}
                           >
@@ -4182,7 +4322,7 @@ export const ChatInterface: React.FC<{
                               <div
                                 className={`h-2.5 w-2.5 rounded-full ${
                                   modelFeaturesDraft.enableThinking
-                                    ? 'bg-emerald-300 shadow-[0_0_16px_rgba(52,211,153,0.6)]'
+                                    ? 'bg-emerald-300'
                                     : 'bg-white/20'
                                 }`}
                               />
@@ -4333,7 +4473,7 @@ export const ChatInterface: React.FC<{
                     setShowSessionSettings(false);
                     setSessionSettingsDraft(null);
                   }}
-                  className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                  className="rounded-lg p-2.5 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
                 >
                   <X size={16} />
                 </button>
@@ -4456,9 +4596,9 @@ export const ChatInterface: React.FC<{
                                   : current,
                               )
                             }
-                            className={`rounded-[20px] border p-4 text-left transition-all ${
+                            className={`rounded-[20px] border p-4 text-left transition-[border-color,background-color,box-shadow] ${
                               checked
-                                ? 'border-emerald-500/25 bg-emerald-500/10 shadow-[0_10px_28px_rgba(16,185,129,0.12)]'
+                                ? 'border-emerald-500/25 bg-emerald-500/10'
                                 : 'border-white/10 bg-black/20 hover:border-white/20 hover:bg-white/[0.05]'
                             }`}
                           >
@@ -4466,7 +4606,7 @@ export const ChatInterface: React.FC<{
                               <div className="text-sm font-medium text-white/90">{item.label}</div>
                               <div
                                 className={`h-2.5 w-2.5 rounded-full ${
-                                  checked ? 'bg-emerald-300 shadow-[0_0_16px_rgba(52,211,153,0.6)]' : 'bg-white/20'
+                                  checked ? 'bg-emerald-300' : 'bg-white/20'
                                 }`}
                               />
                             </div>
@@ -4573,9 +4713,9 @@ export const ChatInterface: React.FC<{
                                   setCollapsedPickerGroups({});
                                   setCollapsedPickerSeries({});
                                 }}
-                                className={`flex w-full cursor-pointer items-center justify-between rounded-2xl border px-3 py-3 text-left transition-all duration-150 ${
+                                className={`flex w-full cursor-pointer items-center justify-between rounded-2xl border px-3 py-3 text-left transition-[border-color,background-color,box-shadow,color] duration-150 ${
                                   modelPickerProviderId === provider.id
-                                    ? 'border-emerald-500/25 bg-[linear-gradient(180deg,rgba(16,185,129,0.16),rgba(255,255,255,0.05))] text-white shadow-[0_12px_28px_rgba(16,185,129,0.14)]'
+                                    ? 'border-emerald-500/25 bg-[linear-gradient(180deg,rgba(16,185,129,0.16),rgba(255,255,255,0.05))] text-white shadow-[0_10px_24px_rgba(0,0,0,0.18)]'
                                     : 'border-white/5 text-white/65 hover:border-white/12 hover:bg-white/[0.08] hover:text-white hover:shadow-[0_10px_24px_rgba(0,0,0,0.22)]'
                                 }`}
                               >
@@ -4621,7 +4761,7 @@ export const ChatInterface: React.FC<{
                 </div>
                 <button
                   onClick={() => setShowModelPicker(false)}
-                  className="rounded-full p-2 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
+                  className="rounded-lg p-2.5 text-white/45 transition-colors hover:bg-white/10 hover:text-white"
                 >
                   <X size={16} />
                 </button>
@@ -4648,7 +4788,7 @@ export const ChatInterface: React.FC<{
                 </div>
 
                 {modelPickerProvider ? (
-                  <div className="mb-4 rounded-[22px] border border-emerald-500/15 bg-[linear-gradient(180deg,rgba(16,185,129,0.14),rgba(255,255,255,0.03))] p-4 shadow-[0_16px_32px_rgba(16,185,129,0.08)]">
+                  <div className="mb-4 rounded-[22px] border border-emerald-500/15 bg-[linear-gradient(180deg,rgba(16,185,129,0.14),rgba(255,255,255,0.03))] p-4 shadow-[0_10px_24px_rgba(0,0,0,0.16)]">
                     <div className="text-[11px] uppercase tracking-[0.18em] text-emerald-200/65">
                       {modelPickerTarget === 'topic' ? 'Current Session Model' : 'Current Global Model'}
                     </div>
@@ -4757,9 +4897,9 @@ export const ChatInterface: React.FC<{
                                                 onClick={() =>
                                                   handleModelSelection(modelPickerProvider.id, model).catch(console.error)
                                                 }
-                                                className={`group flex w-full cursor-pointer items-center justify-between rounded-xl border p-3 text-left transition-all duration-150 ${
+                                                className={`group flex w-full cursor-pointer items-center justify-between rounded-xl border p-3 text-left transition-[border-color,background-color,box-shadow] duration-150 ${
                                                   active
-                                                    ? 'border-emerald-400/35 bg-[linear-gradient(180deg,rgba(16,185,129,0.18),rgba(255,255,255,0.04))] shadow-[0_14px_34px_rgba(16,185,129,0.16)]'
+                                                    ? 'border-emerald-400/35 bg-[linear-gradient(180deg,rgba(16,185,129,0.18),rgba(255,255,255,0.04))] shadow-[0_10px_24px_rgba(0,0,0,0.18)]'
                                                     : 'border-white/5 bg-white/5 hover:border-white/12 hover:bg-white/[0.11] hover:shadow-[0_12px_28px_rgba(0,0,0,0.22)]'
                                                 }`}
                                               >
@@ -4783,9 +4923,9 @@ export const ChatInterface: React.FC<{
                                                 </div>
                                                 <div className="ml-4 flex flex-shrink-0 items-center">
                                                   <div
-                                                    className={`h-2.5 w-2.5 rounded-full transition-all ${
+                                                    className={`h-2.5 w-2.5 rounded-full transition-[background-color] ${
                                                       active
-                                                        ? 'bg-emerald-300 shadow-[0_0_18px_rgba(52,211,153,0.65)]'
+                                                        ? 'bg-emerald-300'
                                                         : 'bg-white/18 group-hover:bg-white/38'
                                                     }`}
                                                   />
